@@ -87,6 +87,52 @@ export class WorkflowWorker {
     }
   }
 
+  /**
+   * Convert abandoned, exhausted leases into terminal failures. Without this
+   * sweep, a worker that dies on its final attempt would strand a run forever.
+   */
+  async reapExhaustedLeases(): Promise<number> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const expired = await client.query<{ id: string; workflow_run_id: string }>(
+        `UPDATE workflow_steps
+         SET status = 'failed',
+             error = COALESCE(error, '{}'::jsonb) ||
+               jsonb_build_object('message', 'Worker lease expired after maximum attempts', 'retryable', false),
+             completed_at = now(), lease_owner = NULL, lease_expires_at = NULL
+         WHERE status = 'running'
+           AND lease_expires_at < now()
+           AND attempt >= $1
+         RETURNING id, workflow_run_id`,
+        [this.maxAttempts],
+      );
+      const runIds = [...new Set(expired.rows.map((row) => row.workflow_run_id))];
+      for (const runId of runIds) {
+        await client.query(
+          `UPDATE workflow_runs SET status = 'failed', completed_at = now()
+           WHERE id = $1 AND status IN ('queued','running')`,
+          [runId],
+        );
+      }
+      for (const row of expired.rows) {
+        await client.query(
+          `INSERT INTO audit_events (actor, action, entity_type, entity_id, payload)
+           VALUES ($1, 'workflow_step.lease_exhausted', 'workflow_step', $2,
+                   jsonb_build_object('max_attempts', $3::int))`,
+          [this.workerId, row.id, this.maxAttempts],
+        );
+      }
+      await client.query("COMMIT");
+      return expired.rowCount ?? 0;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async heartbeat(stepId: string): Promise<boolean> {
     const result = await this.pool.query(
       `UPDATE workflow_steps
