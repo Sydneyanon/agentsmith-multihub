@@ -4,6 +4,8 @@ COPY package*.json ./
 RUN npm install
 COPY tsconfig.json ./
 COPY apps ./apps
+COPY scripts ./scripts
+COPY db ./db
 RUN npm run build
 
 FROM node:22-alpine AS runtime
@@ -12,6 +14,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/db ./db
 USER node
 EXPOSE 8080
 CMD ["npm", "start"]
