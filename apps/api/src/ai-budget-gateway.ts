@@ -25,7 +25,11 @@ export type ModelResponse = {
 export interface ModelAdapter {
   readonly provider: string;
   readonly model: string;
-  generate(request: ModelRequest, limits: { maxInputTokens: number; maxOutputTokens: number }): Promise<ModelResponse>;
+  generate(request: ModelRequest, limits: {
+    maxInputTokens: number;
+    maxOutputTokens: number;
+    signal: AbortSignal;
+  }): Promise<ModelResponse>;
 }
 
 export type GatewayTask = {
@@ -107,11 +111,22 @@ export class AiBudgetGateway {
     if (!reservation.allowed) return { status: "blocked", reason: reservation.reason, tier };
 
     const startedAt = Date.now();
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const response = await input.adapter.generate(input.request, {
-        maxInputTokens: price.maxInputTokens,
-        maxOutputTokens: price.maxOutputTokens,
-      });
+      const response = await Promise.race([
+        input.adapter.generate(input.request, {
+          maxInputTokens: price.maxInputTokens,
+          maxOutputTokens: price.maxOutputTokens,
+          signal: controller.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            controller.abort();
+            reject(new Error("provider_request_timeout"));
+          }, 8 * 60 * 1000);
+        }),
+      ]);
       const actualUsd = calculateActualCost(price, response);
       await this.settle({
         reservationId: reservation.id,
@@ -143,6 +158,8 @@ export class AiBudgetGateway {
         error instanceof Error ? error.message : "unknown_provider_error", price.priceVersion,
       );
       throw error;
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 
