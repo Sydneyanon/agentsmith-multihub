@@ -72,7 +72,7 @@ export function registerIntakeRoutes(app: FastifyInstance, pool: Pool | undefine
            VALUES ($1, $2, $3, $4, $5::jsonb)`,
           [runId, step[0], sequence, step[1], JSON.stringify({
             intake_kind: input.kind,
-            ...(step[0] === "resolve_source" ? {
+            ...((step[0] === "resolve_source" || step[0] === "identify_project") ? {
               value: input.value,
               source: input.source,
               notes: input.notes ?? null,
