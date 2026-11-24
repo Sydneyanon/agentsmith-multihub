@@ -137,8 +137,36 @@ export async function processProjectIdentification(worker: WorkflowWorker, step:
   }
   if (!response.ok) throw new Error(`GitHub API returned HTTP ${response.status}`);
 
-  const body = await response.text();
-  if (body.length > 128_000) throw new Error("GitHub repository metadata exceeded the response size limit");
+  const declaredLength = Number(response.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > 128_000) {
+    throw new Error("GitHub repository metadata exceeded the response size limit");
+  }
+  if (!response.body) throw new Error("GitHub API response body was empty");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > 128_000) {
+        await reader.cancel();
+        throw new Error("GitHub repository metadata exceeded the response size limit");
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new TextDecoder("utf-8", { fatal: true }).decode(
+    chunks.reduce((joined, chunk) => {
+      const combined = new Uint8Array(joined.length + chunk.length);
+      combined.set(joined);
+      combined.set(chunk, joined.length);
+      return combined;
+    }, new Uint8Array()),
+  );
   const parsed: unknown = JSON.parse(body);
   if (!isRecord(parsed) || typeof parsed.id !== "number" ||
       typeof parsed.full_name !== "string" || typeof parsed.html_url !== "string" ||
