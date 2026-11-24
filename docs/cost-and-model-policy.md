@@ -79,11 +79,12 @@ Provider and model selection remain configuration, not workflow business logic. 
 
 Implemented in the repository:
 - `apps/api/src/ai-budget.ts`: deterministic task-to-tier routing and initial cap definitions.
-- `apps/api/src/ai-budget-gateway.ts`: central gateway contract, worst-case cost estimation, atomic Postgres budget reservations using a transaction-scoped advisory lock, token-limit validation, actual-usage reconciliation, and conservative full-reservation charging when a provider call fails.
+- `apps/api/src/ai-budget-gateway.ts`: central gateway, worst-case cost estimation, reviewed-price lookup, atomic Postgres reservations using a transaction-scoped advisory lock, token-limit validation, actual-usage reconciliation, and conservative full-reservation charging when a provider call fails.
 - `db/migrations/0002_initial_ai_budget.sql`: seeds the $25 monthly policy and sub-limits.
 - `db/migrations/0003_ai_budget_reservations.sql`: adds durable reservation records and tier attribution.
+- `db/migrations/0004_reviewed_model_price_catalog.sql`: adds the versioned, reviewed provider price catalog. No model is enabled by default.
 - Unit tests cover routing caps, emergency stop, pricing calculations and token ceilings.
 
-The runtime emergency stop is read from `AI_BUDGET_EMERGENCY_STOP=true`. A model call must include a workflow ID, have a reviewed price record supplied to the gateway, and pass all database policy checks before the adapter is invoked.
+The runtime emergency stop is read from `AI_BUDGET_EMERGENCY_STOP=true`. A model call must include a workflow ID and prompt version, resolve to an enabled and reviewed price record in the database, and pass all database policy checks before the adapter is invoked. The gateway does not accept arbitrary caller-supplied prices.
 
-**Not yet production-enabled:** no real provider adapters or reviewed live price catalog are configured; the gateway is not yet wired into workflow handlers; migrations and tests have not been run against the deployment database; and there is no operator-facing budget dashboard. Do not enable autonomous model calls until these items are completed and concurrency, failure and over-budget cases have been tested. Until then, no claim is made that live provider spend is being enforced.
+**Not yet production-enabled:** no real provider adapters or reviewed live price entries are configured; the gateway is not yet wired into workflow handlers; migrations and tests have not been run against the deployment database; and there is no operator-facing budget dashboard. Do not enable autonomous model calls until these items are completed and concurrency, failure and over-budget cases have been tested. Until then, no claim is made that live provider spend is being enforced.
