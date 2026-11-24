@@ -6,7 +6,7 @@ const price = {
   outputUsdPerMillionTokens: 4,
   maxInputTokens: 10_000,
   maxOutputTokens: 2_000,
-  promptVersion: "investigator-v1",
+  priceVersion: "test-price-v1",
 };
 
 describe("AI gateway cost accounting", () => {
