@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { processIntakeResolution, processProjectIdentification } from "./worker-runtime.js";
+import { processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
 
 function step(input: Record<string, unknown>): ClaimedStep {
@@ -162,6 +162,64 @@ describe("passive intake resolution worker", () => {
         authorization_status: "unverified",
       }))).rejects.toThrow("redirect rejected");
       expect(complete).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retrieves a bounded GitHub source sample and persists it as immutable evidence", async () => {
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [{
+        output: {
+          status: "identified",
+          repository: { full_name: "example/project", default_branch: "main" },
+        },
+      }] }),
+    } as unknown as import("pg").Pool;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        truncated: false,
+        tree: [
+          { path: "README.md", type: "blob", size: 40, sha: "readme-sha" },
+          { path: "contracts/Vault.sol", type: "blob", size: 50, sha: "vault-sha" },
+          { path: "node_modules/evil/index.js", type: "blob", size: 100, sha: "excluded" },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("# Example\nSafe source sample\n", { status: 200 }))
+      .mockResolvedValueOnce(new Response("contract Vault {}\n", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await processRepositoryAcquisition(pool, worker, {
+        ...step({}), step_key: "locate_official_repositories",
+      });
+      expect(result).toEqual({ status: "completed", stepId: "step-1" });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock.mock.calls[0]?.[0]).toContain("api.github.com/repos/example/project/git/trees/main");
+      expect(persistSourceSnapshot).toHaveBeenCalledOnce();
+      const snapshotArg = persistSourceSnapshot.mock.calls[0]?.[1] as { content: { files: Array<{ path: string }> } };
+      expect(snapshotArg.content.files.map((file) => file.path)).toEqual(["README.md", "contracts/Vault.sol"]);
+      expect(complete.mock.calls[0]?.[1]).toMatchObject({
+        status: "source_sampled",
+        repository: "example/project",
+        file_count: 2,
+        code_executed: false,
+        authorization_status: "unverified",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not fetch code when repository identification did not succeed", async () => {
+    const { complete, worker } = fakeWorker();
+    const pool = { query: vi.fn().mockResolvedValue({ rows: [{ output: { status: "not_found" } }] }) } as unknown as import("pg").Pool;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await processRepositoryAcquisition(pool, worker, { ...step({}), step_key: "locate_official_repositories" });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(complete.mock.calls[0]?.[1]).toMatchObject({ status: "not_applicable", network_access_performed: false });
     } finally {
       vi.unstubAllGlobals();
     }
