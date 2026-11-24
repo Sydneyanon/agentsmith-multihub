@@ -81,7 +81,7 @@ describe("passive intake resolution worker", () => {
       .rejects.toThrow("Unsupported step");
   });
   it("identifies a public GitHub repository through the fixed API host", async () => {
-    const { complete, worker } = fakeWorker();
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       id: 123,
       full_name: "example/project",
