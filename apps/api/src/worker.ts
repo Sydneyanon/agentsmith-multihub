@@ -170,14 +170,19 @@ export class WorkflowWorker {
         `INSERT INTO source_snapshots
           (workflow_run_id, workflow_step_id, source_uri, source_kind, content_sha256, content)
          VALUES ($1,$2,$3,$4,$5,$6::jsonb)
-         ON CONFLICT (workflow_run_id, source_uri, content_sha256)
-         DO UPDATE SET content_sha256 = EXCLUDED.content_sha256
+         ON CONFLICT (workflow_run_id, source_uri, content_sha256) DO NOTHING
          RETURNING id`,
         [owned.rows[0]!.workflow_run_id, stepId, snapshot.sourceUri,
           snapshot.sourceKind, contentSha256, serialized],
       );
+      const existing = inserted.rows[0] ?? (await client.query<{ id: string }>(
+        `SELECT id FROM source_snapshots
+         WHERE workflow_run_id = $1 AND source_uri = $2 AND content_sha256 = $3`,
+        [owned.rows[0]!.workflow_run_id, snapshot.sourceUri, contentSha256],
+      )).rows[0];
+      if (!existing) throw new Error("Source snapshot could not be persisted");
       await client.query("COMMIT");
-      return { id: inserted.rows[0]!.id, contentSha256 };
+      return { id: existing.id, contentSha256 };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
