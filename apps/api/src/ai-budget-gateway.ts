@@ -94,7 +94,7 @@ export class AiBudgetGateway {
       return { status: "blocked", reason: "unknown_or_invalid_pricing", tier };
     }
 
-    if (reserveUsd <= 0) return { status: "blocked", reason: "zero_or_invalid_price", tier };\n\n    const reservation = await this.reserve(input, tier, reserveUsd, price.promptVersion, price.priceVersion);
+    if (reserveUsd <= 0) return { status: "blocked", reason: "zero_or_invalid_price", tier };\n\n    const reservation = await this.reserve(input, tier, reserveUsd, input.promptVersion, price.priceVersion);
     if (!reservation.allowed) return { status: "blocked", reason: reservation.reason, tier };
 
     const startedAt = Date.now();
@@ -112,7 +112,7 @@ export class AiBudgetGateway {
         model: input.adapter.model,
         purpose: input.task,
         tier,
-        promptVersion: price.promptVersion,\n        priceVersion: price.priceVersion,
+        promptVersion: input.promptVersion,\n        priceVersion: price.priceVersion,
         inputTokens: response.inputTokens,
         outputTokens: response.outputTokens,
         actualUsd,
