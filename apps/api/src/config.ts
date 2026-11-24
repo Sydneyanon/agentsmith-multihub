@@ -5,7 +5,7 @@ const configSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   HOST: z.string().min(1).default("0.0.0.0"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-  DATABASE_URL: z.string().url().optional().or(z.literal("")),
+  DATABASE_URL: z.string().url().optional().or(z.literal("")),\n  AI_BUDGET_EMERGENCY_STOP: z.enum(["true", "false"]).default("false"),
 });
 
 const parsed = configSchema.safeParse(process.env);
@@ -16,5 +16,5 @@ export const config = {
   port: parsed.data.PORT,
   host: parsed.data.HOST,
   logLevel: parsed.data.LOG_LEVEL,
-  databaseUrl: parsed.data.DATABASE_URL || undefined,
+  databaseUrl: parsed.data.DATABASE_URL || undefined,\n  aiBudgetEmergencyStop: parsed.data.AI_BUDGET_EMERGENCY_STOP === "true",
 } as const;
