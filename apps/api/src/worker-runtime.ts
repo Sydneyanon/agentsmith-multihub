@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
 import { resolveSourceReference } from "./source-resolver.js";
 
@@ -36,7 +37,7 @@ export async function processIntakeResolution(worker: WorkflowWorker, step: Clai
   let sourceReference: ReturnType<typeof resolveSourceReference> | null = null;
   if (input.intake_kind === "url") {
     sourceReference = resolveSourceReference(input.value);
-    if (input.source_reference && JSON.stringify(input.source_reference) !== JSON.stringify(sourceReference)) {
+    if (input.source_reference && !isDeepStrictEqual(input.source_reference, sourceReference)) {
       throw new Error("Stored source reference does not match deterministic URL resolution");
     }
   }
@@ -55,13 +56,16 @@ export async function processIntakeResolution(worker: WorkflowWorker, step: Clai
   return { status: "completed", stepId: step.id };
 }
 
-export async function runIntakeWorker(pool: Pool, workerId: string, pollMs = 2_000): Promise<never> {
+export async function runIntakeWorker(pool: Pool, workerId: string, signal: AbortSignal, pollMs = 2_000): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
-  for (;;) {
+  while (!signal.aborted) {
     await worker.reapExhaustedLeases();
     const step = await worker.claimNext(["resolve_source"]);
     if (!step) {
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, pollMs);
+        signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
       continue;
     }
     try {
