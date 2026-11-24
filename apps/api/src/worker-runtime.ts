@@ -63,8 +63,15 @@ export async function runIntakeWorker(pool: Pool, workerId: string, signal: Abor
     const step = await worker.claimNext(["resolve_source"]);
     if (!step) {
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, pollMs);
-        signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+        let timer: ReturnType<typeof setTimeout>;
+        const finish = () => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", finish);
+          resolve();
+        };
+        timer = setTimeout(finish, pollMs);
+        signal.addEventListener("abort", finish, { once: true });
+        if (signal.aborted) finish();
       });
       continue;
     }
