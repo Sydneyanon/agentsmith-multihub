@@ -1,4 +1,5 @@
--- Atomic pre-call reservations prevent concurrent workers overspending shared caps.\nALTER TABLE model_usage_events ADD COLUMN tier text CHECK (tier IS NULL OR tier IN ('tier1','tier2','tier3'));
+-- Atomic pre-call reservations prevent concurrent workers overspending shared caps.
+ALTER TABLE model_usage_events ADD COLUMN tier text CHECK (tier IS NULL OR tier IN ('tier1','tier2','tier3'));
 CREATE TABLE ai_budget_reservations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workflow_run_id uuid REFERENCES workflow_runs(id),
