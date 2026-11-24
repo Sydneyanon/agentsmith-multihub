@@ -11,7 +11,6 @@ type IntakeStepInput = {
   source_reference?: unknown;
   execution_mode?: unknown;
   authorization_status?: unknown;
-  source_reference?: unknown;
 };
 
 export type ProcessResult = { status: "idle" } | { status: "completed"; stepId: string };
