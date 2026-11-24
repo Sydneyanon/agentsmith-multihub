@@ -4,7 +4,7 @@ export type ActiveTestingAuthorization = {
   programId: string;
   assetId: string;
   scopeVersionId: string;
-  approvedBy: string;
+  approvalId: string;
 };
 
 /**
@@ -28,7 +28,7 @@ export async function assertActiveTestingAllowed(
       AND a.target_id = pa.asset_id
       AND a.action_type = 'active_testing'
       AND a.status = 'approved'
-      AND a.decided_by = $4
+      AND a.id = $4
       AND (a.expires_at IS NULL OR a.expires_at > now())
      WHERE p.id = $1
        AND pa.asset_id = $2
@@ -39,7 +39,7 @@ export async function assertActiveTestingAllowed(
        AND (sv.valid_from IS NULL OR sv.valid_from <= now())
        AND (sv.valid_until IS NULL OR sv.valid_until > now())
      LIMIT 1`,
-    [input.programId, input.assetId, input.scopeVersionId, input.approvedBy],
+    [input.programId, input.assetId, input.scopeVersionId, input.approvalId],
   );
   if (result.rowCount !== 1) {
     throw new Error("Active testing blocked: current verified scope and explicit approval were not both confirmed");
