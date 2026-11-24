@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 
 export type ClaimedStep = {
@@ -144,6 +145,45 @@ export class WorkflowWorker {
       [stepId, this.workerId, this.leaseSeconds],
     );
     return result.rowCount === 1;
+  }
+
+
+  async persistSourceSnapshot(stepId: string, snapshot: {
+    sourceUri: string;
+    sourceKind: string;
+    content: Record<string, unknown>;
+  }): Promise<{ id: string; contentSha256: string }> {
+    const serialized = JSON.stringify(snapshot.content);
+    const contentSha256 = createHash("sha256").update(serialized).digest("hex");
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const owned = await client.query<{ workflow_run_id: string }>(
+        `SELECT workflow_run_id FROM workflow_steps
+         WHERE id = $1 AND status = 'running' AND lease_owner = $2
+           AND lease_expires_at > now()
+         FOR UPDATE`,
+        [stepId, this.workerId],
+      );
+      if (!owned.rowCount) throw new Error("Step lease lost before source snapshot persistence");
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO source_snapshots
+          (workflow_run_id, workflow_step_id, source_uri, source_kind, content_sha256, content)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+         ON CONFLICT (workflow_run_id, source_uri, content_sha256)
+         DO UPDATE SET content_sha256 = EXCLUDED.content_sha256
+         RETURNING id`,
+        [owned.rows[0]!.workflow_run_id, stepId, snapshot.sourceUri,
+          snapshot.sourceKind, contentSha256, serialized],
+      );
+      await client.query("COMMIT");
+      return { id: inserted.rows[0]!.id, contentSha256 };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async complete(stepId: string, output: Record<string, unknown> = {}): Promise<void> {
