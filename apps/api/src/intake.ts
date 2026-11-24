@@ -10,6 +10,7 @@ export const intakeSchema = z.object({
 }).strict();
 
 const URL_PATTERN = /^https?:\/\//i;
+export const isAllowedIntakeUrl = (value: string) => URL_PATTERN.test(value);
 
 const workflow = [
   ["resolve_source", "intake"],
