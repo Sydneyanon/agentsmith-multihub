@@ -13,12 +13,12 @@ const pool = new Pool({
 });
 
 const workerId = `intake-${process.env.FLY_MACHINE_ID ?? process.env.HOSTNAME ?? "local"}`;
-let stopping = false;
-process.once("SIGINT", () => { stopping = true; });
-process.once("SIGTERM", () => { stopping = true; });
+const controller = new AbortController();
+process.once("SIGINT", () => controller.abort());
+process.once("SIGTERM", () => controller.abort());
 
 try {
-  await runIntakeWorker(pool, workerId);
+  await runIntakeWorker(pool, workerId, controller.signal);
 } finally {
-  if (stopping) await pool.end();
+  await pool.end();
 }
