@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
-const intakeSchema = z.object({
+export const intakeSchema = z.object({
   kind: z.enum(["url", "idea"]),
   value: z.string().trim().min(3).max(4_000),
   source: z.enum(["user", "x", "github", "website", "other"]).default("user"),
@@ -31,7 +31,7 @@ export function registerIntakeRoutes(app: FastifyInstance, pool: Pool | undefine
     }
 
     const input = parsed.data;
-    if (input.kind === "url" && !URL_PATTERN.test(input.value)) {
+    if (input.kind === "url" && !isAllowedIntakeUrl(input.value)) {
       return reply.code(400).send({ error: "url_must_use_http_or_https" });
     }
 
