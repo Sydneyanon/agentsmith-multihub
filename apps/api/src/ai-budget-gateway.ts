@@ -80,7 +80,7 @@ export class AiBudgetGateway {
     private readonly emergencyStop = config.aiBudgetEmergencyStop,
   ) {}
 
-  async execute(input: GatewayTask, price: ModelPrice): Promise<GatewayResult> {
+  async execute(input: GatewayTask): Promise<GatewayResult> {
     const tier = MODEL_ROUTING[input.task];
     if (tier === "tier0") return { status: "blocked", reason: "tier0_must_run_without_a_model", tier: "tier0" };
     if (!input.workflowRunId) {\n      return { status: "blocked", reason: "workflow_context_required", tier };\n    }\n    if (this.emergencyStop || input.emergencyStop) {
@@ -94,7 +94,7 @@ export class AiBudgetGateway {
       return { status: "blocked", reason: "unknown_or_invalid_pricing", tier };
     }
 
-    if (reserveUsd <= 0) return { status: "blocked", reason: "zero_or_invalid_price", tier };\n\n    const reservation = await this.reserve(input, tier, reserveUsd, price.promptVersion);
+    if (reserveUsd <= 0) return { status: "blocked", reason: "zero_or_invalid_price", tier };\n\n    const reservation = await this.reserve(input, tier, reserveUsd, price.promptVersion, price.priceVersion);
     if (!reservation.allowed) return { status: "blocked", reason: reservation.reason, tier };
 
     const startedAt = Date.now();
@@ -112,7 +112,7 @@ export class AiBudgetGateway {
         model: input.adapter.model,
         purpose: input.task,
         tier,
-        promptVersion: price.promptVersion,
+        promptVersion: price.promptVersion,\n        priceVersion: price.priceVersion,
         inputTokens: response.inputTokens,
         outputTokens: response.outputTokens,
         actualUsd,
@@ -129,7 +129,7 @@ export class AiBudgetGateway {
       // Provider failures may still be billable. Charge the full reservation
       // rather than releasing money that may already have been spent.
       await this.failCharged(reservation.id, reserveUsd, input.adapter.provider, input.adapter.model, input.task, tier,
-        Date.now() - startedAt, error instanceof Error ? error.message : "unknown_provider_error");
+        Date.now() - startedAt, error instanceof Error ? error.message : "unknown_provider_error", price.priceVersion);
       throw error;
     }
   }
