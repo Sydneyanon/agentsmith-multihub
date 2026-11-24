@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 export type SourceReference = {
   submittedUrl: string;
   canonicalUrl: string;
@@ -22,7 +24,7 @@ export function resolveSourceReference(raw: string): SourceReference {
     throw new Error("Only HTTP and HTTPS source URLs are accepted");
   }
   if (url.username || url.password) throw new Error("URLs containing credentials are not accepted");
-  if (!url.hostname || url.hostname === "localhost" || url.hostname.endsWith(".localhost") ||
+  if (!url.hostname || isIP(url.hostname) !== 0 || url.hostname === "localhost" || url.hostname.endsWith(".localhost") ||
       url.hostname.endsWith(".local") || url.hostname === "127.0.0.1" ||
       url.hostname === "::1" || url.hostname.startsWith("10.") ||
       url.hostname.startsWith("192.168.") || url.hostname.startsWith("169.254.") ||
