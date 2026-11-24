@@ -83,7 +83,7 @@ export class AiBudgetGateway {
   async execute(input: GatewayTask, price: ModelPrice): Promise<GatewayResult> {
     const tier = MODEL_ROUTING[input.task];
     if (tier === "tier0") return { status: "blocked", reason: "tier0_must_run_without_a_model", tier: "tier1" };
-    if (this.emergencyStop || input.emergencyStop) {
+    if (!input.workflowRunId) {\n      return { status: "blocked", reason: "workflow_context_required", tier };\n    }\n    if (this.emergencyStop || input.emergencyStop) {
       return { status: "blocked", reason: "global_emergency_stop", tier };
     }
 
@@ -94,7 +94,7 @@ export class AiBudgetGateway {
       return { status: "blocked", reason: "unknown_or_invalid_pricing", tier };
     }
 
-    const reservation = await this.reserve(input, tier, reserveUsd);
+    const reservation = await this.reserve(input, tier, reserveUsd, price.promptVersion);
     if (!reservation.allowed) return { status: "blocked", reason: reservation.reason, tier };
 
     const startedAt = Date.now();
@@ -207,7 +207,7 @@ export class AiBudgetGateway {
           (workflow_run_id, workflow_step_id, provider, model, purpose, tier, reserved_usd, prompt_version)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
         [input.workflowRunId ?? null, input.workflowStepId ?? null, input.adapter.provider,
-          input.adapter.model, input.task, tier, money(amountUsd), "pending"],
+          input.adapter.model, input.task, tier, money(amountUsd), promptVersion],
       );
       await client.query("COMMIT");
       return { allowed: true, id: inserted.rows[0]!.id };
