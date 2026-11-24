@@ -23,7 +23,8 @@ export class WorkflowWorker {
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error("maxAttempts must be positive");
   }
 
-  async claimNext(): Promise<ClaimedStep | null> {
+  async claimNext(allowedStepKeys?: readonly string[]): Promise<ClaimedStep | null> {
+    if (allowedStepKeys && allowedStepKeys.length === 0) return null;
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -38,6 +39,7 @@ export class WorkflowWorker {
                OR (s.status = 'running' AND s.lease_expires_at < now())
              )
              AND s.attempt < $3
+             AND ($4::text[] IS NULL OR s.step_key = ANY($4::text[]))
              AND NOT EXISTS (
                SELECT 1 FROM workflow_steps prior
                WHERE prior.workflow_run_id = s.workflow_run_id
@@ -59,7 +61,7 @@ export class WorkflowWorker {
          RETURNING s.id, s.workflow_run_id, s.step_key, s.sequence, s.role,
                    s.attempt, s.input,
                    (SELECT r.correlation_id FROM workflow_runs r WHERE r.id = s.workflow_run_id) AS correlation_id`,
-        [this.workerId, this.leaseSeconds, this.maxAttempts],
+        [this.workerId, this.leaseSeconds, this.maxAttempts, allowedStepKeys ? [...allowedStepKeys] : null],
       );
       if (!claimed.rowCount) {
         await client.query("COMMIT");
