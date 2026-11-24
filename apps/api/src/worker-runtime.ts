@@ -393,11 +393,137 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   return { status: "completed", stepId: step.id };
 }
 
+
+/** Authorization is explicit: public source visibility never grants active-test permission. */
+export async function processAuthorizationGate(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<ProcessResult> {
+  if (step.step_key !== "establish_authorization") {
+    throw new Error(`Unsupported step for authorization gate: ${step.step_key}`);
+  }
+  const run = await pool.query<{ input: unknown }>(
+    "SELECT input FROM workflow_runs WHERE id = $1",
+    [step.workflow_run_id],
+  );
+  const input = run.rows[0]?.input;
+  const hasProgram = isRecord(input) && typeof input.program_id === "string";
+  await worker.complete(step.id, {
+    status: "unverified",
+    authorization_status: "unverified",
+    execution_mode: "passive_only",
+    active_testing_allowed: false,
+    reason: hasProgram
+      ? "Program reference exists but no current verified scope and explicit approval were established by this intake workflow"
+      : "No program scope or explicit approval was supplied; active testing remains blocked",
+    passive_source_review_allowed: true,
+    network_active_testing_performed: false,
+  });
+  return { status: "completed", stepId: step.id };
+}
+
+type SnapshotFile = { path: string; blob_sha: string; size: number; content: string; truncated: boolean };
+const SURFACE_RULES: Array<{ id: string; family: string; description: string; expression: RegExp; extensions: RegExp }> = [
+  { id: "SOL-EXT-ENTRY", family: "solidity-entrypoint", description: "Externally callable or public Solidity function", expression: /\bfunction\s+[A-Za-z_$][\w$]*\s*\([^)]*\)[^{;]*(?:external|public)\b/g, extensions: /\.sol$/ },
+  { id: "SOL-LOWLEVEL-CALL", family: "solidity-low-level-call", description: "Low-level call, delegatecall or staticcall site", expression: /\.(?:call|delegatecall|staticcall)\s*(?:\{|\()/g, extensions: /\.sol$/ },
+  { id: "SOL-TX-ORIGIN", family: "solidity-authentication", description: "tx.origin reference; review authentication context", expression: /\btx\s*\.\s*origin\b/g, extensions: /\.sol$/ },
+  { id: "SOL-SELFDESTRUCT", family: "solidity-destructive-op", description: "selfdestruct usage", expression: /\bselfdestruct\s*\(/g, extensions: /\.sol$/ },
+  { id: "SOL-DELEGATECALL", family: "solidity-proxy", description: "delegatecall usage; review storage and target control", expression: /\bdelegatecall\s*\(/g, extensions: /\.sol$/ },
+  { id: "JS-EVAL", family: "dynamic-code", description: "Dynamic eval or Function constructor", expression: /\beval\s*\(|\bnew\s+Function\s*\(/g, extensions: /\.(?:[cm]?js|[jt]sx?)$/ },
+  { id: "JS-CHILD-PROCESS", family: "process-execution", description: "Node child_process import or require", expression: /(?:from\s*['"]node:child_process['"]|require\s*\(\s*['"](?:node:)?child_process['"]\s*\))/g, extensions: /\.(?:[cm]?js|[jt]sx?)$/ },
+  { id: "JS-UNSAFE-SQL", family: "sql-construction", description: "Potentially dynamic SQL construction; inspect parameterization", expression: /\b(?:query|execute)\s*\(\s*(?:`[^\n]*\$\{|['"][^'"]*\+|[A-Za-z_$][\w$]*\s*\+)/g, extensions: /\.(?:[cm]?js|[jt]sx?|py)$/ },
+  { id: "RUST-UNSAFE", family: "unsafe-memory", description: "Rust unsafe block or function", expression: /\bunsafe\s+(?:\{|fn\b)/g, extensions: /\.rs$/ },
+  { id: "PY-EVAL", family: "dynamic-code", description: "Python eval or exec call", expression: /\b(?:eval|exec)\s*\(/g, extensions: /\.py$/ },
+];
+
+function countMatches(source: string, expression: RegExp): number {
+  const flags = expression.flags.includes("g") ? expression.flags : expression.flags + "g";
+  const matcher = new RegExp(expression.source, flags);
+  let count = 0;
+  while (matcher.exec(source)) count += 1;
+  return count;
+}
+
+/** Deterministic passive code-surface inventory. It emits review leads, never verified vulnerabilities. */
+export async function processAttackSurfaceMapping(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<ProcessResult> {
+  if (step.step_key !== "map_attack_surface") {
+    throw new Error(`Unsupported step for attack-surface mapper: ${step.step_key}`);
+  }
+  const prior = await pool.query<{ output: unknown }>(
+    `SELECT output FROM workflow_steps
+     WHERE workflow_run_id = $1 AND step_key = 'locate_official_repositories' AND status = 'succeeded'`,
+    [step.workflow_run_id],
+  );
+  const priorOutput = prior.rows[0]?.output;
+  if (!isRecord(priorOutput) || priorOutput.status !== "source_sampled" ||
+      !isRecord(priorOutput.evidence) || typeof priorOutput.evidence.snapshot_id !== "string") {
+    await worker.complete(step.id, {
+      status: "not_applicable",
+      reason: "No bounded source sample is available for passive mapping",
+      leads: [],
+      execution_mode: "passive_only",
+      authorization_status: "unverified",
+    });
+    return { status: "completed", stepId: step.id };
+  }
+  const snapshotResult = await pool.query<{ id: string; source_uri: string; content: unknown; content_sha256: string }>(
+    "SELECT id, source_uri, content, content_sha256 FROM source_snapshots WHERE id = $1",
+    [priorOutput.evidence.snapshot_id],
+  );
+  const snapshot = snapshotResult.rows[0];
+  if (!snapshot || !isRecord(snapshot.content) || !Array.isArray(snapshot.content.files)) {
+    throw new Error("Referenced source snapshot is missing or malformed");
+  }
+  const files = snapshot.content.files.filter((file): file is SnapshotFile =>
+    isRecord(file) && typeof file.path === "string" && typeof file.content === "string" &&
+    typeof file.blob_sha === "string" && typeof file.size === "number"
+  );
+  const leads: Array<{ rule_id: string; family: string; path: string; count: number; description: string }> = [];
+  for (const file of files) {
+    for (const rule of SURFACE_RULES) {
+      if (!rule.extensions.test(file.path)) continue;
+      const count = countMatches(file.content, rule.expression);
+      if (count > 0) leads.push({
+        rule_id: rule.id, family: rule.family, path: file.path, count, description: rule.description,
+      });
+    }
+  }
+  const summary = {
+    repository_source_snapshot_id: snapshot.id,
+    repository_source_sha256: snapshot.content_sha256,
+    files_reviewed: files.length,
+    total_bytes_reviewed: files.reduce((sum, file) => sum + file.size, 0),
+    rule_set: "passive-surface-v1",
+    rule_count: SURFACE_RULES.length,
+    leads,
+    limitations: [
+      "Pattern matches are review leads, not vulnerability findings",
+      "The source sample is bounded and may omit relevant files",
+      "No dependency resolution, semantic analysis, compilation, tests or execution was performed",
+    ],
+  };
+  const evidence = await worker.persistSourceSnapshot(step.id, {
+    sourceUri: `internal://source-snapshots/${snapshot.id}/passive-surface-v1`,
+    sourceKind: "deterministic_passive_attack_surface_map",
+    content: summary,
+  });
+  await worker.complete(step.id, {
+    status: "mapped",
+    files_reviewed: summary.files_reviewed,
+    total_bytes_reviewed: summary.total_bytes_reviewed,
+    rule_set: summary.rule_set,
+    lead_count: leads.length,
+    leads,
+    evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
+    execution_mode: "passive_only",
+    authorization_status: "unverified",
+    active_testing_allowed: false,
+  });
+  return { status: "completed", stepId: step.id };
+}
+
 export async function runIntakeWorker(pool: Pool, workerId: string, signal: AbortSignal, pollMs = 2_000): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
   while (!signal.aborted) {
     await worker.reapExhaustedLeases();
-    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories"]);
+    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface"]);
     if (!step) {
       await new Promise<void>((resolve) => {
         let timer: ReturnType<typeof setTimeout>;
@@ -415,7 +541,9 @@ export async function runIntakeWorker(pool: Pool, workerId: string, signal: Abor
     try {
       if (step.step_key === "resolve_source") await processIntakeResolution(worker, step);
       else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
-      else await processRepositoryAcquisition(pool, worker, step);
+      else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
+      else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
+      else await processAttackSurfaceMapping(pool, worker, step);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown intake resolution error";
       await worker.fail(step.id, reason, false);
