@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import { resolveSourceReference } from "./source-resolver.js";
 
 export const intakeSchema = z.object({
   kind: z.enum(["url", "idea"]),
@@ -32,8 +33,19 @@ export function registerIntakeRoutes(app: FastifyInstance, pool: Pool | undefine
     }
 
     const input = parsed.data;
-    if (input.kind === "url" && !isAllowedIntakeUrl(input.value)) {
-      return reply.code(400).send({ error: "url_must_use_http_or_https" });
+    let sourceReference: ReturnType<typeof resolveSourceReference> | null = null;
+    if (input.kind === "url") {
+      if (!isAllowedIntakeUrl(input.value)) {
+        return reply.code(400).send({ error: "url_must_use_http_or_https" });
+      }
+      try {
+        sourceReference = resolveSourceReference(input.value);
+      } catch (error) {
+        return reply.code(400).send({
+          error: "unsafe_or_invalid_source_url",
+          message: error instanceof Error ? error.message : "Invalid source URL",
+        });
+      }
     }
 
     const client = await pool.connect();
@@ -50,6 +62,7 @@ export function registerIntakeRoutes(app: FastifyInstance, pool: Pool | undefine
           notes: input.notes ?? null,
           execution_mode: "passive_only",
           authorization_status: "unverified",
+          source_reference: sourceReference,
         })],
       );
       const runId = run.rows[0]!.id;
