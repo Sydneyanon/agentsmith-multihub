@@ -23,4 +23,6 @@ CREATE INDEX ai_model_prices_lookup_idx
 
 ALTER TABLE ai_budget_reservations ADD COLUMN price_version text;
 ALTER TABLE model_usage_events ADD COLUMN price_version text;
-\nALTER TABLE ai_budget_reservations\n  ADD COLUMN expires_at timestamptz NOT NULL DEFAULT (now() + interval '10 minutes');\n
+
+ALTER TABLE ai_budget_reservations
+  ADD COLUMN expires_at timestamptz NOT NULL DEFAULT (now() + interval '10 minutes');
