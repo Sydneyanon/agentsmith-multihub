@@ -77,4 +77,13 @@ Provider and model selection remain configuration, not workflow business logic. 
 
 ## Current implementation status
 
-The initial limits and deterministic routing map are defined in `apps/api/src/ai-budget.ts`, covered by unit tests, and seeded as database policy rows by migration `0002_initial_ai_budget.sql`. **This is policy configuration and preflight logic, not yet a live provider gateway.** The platform must not enable autonomous model calls until atomic Postgres reservations, provider adapters, actual-usage reconciliation, and the global emergency stop are implemented and tested. Until then, the hard budget is specified but not yet operationally enforced.
+Implemented in the repository:
+- `apps/api/src/ai-budget.ts`: deterministic task-to-tier routing and initial cap definitions.
+- `apps/api/src/ai-budget-gateway.ts`: central gateway contract, worst-case cost estimation, atomic Postgres budget reservations using a transaction-scoped advisory lock, token-limit validation, actual-usage reconciliation, and conservative full-reservation charging when a provider call fails.
+- `db/migrations/0002_initial_ai_budget.sql`: seeds the $25 monthly policy and sub-limits.
+- `db/migrations/0003_ai_budget_reservations.sql`: adds durable reservation records and tier attribution.
+- Unit tests cover routing caps, emergency stop, pricing calculations and token ceilings.
+
+The runtime emergency stop is read from `AI_BUDGET_EMERGENCY_STOP=true`. A model call must include a workflow ID, have a reviewed price record supplied to the gateway, and pass all database policy checks before the adapter is invoked.
+
+**Not yet production-enabled:** no real provider adapters or reviewed live price catalog are configured; the gateway is not yet wired into workflow handlers; migrations and tests have not been run against the deployment database; and there is no operator-facing budget dashboard. Do not enable autonomous model calls until these items are completed and concurrency, failure and over-budget cases have been tested. Until then, no claim is made that live provider spend is being enforced.
