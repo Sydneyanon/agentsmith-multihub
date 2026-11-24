@@ -38,7 +38,7 @@ export type GatewayTask = {
 
 export type GatewayResult =
   | { status: "completed"; text: string; costUsd: number; tier: ModelTier; reservationId: string }
-  | { status: "blocked"; reason: string; tier: ModelTier };
+  | { status: "blocked"; reason: string; tier: ModelTier | "tier0" };
 
 type PolicyRow = { scope: string; scope_key: string; period: string; limit_usd: string };
 
@@ -82,7 +82,7 @@ export class AiBudgetGateway {
 
   async execute(input: GatewayTask, price: ModelPrice): Promise<GatewayResult> {
     const tier = MODEL_ROUTING[input.task];
-    if (tier === "tier0") return { status: "blocked", reason: "tier0_must_run_without_a_model", tier: "tier1" };
+    if (tier === "tier0") return { status: "blocked", reason: "tier0_must_run_without_a_model", tier: "tier0" };
     if (!input.workflowRunId) {\n      return { status: "blocked", reason: "workflow_context_required", tier };\n    }\n    if (this.emergencyStop || input.emergencyStop) {
       return { status: "blocked", reason: "global_emergency_stop", tier };
     }
@@ -94,7 +94,7 @@ export class AiBudgetGateway {
       return { status: "blocked", reason: "unknown_or_invalid_pricing", tier };
     }
 
-    const reservation = await this.reserve(input, tier, reserveUsd, price.promptVersion);
+    if (reserveUsd <= 0) return { status: "blocked", reason: "zero_or_invalid_price", tier };\n\n    const reservation = await this.reserve(input, tier, reserveUsd, price.promptVersion);
     if (!reservation.allowed) return { status: "blocked", reason: reservation.reason, tier };
 
     const startedAt = Date.now();
