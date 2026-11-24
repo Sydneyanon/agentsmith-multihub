@@ -164,13 +164,19 @@ export async function processProjectIdentification(worker: WorkflowWorker, step:
       name: typeof parsed.license.name === "string" ? parsed.license.name.slice(0, 200) : "Unknown",
     } : null,
   };
+  const snapshot = await worker.persistSourceSnapshot(step.id, {
+    sourceUri: endpoint,
+    sourceKind: "github_repository_metadata_api",
+    content: metadata as unknown as Record<string, unknown>,
+  });
   await worker.complete(step.id, {
     status: "identified",
     repository: metadata,
     evidence: {
+      snapshot_id: snapshot.id,
       source_uri: endpoint,
       source_kind: "github_repository_metadata_api",
-      captured_at: new Date().toISOString(),
+      content_sha256: snapshot.contentSha256,
     },
     network_access_performed: true,
     execution_mode: "passive_only",
