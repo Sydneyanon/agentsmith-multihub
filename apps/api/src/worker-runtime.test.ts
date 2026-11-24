@@ -211,6 +211,30 @@ describe("passive intake resolution worker", () => {
     }
   });
 
+  it("rejects an oversized repository tree before selecting or persisting files", async () => {
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [{
+        output: { status: "identified", repository: { full_name: "example/project", default_branch: "main" } },
+      }] }),
+    } as unknown as import("pg").Pool;
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      tree: [],
+      padding: "x".repeat(2_000_100),
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(processRepositoryAcquisition(pool, worker, {
+        ...step({}), step_key: "locate_official_repositories",
+      })).rejects.toThrow("byte limit");
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(persistSourceSnapshot).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not fetch code when repository identification did not succeed", async () => {
     const { complete, worker } = fakeWorker();
     const pool = { query: vi.fn().mockResolvedValue({ rows: [{ output: { status: "not_found" } }] }) } as unknown as import("pg").Pool;
