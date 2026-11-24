@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { processIntakeResolution } from "./worker-runtime.js";
+import { processIntakeResolution, processProjectIdentification } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
 
 function step(input: Record<string, unknown>): ClaimedStep {
@@ -79,4 +79,88 @@ describe("passive intake resolution worker", () => {
     await expect(processIntakeResolution(worker, { ...step({}), step_key: "map_attack_surface" }))
       .rejects.toThrow("Unsupported step");
   });
+  it("identifies a public GitHub repository through the fixed API host", async () => {
+    const { complete, worker } = fakeWorker();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 123,
+      full_name: "example/project",
+      html_url: "https://github.com/example/project",
+      description: "Example project",
+      default_branch: "main",
+      language: "TypeScript",
+      archived: false,
+      disabled: false,
+      visibility: "public",
+      updated_at: "2026-11-01T00:00:00Z",
+      stargazers_count: 12,
+      forks_count: 3,
+      topics: ["security"],
+      license: { spdx_id: "MIT", name: "MIT License" },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await processProjectIdentification(worker, step({
+        intake_kind: "url",
+        value: "https://github.com/example/project",
+        source_reference: {
+          host: "github.com",
+          kind: "github_repository",
+          repository: { owner: "example", name: "project", url: "https://github.com/example/project" },
+        },
+        execution_mode: "passive_only",
+        authorization_status: "unverified",
+      }));
+      expect(result).toEqual({ status: "completed", stepId: "step-1" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.github.com/repos/example/project");
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual", method: "GET" });
+      expect(complete.mock.calls[0]?.[1]).toMatchObject({
+        status: "identified",
+        repository: { full_name: "example/project", language: "TypeScript" },
+        network_access_performed: true,
+        authorization_status: "unverified",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not call the network for an idea", async () => {
+    const { complete, worker } = fakeWorker();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await processProjectIdentification(worker, step({
+        intake_kind: "idea",
+        value: "Review authorization logic",
+        execution_mode: "passive_only",
+        authorization_status: "unverified",
+      }));
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(complete.mock.calls[0]?.[1]).toMatchObject({ status: "not_applicable", network_access_performed: false });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects GitHub API redirects instead of following them", async () => {
+    const { complete, worker } = fakeWorker();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {
+      status: 302,
+      headers: { location: "http://127.0.0.1/" },
+    })));
+    try {
+      await expect(processProjectIdentification(worker, step({
+        intake_kind: "url",
+        value: "https://github.com/example/project",
+        source_reference: { repository: { owner: "example", name: "project" } },
+        execution_mode: "passive_only",
+        authorization_status: "unverified",
+      }))).rejects.toThrow("redirect rejected");
+      expect(complete).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
 });
