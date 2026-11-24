@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { MODEL_ROUTING, type ModelTask, type ModelTier } from "./ai-budget.js";
+import { MODEL_ROUTING, type ModelTask, type ModelTier } from "./ai-budget.js";\nimport { config } from "./config.js";
 
 export type ModelPrice = {
   inputUsdPerMillionTokens: number;
@@ -77,7 +77,7 @@ export function calculateActualCost(price: ModelPrice, usage: Pick<ModelResponse
 export class AiBudgetGateway {
   constructor(
     private readonly pool: Pool,
-    private readonly emergencyStop = false,
+    private readonly emergencyStop = config.aiBudgetEmergencyStop,
   ) {}
 
   async execute(input: GatewayTask, price: ModelPrice): Promise<GatewayResult> {
