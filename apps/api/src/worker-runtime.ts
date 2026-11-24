@@ -300,7 +300,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   const branch = repository.default_branch;
   if (typeof fullName !== "string" || typeof branch !== "string" ||
       !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(fullName) ||
-      !/^[A-Za-z0-9_.-]{1,200}$/.test(branch)) {
+      !/^(?!\/)(?!.*\/\/)[A-Za-z0-9_.-]{1,100}(?:\/[A-Za-z0-9_.-]{1,100})*$/.test(branch)) {
     throw new Error("Repository identity or default branch is invalid");
   }
   const [owner, name] = fullName.split("/");
@@ -337,7 +337,8 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   for (const entry of candidates) {
     const remaining = 512_000 - totalBytes;
     if (remaining <= 0) break;
-    const url = `https://raw.githubusercontent.com/${owner}/${name}/${encodeURIComponent(branch)}/${entry.path.split("/").map(encodeURIComponent).join("/")}`;
+    const encodedBranch = branch.split("/").map(encodeURIComponent).join("/");
+    const url = `https://raw.githubusercontent.com/${owner}/${name}/${encodedBranch}/${entry.path.split("/").map(encodeURIComponent).join("/")}`;
     const response = await fetch(url, {
       method: "GET",
       redirect: "manual",
