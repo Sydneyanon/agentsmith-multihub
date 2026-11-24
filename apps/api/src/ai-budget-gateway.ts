@@ -1,12 +1,13 @@
 import type { Pool } from "pg";
-import { MODEL_ROUTING, type ModelTask, type ModelTier } from "./ai-budget.js";\nimport { config } from "./config.js";
+import { MODEL_ROUTING, type ModelTask, type ModelTier } from "./ai-budget.js";
+import { config } from "./config.js";
 
 export type ModelPrice = {
   inputUsdPerMillionTokens: number;
   outputUsdPerMillionTokens: number;
   maxInputTokens: number;
   maxOutputTokens: number;
-  promptVersion: string;
+  priceVersion: string;
 };
 
 export type ModelRequest = {
@@ -31,8 +32,9 @@ export type GatewayTask = {
   task: ModelTask;
   request: ModelRequest;
   adapter: ModelAdapter;
-  workflowRunId?: string;
+  workflowRunId: string;
   workflowStepId?: string;
+  promptVersion: string;
   emergencyStop?: boolean;
 };
 
@@ -41,7 +43,6 @@ export type GatewayResult =
   | { status: "blocked"; reason: string; tier: ModelTier | "tier0" };
 
 type PolicyRow = { scope: string; scope_key: string; period: string; limit_usd: string };
-
 const toNumber = (value: unknown): number => Number(value ?? 0);
 const money = (value: number): string => value.toFixed(8);
 
@@ -53,14 +54,18 @@ export function estimateWorstCaseCost(price: ModelPrice): number {
     price.maxOutputTokens,
   ];
   if (values.some((v) => !Number.isFinite(v) || v < 0) ||
+      price.inputUsdPerMillionTokens <= 0 || price.outputUsdPerMillionTokens <= 0 ||
       price.maxInputTokens < 1 || price.maxOutputTokens < 1) {
-    throw new Error("Model pricing and token limits must be finite, non-negative, and bounded");
+    throw new Error("Model pricing and token limits must be finite, positive, and bounded");
   }
   return (price.inputUsdPerMillionTokens * price.maxInputTokens +
     price.outputUsdPerMillionTokens * price.maxOutputTokens) / 1_000_000;
 }
 
-export function calculateActualCost(price: ModelPrice, usage: Pick<ModelResponse, "inputTokens" | "outputTokens">): number {
+export function calculateActualCost(
+  price: ModelPrice,
+  usage: Pick<ModelResponse, "inputTokens" | "outputTokens">,
+): number {
   if (!Number.isInteger(usage.inputTokens) || !Number.isInteger(usage.outputTokens) ||
       usage.inputTokens < 0 || usage.outputTokens < 0 ||
       usage.inputTokens > price.maxInputTokens || usage.outputTokens > price.maxOutputTokens) {
@@ -70,10 +75,7 @@ export function calculateActualCost(price: ModelPrice, usage: Pick<ModelResponse
     price.outputUsdPerMillionTokens * usage.outputTokens) / 1_000_000;
 }
 
-/**
- * All provider requests must pass through this gateway. Pricing is injected
- * from a reviewed, versioned catalog; unknown prices fail closed.
- */
+/** All model calls must pass through this gateway; price records are loaded from the reviewed DB catalog. */
 export class AiBudgetGateway {
   constructor(
     private readonly pool: Pool,
@@ -82,10 +84,16 @@ export class AiBudgetGateway {
 
   async execute(input: GatewayTask): Promise<GatewayResult> {
     const tier = MODEL_ROUTING[input.task];
-    if (tier === "tier0") return { status: "blocked", reason: "tier0_must_run_without_a_model", tier: "tier0" };
-    if (!input.workflowRunId) {\n      return { status: "blocked", reason: "workflow_context_required", tier };\n    }\n    if (this.emergencyStop || input.emergencyStop) {
+    if (tier === "tier0") {
+      return { status: "blocked", reason: "tier0_must_run_without_a_model", tier: "tier0" };
+    }
+    if (!input.workflowRunId) return { status: "blocked", reason: "workflow_context_required", tier };
+    if (this.emergencyStop || input.emergencyStop) {
       return { status: "blocked", reason: "global_emergency_stop", tier };
     }
+
+    const price = await this.loadPrice(input.adapter.provider, input.adapter.model);
+    if (!price) return { status: "blocked", reason: "reviewed_model_price_unavailable", tier };
 
     let reserveUsd: number;
     try {
@@ -93,8 +101,9 @@ export class AiBudgetGateway {
     } catch {
       return { status: "blocked", reason: "unknown_or_invalid_pricing", tier };
     }
+    if (reserveUsd <= 0) return { status: "blocked", reason: "zero_or_invalid_price", tier };
 
-    if (reserveUsd <= 0) return { status: "blocked", reason: "zero_or_invalid_price", tier };\n\n    const reservation = await this.reserve(input, tier, reserveUsd, input.promptVersion, price.priceVersion);
+    const reservation = await this.reserve(input, tier, reserveUsd, price.priceVersion);
     if (!reservation.allowed) return { status: "blocked", reason: reservation.reason, tier };
 
     const startedAt = Date.now();
@@ -112,7 +121,8 @@ export class AiBudgetGateway {
         model: input.adapter.model,
         purpose: input.task,
         tier,
-        promptVersion: input.promptVersion,\n        priceVersion: price.priceVersion,
+        promptVersion: input.promptVersion,
+        priceVersion: price.priceVersion,
         inputTokens: response.inputTokens,
         outputTokens: response.outputTokens,
         actualUsd,
@@ -126,18 +136,50 @@ export class AiBudgetGateway {
         reservationId: reservation.id,
       };
     } catch (error) {
-      // Provider failures may still be billable. Charge the full reservation
-      // rather than releasing money that may already have been spent.
-      await this.failCharged(reservation.id, reserveUsd, input.adapter.provider, input.adapter.model, input.task, tier,
-        Date.now() - startedAt, error instanceof Error ? error.message : "unknown_provider_error", price.priceVersion);
+      // A failed request may still be billable; charge the full reserved amount.
+      await this.failCharged(
+        reservation.id, reserveUsd, input.adapter.provider, input.adapter.model,
+        input.task, tier, Date.now() - startedAt,
+        error instanceof Error ? error.message : "unknown_provider_error", price.priceVersion,
+      );
       throw error;
     }
+  }
+
+  private async loadPrice(provider: string, model: string): Promise<ModelPrice | null> {
+    const result = await this.pool.query<{
+      input_usd_per_million_tokens: string;
+      output_usd_per_million_tokens: string;
+      max_input_tokens: number;
+      max_output_tokens: number;
+      price_version: string;
+    }>(
+      `SELECT input_usd_per_million_tokens, output_usd_per_million_tokens,
+              max_input_tokens, max_output_tokens, price_version
+       FROM ai_model_prices
+       WHERE provider = $1 AND model = $2 AND enabled = true
+         AND reviewed_at IS NOT NULL AND reviewed_by IS NOT NULL
+         AND valid_from <= now() AND (valid_until IS NULL OR valid_until > now())
+       ORDER BY valid_from DESC
+       LIMIT 1`,
+      [provider, model],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      inputUsdPerMillionTokens: Number(row.input_usd_per_million_tokens),
+      outputUsdPerMillionTokens: Number(row.output_usd_per_million_tokens),
+      maxInputTokens: row.max_input_tokens,
+      maxOutputTokens: row.max_output_tokens,
+      priceVersion: row.price_version,
+    };
   }
 
   private async reserve(
     input: GatewayTask,
     tier: ModelTier,
     amountUsd: number,
+    priceVersion: string,
   ): Promise<{ allowed: true; id: string } | { allowed: false; reason: string }> {
     const client = await this.pool.connect();
     try {
@@ -186,17 +228,17 @@ export class AiBudgetGateway {
           + COALESCE((SELECT sum(reserved_usd) FROM ai_budget_reservations
             WHERE tier = $2 AND status = 'reserved'
               AND created_at >= date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), 0) AS tier_month_spent`,
-        [input.workflowRunId ?? null, tier],
+        [input.workflowRunId, tier],
       );
-      const totalsRow = totals.rows[0]!;
+      const spent = totals.rows[0]!;
       const checks: Array<[number, number, string]> = [
-        [toNumber(totalsRow.month_spent), monthlyCap!, "monthly_cap_exceeded"],
-        [toNumber(totalsRow.day_spent), dailyCap!, "daily_cap_exceeded"],
-        [toNumber(totalsRow.workflow_spent), workflowCap!, "workflow_cap_exceeded"],
-        [toNumber(totalsRow.tier_month_spent), tierCap!, "tier_monthly_allocation_exceeded"],
+        [toNumber(spent.month_spent), monthlyCap!, "monthly_cap_exceeded"],
+        [toNumber(spent.day_spent), dailyCap!, "daily_cap_exceeded"],
+        [toNumber(spent.workflow_spent), workflowCap!, "workflow_cap_exceeded"],
+        [toNumber(spent.tier_month_spent), tierCap!, "tier_monthly_allocation_exceeded"],
       ];
-      for (const [spent, cap, reason] of checks) {
-        if (spent + amountUsd > cap + 1e-9) {
+      for (const [current, cap, reason] of checks) {
+        if (current + amountUsd > cap + 1e-9) {
           await client.query("ROLLBACK");
           return { allowed: false, reason };
         }
@@ -204,10 +246,11 @@ export class AiBudgetGateway {
 
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO ai_budget_reservations
-          (workflow_run_id, workflow_step_id, provider, model, purpose, tier, reserved_usd, prompt_version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [input.workflowRunId ?? null, input.workflowStepId ?? null, input.adapter.provider,
-          input.adapter.model, input.task, tier, money(amountUsd), promptVersion],
+          (workflow_run_id, workflow_step_id, provider, model, purpose, tier,
+           reserved_usd, prompt_version, price_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [input.workflowRunId, input.workflowStepId ?? null, input.adapter.provider,
+          input.adapter.model, input.task, tier, money(amountUsd), input.promptVersion, priceVersion],
       );
       await client.query("COMMIT");
       return { allowed: true, id: inserted.rows[0]!.id };
@@ -220,28 +263,31 @@ export class AiBudgetGateway {
   }
 
   private async settle(input: {
-    reservationId: string; workflowRunId?: string; workflowStepId?: string;
-    provider: string; model: string; purpose: string; tier: ModelTier; promptVersion: string;
-    inputTokens: number; outputTokens: number; actualUsd: number; latencyMs: number;
+    reservationId: string; workflowRunId: string; workflowStepId?: string;
+    provider: string; model: string; purpose: string; tier: ModelTier;
+    promptVersion: string; priceVersion: string; inputTokens: number; outputTokens: number;
+    actualUsd: number; latencyMs: number;
   }): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       const updated = await client.query(
         `UPDATE ai_budget_reservations SET status = 'reconciled', charged_usd = $2,
-          input_tokens = $3, output_tokens = $4, prompt_version = $5, latency_ms = $6, settled_at = now()
+          input_tokens = $3, output_tokens = $4, prompt_version = $5,
+          price_version = $6, latency_ms = $7, settled_at = now()
          WHERE id = $1 AND status = 'reserved'`,
         [input.reservationId, money(input.actualUsd), input.inputTokens, input.outputTokens,
-          input.promptVersion, input.latencyMs],
+          input.promptVersion, input.priceVersion, input.latencyMs],
       );
       if (updated.rowCount !== 1) throw new Error("AI budget reservation could not be reconciled");
       await client.query(
         `INSERT INTO model_usage_events
-          (workflow_run_id, workflow_step_id, provider, model, purpose, tier,
+          (workflow_run_id, workflow_step_id, provider, model, purpose, tier, price_version,
            input_tokens, output_tokens, estimated_cost_usd)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [input.workflowRunId ?? null, input.workflowStepId ?? null, input.provider, input.model,
-          input.purpose, input.tier, input.inputTokens, input.outputTokens, money(input.actualUsd)],
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [input.workflowRunId, input.workflowStepId ?? null, input.provider, input.model,
+          input.purpose, input.tier, input.priceVersion, input.inputTokens, input.outputTokens,
+          money(input.actualUsd)],
       );
       await client.query("COMMIT");
     } catch (error) {
@@ -254,7 +300,7 @@ export class AiBudgetGateway {
 
   private async failCharged(
     reservationId: string, amountUsd: number, provider: string, model: string,
-    purpose: string, tier: ModelTier, latencyMs: number, reason: string,
+    purpose: string, tier: ModelTier, latencyMs: number, reason: string, priceVersion: string,
   ): Promise<void> {
     const client = await this.pool.connect();
     try {
@@ -270,9 +316,10 @@ export class AiBudgetGateway {
         const row = updated.rows[0]!;
         await client.query(
           `INSERT INTO model_usage_events
-            (workflow_run_id, workflow_step_id, provider, model, purpose, tier, estimated_cost_usd)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [row.workflow_run_id, row.workflow_step_id, provider, model, purpose, tier, money(amountUsd)],
+            (workflow_run_id, workflow_step_id, provider, model, purpose, tier, price_version, estimated_cost_usd)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [row.workflow_run_id, row.workflow_step_id, provider, model, purpose, tier,
+            priceVersion, money(amountUsd)],
         );
       }
       await client.query("COMMIT");
