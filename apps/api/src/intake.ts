@@ -70,7 +70,17 @@ export function registerIntakeRoutes(app: FastifyInstance, pool: Pool | undefine
         await client.query(
           `INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input)
            VALUES ($1, $2, $3, $4, $5::jsonb)`,
-          [runId, step[0], sequence, step[1], JSON.stringify({ intake_kind: input.kind })],
+          [runId, step[0], sequence, step[1], JSON.stringify({
+            intake_kind: input.kind,
+            ...(step[0] === "resolve_source" ? {
+              value: input.value,
+              source: input.source,
+              notes: input.notes ?? null,
+              source_reference: sourceReference,
+              execution_mode: "passive_only",
+              authorization_status: "unverified",
+            } : {}),
+          })],
         );
       }
       await client.query(
