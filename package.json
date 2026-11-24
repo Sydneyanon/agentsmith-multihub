@@ -12,7 +12,8 @@
     "start": "node dist/apps/api/src/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "db:migrate": "node dist/scripts/migrate.js"
+    "db:migrate": "node dist/scripts/migrate.js",
+    "worker:intake": "tsx apps/api/src/worker-main.ts"
   },
   "dependencies": {
     "fastify": "^5.2.1",
