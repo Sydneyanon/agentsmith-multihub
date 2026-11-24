@@ -9,13 +9,16 @@
 - Writes audit events for claims, success and failure.
 - Marks the parent run successful only after every step succeeds.
 
-## First executable handler
+## Executable intake handlers
 
-The first separately runnable worker process is `npm run worker:intake`. It polls only for the `resolve_source` step and ignores every other step key. It performs deterministic URL normalization / idea intake bookkeeping and persists the result through the lease-checked completion path.
+The separate process is started with `npm run worker:intake`. It claims only these explicitly registered steps:
 
-This handler performs **no network request**, repository clone, source download, host scan, transaction, PoC execution or active test. The output explicitly records `network_access_performed: false`, `execution_mode: passive_only` and `authorization_status: unverified`.
+1. `resolve_source`: deterministic URL normalization or idea intake bookkeeping. It performs no network request.
+2. `identify_project`: for recognized GitHub repository URLs only, performs one read-only request to the fixed `api.github.com/repos/{owner}/{repo}` endpoint and stores a bounded metadata snapshot.
 
-The remaining intake steps stay queued until their own reviewed handlers exist. The worker must not claim arbitrary future steps or pretend that a queued step has executed.
+The GitHub metadata handler rejects redirects, uses an eight-second timeout, limits response size and validates the response shape. It does not fetch arbitrary hosts, clone code, download source files, run tests, scan hosts, execute transactions or submit reports.
+
+Both handlers preserve `execution_mode: passive_only` and `authorization_status: unverified`. Public repository metadata is not evidence of bounty authorization. Idea inputs and non-GitHub URLs are marked not applicable for this particular metadata lookup; later workflow steps remain queued until their own reviewed handlers exist.
 
 ## Running locally
 
