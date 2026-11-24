@@ -186,6 +186,21 @@ export class AiBudgetGateway {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtext('agentsmith-multihub-ai-budget'))");
 
+      // A process may die after reserving but before reconciling. After the
+      // ten-minute lease, conservatively count that reservation as fully spent.
+      await client.query(`WITH expired AS (
+        UPDATE ai_budget_reservations
+        SET status = 'failed_charged', charged_usd = reserved_usd,
+            error_code = 'reservation_expired_assumed_billable', settled_at = now()
+        WHERE status = 'reserved' AND expires_at < now()
+        RETURNING workflow_run_id, workflow_step_id, provider, model, purpose, tier,
+                  price_version, reserved_usd
+      )
+      INSERT INTO model_usage_events
+        (workflow_run_id, workflow_step_id, provider, model, purpose, tier, price_version, estimated_cost_usd)
+      SELECT workflow_run_id, workflow_step_id, provider, model, purpose, tier, price_version, reserved_usd
+      FROM expired`);
+
       const policies = await client.query<PolicyRow>(
         "SELECT scope, scope_key, period, limit_usd FROM budget_policies WHERE enabled = true",
       );
@@ -247,8 +262,8 @@ export class AiBudgetGateway {
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO ai_budget_reservations
           (workflow_run_id, workflow_step_id, provider, model, purpose, tier,
-           reserved_usd, prompt_version, price_version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+           reserved_usd, prompt_version, price_version, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now() + interval '10 minutes') RETURNING id`,
         [input.workflowRunId, input.workflowStepId ?? null, input.adapter.provider,
           input.adapter.model, input.task, tier, money(amountUsd), input.promptVersion, priceVersion],
       );
