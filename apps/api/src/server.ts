@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import { Pool } from "pg";
 import { config } from "./config.js";
+import { registerIntakeRoutes } from "./intake.js";
+import { registerWorkflowRoutes } from "./workflows.js";
 
 const pool = config.databaseUrl
   ? new Pool({
@@ -26,6 +28,8 @@ export function buildServer() {
       return reply.code(503).send({ status: "not_ready", dependencies: { postgres: "error" } });
     }
   });
+  registerIntakeRoutes(app, pool);
+  registerWorkflowRoutes(app, pool);
   app.addHook("onClose", async () => { await pool?.end(); });
   return app;
 }
