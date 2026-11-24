@@ -17,7 +17,8 @@ function step(input: Record<string, unknown>): ClaimedStep {
 
 function fakeWorker() {
   const complete = vi.fn().mockResolvedValue(undefined);
-  return { complete, worker: { complete } as unknown as WorkflowWorker };
+  const persistSourceSnapshot = vi.fn().mockResolvedValue({ id: "snapshot-1", contentSha256: "a".repeat(64) });
+  return { complete, persistSourceSnapshot, worker: { complete, persistSourceSnapshot } as unknown as WorkflowWorker };
 }
 
 describe("passive intake resolution worker", () => {
@@ -112,11 +113,14 @@ describe("passive intake resolution worker", () => {
       }));
       expect(result).toEqual({ status: "completed", stepId: "step-1" });
       expect(fetchMock).toHaveBeenCalledOnce();
+      expect(persistSourceSnapshot).toHaveBeenCalledOnce();
+      expect(persistSourceSnapshot.mock.calls[0]?.[0]).toBe("step-1");
       expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.github.com/repos/example/project");
       expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual", method: "GET" });
       expect(complete.mock.calls[0]?.[1]).toMatchObject({
         status: "identified",
         repository: { full_name: "example/project", language: "TypeScript" },
+        evidence: { snapshot_id: "snapshot-1", content_sha256: "a".repeat(64) },
         network_access_performed: true,
         authorization_status: "unverified",
       });
