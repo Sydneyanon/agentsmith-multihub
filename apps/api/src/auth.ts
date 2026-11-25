@@ -69,14 +69,31 @@ export class AuthFailureLimiter {
 }
 
 /**
- * Single-operator bearer protection for every /v1/ route. Without a configured token the API refuses (503) instead of
- * running open; a missing or wrong token is 401. Repeated failures lock the client out with 429 (checked before the token is
- * compared, so a lockout also hides whether a guess was right). The limiter is in memory and per process: with several
- * instances each keeps its own counts. Shared by the server and the tests so they cannot drift apart.
+ * The complete list of requests that may be served without a token. Everything else — every /v1/ route, unknown paths, other
+ * methods, odd spellings (`//v1`, `/V1`, encoded slashes, trailing slashes) — requires the bearer token. Matching is on the raw
+ * path (query string removed) with exact equality, so a path the router might normalise into a protected handler is never public.
+ */
+const PUBLIC_EXACT = new Set(["/health/live", "/health/ready", "/", "/hub", "/hub/"]);
+const PUBLIC_ASSET = /^\/hub\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+export const PUBLIC_ROUTE_DESCRIPTIONS = ["GET|HEAD /health/live", "GET|HEAD /health/ready", "GET|HEAD /", "GET|HEAD /hub", "GET|HEAD /hub/", "GET|HEAD /hub/assets/<file>"] as const;
+
+export function isPublicRequest(method: string, rawUrl: string): boolean {
+  if (method !== "GET" && method !== "HEAD") return false;
+  const q = rawUrl.indexOf("?");
+  const path = q === -1 ? rawUrl : rawUrl.slice(0, q);
+  return PUBLIC_EXACT.has(path) || (PUBLIC_ASSET.test(path) && !path.includes(".."));
+}
+
+/**
+ * Single-operator bearer protection, DEFAULT-DENY. It runs at `onRequest`, i.e. before routing-specific hooks, content-type
+ * parsing, body reading and validation, so an unauthenticated client cannot make the server buffer or parse a body. Without a
+ * configured token the API refuses (503) instead of running open; a missing or wrong token is 401. Repeated failures lock the
+ * client out with 429 (checked before the token is compared, so a lockout also hides whether a guess was right). The limiter is
+ * in memory and per process. Shared by the server and the tests so they cannot drift apart.
  */
 export function registerBearerAuth(app: FastifyInstance, configuredToken: string | undefined, limiter: AuthFailureLimiter = new AuthFailureLimiter()): void {
-  app.addHook("preHandler", async (request, reply) => {
-    if (!request.url.startsWith("/v1/")) return;
+  app.addHook("onRequest", async (request, reply) => {
+    if (isPublicRequest(request.method, request.url)) return;
     if (!configuredToken) return reply.code(503).send({ error: "api_auth_not_configured" });
     const wait = limiter.retryAfterSeconds(request.ip);
     if (wait > 0) return reply.code(429).header("retry-after", String(wait)).send({ error: "too_many_attempts", retry_after_seconds: wait });
