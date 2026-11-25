@@ -82,3 +82,34 @@ export async function enforceRuntimeRole(
   }
   return result;
 }
+
+/**
+ * Runs after the server is already listening, so a slow, paused or unreachable database can never delay or prevent boot
+ * (the app answers liveness and reports readiness honestly). A failed check is retried (a paused Managed Postgres needs time
+ * to wake). A bad role is reported; it is fatal only when `require` is set, and so is a role that could never be verified.
+ */
+export async function runRoleGuard(db: pg.Pool, options: {
+  require: boolean; warn: (message: string) => void; fatal: (message: string) => void;
+  attempts?: number; retryDelayMs?: number; sleep?: (ms: number) => Promise<void>; assess?: () => Promise<RoleAssessment>;
+}): Promise<void> {
+  const attempts = options.attempts ?? 6;
+  const delay = options.retryDelayMs ?? 15_000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const assess = options.assess ?? (() => assessConnectedRole(db));
+  let lastError = "";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const result = await assess();
+      if (!result.ok) {
+        const message = `database runtime role is not least-privilege: ${result.problems.join("; ")}`;
+        if (options.require) options.fatal(message); else options.warn(message);
+      }
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt < attempts) await sleep(delay);
+    }
+  }
+  const message = `could not verify the database runtime role after ${attempts} attempts (${lastError})`;
+  if (options.require) options.fatal(message); else options.warn(message);
+}

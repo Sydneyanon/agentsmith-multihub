@@ -2,7 +2,7 @@ import { Pool } from "pg";
 import { config } from "./config.js";
 import { buildApp } from "./app.js";
 import { buildPoolConfig, stderrWarning } from "./db-config.js";
-import { enforceRuntimeRole } from "./db-roles.js";
+import { runRoleGuard } from "./db-roles.js";
 
 const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning })) : undefined;
 
@@ -12,8 +12,15 @@ export function buildServer() {
 
 const app = buildServer();
 try {
-  if (pool && config.environment === "production") await enforceRuntimeRole(pool, { require: config.requireRestrictedDbRole, warn: (m) => app.log.warn(m) });
   await app.listen({ host: config.host, port: config.port });
+  // After listening and not awaited: an unreachable or paused database must never delay or prevent boot (liveness and honest readiness first).
+  if (pool && config.environment === "production") {
+    void runRoleGuard(pool, {
+      require: config.requireRestrictedDbRole,
+      warn: (m) => app.log.warn(m),
+      fatal: (m) => { app.log.fatal(m); void app.close().finally(() => process.exit(1)); },
+    });
+  }
 } catch (error) {
   app.log.error(error);
   await app.close();

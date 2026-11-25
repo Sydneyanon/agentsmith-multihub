@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -39,5 +39,58 @@ describe("manifest loading is strict", () => {
   it("validates role names", () => {
     expect(assertRoleName("agentsmith_app")).toBe("agentsmith_app");
     for (const bad of [undefined, "", "Ab", "a;drop", "a b", "x".repeat(64), "1abc"]) expect(() => assertRoleName(bad), String(bad)).toThrow();
+  });
+});
+
+import pg from "pg";
+import { runRoleGuard, type RoleAssessment } from "./db-roles.js";
+
+describe("startup role guard must not turn a database outage into a boot failure", () => {
+  const ok: RoleAssessment = { ok: true, problems: [] };
+  const bad: RoleAssessment = { ok: false, problems: ["role owns 33 relation(s) in schema public"] };
+  const harness = () => {
+    const log = { warn: [] as string[], fatal: [] as string[], sleeps: [] as number[] };
+    return { log, options: (require: boolean, extra: object = {}) => ({ require, warn: (m: string) => log.warn.push(m), fatal: (m: string) => log.fatal.push(m), sleep: async (ms: number) => { log.sleeps.push(ms); }, ...extra }) };
+  };
+
+  it("a real unreachable database (connection refused) only warns when the restricted role is not required, and never throws", async () => {
+    const h = harness();
+    const pool = new pg.Pool({ connectionString: "postgres://nobody@127.0.0.1:1/none", connectionTimeoutMillis: 1000 });
+    try { await expect(runRoleGuard(pool, h.options(false, { attempts: 2 }))).resolves.toBeUndefined(); } finally { await pool.end(); }
+    expect(h.log.fatal).toEqual([]);
+    expect(h.log.warn.join(" ")).toMatch(/could not verify the database runtime role/);
+  });
+  it("retries a failed check (a paused database waking up) and then reports the verdict", async () => {
+    const h = harness(); let n = 0;
+    await runRoleGuard({} as pg.Pool, h.options(false, { attempts: 4, assess: async () => { if (++n < 3) throw new Error("timeout"); return bad; } }));
+    expect(n).toBe(3);
+    expect(h.log.sleeps.length).toBe(2);
+    expect(h.log.warn.join(" ")).toMatch(/not least-privilege.*owns 33/);
+    expect(h.log.fatal).toEqual([]);
+  });
+  it("a bad role is fatal only when required, and immediately (no retries)", async () => {
+    const h = harness(); let n = 0;
+    await runRoleGuard({} as pg.Pool, h.options(true, { assess: async () => { n += 1; return bad; } }));
+    expect(n).toBe(1);
+    expect(h.log.fatal.join(" ")).toMatch(/not least-privilege/);
+  });
+  it("when required and the role can never be verified, it fails closed after the attempts", async () => {
+    const h = harness();
+    await runRoleGuard({} as pg.Pool, h.options(true, { attempts: 3, assess: async () => { throw new Error("down"); } }));
+    expect(h.log.fatal.join(" ")).toMatch(/could not verify/);
+    expect(h.log.sleeps.length).toBe(2);
+  });
+  it("a good role is silent", async () => {
+    const h = harness();
+    await runRoleGuard({} as pg.Pool, h.options(true, { assess: async () => ok }));
+    expect(h.log.warn).toEqual([]); expect(h.log.fatal).toEqual([]);
+  });
+  it("server.ts starts listening BEFORE the guard runs and does not await it", () => {
+    const src = readFileSync(join(__dirname, "server.ts"), "utf8");
+    const listen = src.indexOf("await app.listen");
+    const guard = src.indexOf("runRoleGuard(");
+    expect(listen).toBeGreaterThan(-1);
+    expect(guard).toBeGreaterThan(listen);
+    expect(src).not.toMatch(/await\s+(enforceRuntimeRole|runRoleGuard)/);
   });
 });
