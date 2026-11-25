@@ -4,7 +4,7 @@ import { badge, chip, classLegend, codeBlock, empty, errorState, kv, loadInto, l
 import { bytes, exactTime, plural, shortHash } from "./format.js";
 import { link, linkWith } from "./router.js";
 import type { Ctx } from "./ctx.js";
-import type { FileRow, FileText, Page, SnapshotDetail, SnapshotSummary, Surface } from "./types.js";
+import type { AcquisitionReport, FileRow, FileText, Page, SnapshotDetail, SnapshotSummary, Surface } from "./types.js";
 import { HYPOTHESIS_STATUS, word } from "./vocab.js";
 
 export function renderRepository(ctx: Ctx, id: string | undefined, query: Record<string, string>): HTMLElement {
@@ -54,9 +54,46 @@ function renderSnapshot(ctx: Ctx, id: string, query: Record<string, string>): HT
     });
 
     const browser = h("div", { class: "split" }, h("div", { class: "split-side" }, fileList(ctx, id, prefix)), h("div", { class: "split-main" }, path ? fileViewer(ctx, id, path) : empty("Select a file", "Choose a file in the list or the map to read it with its evidence spans.")));
-    return h("div", { class: "stack" }, h("div", { class: "view-head" }, h("h1", {}, snap.repository)), header, panel("Attack-surface map", [mapBox]), panel("Files and code", [browser]));
+    return h("div", { class: "stack" }, h("div", { class: "view-head" }, h("h1", {}, snap.repository)), header, acquisitionPanel(snap), panel("Attack-surface map", [mapBox]), panel("Files and code", [browser]));
   });
   return root;
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const SKIP_WORDS: Record<string, string> = { oversize: "too large to store", binary: "binary", unreadable_encoding: "not valid UTF-8", symlink: "symbolic link (not followed)", submodule: "submodule (not fetched)", excluded_by_policy: "excluded by policy", limit_reached: "storage budget reached" };
+
+/**
+ * What the acquisition recorded about how complete the snapshot is. Everything shown comes from the stored report; nothing is
+ * computed here. Links, submodules and LFS pointers are shown as inert text: the acquisition never followed or fetched them.
+ */
+export function acquisitionPanel(snap: SnapshotDetail): HTMLElement {
+  const raw = snap.acquisition_report;
+  if (!isObject(raw) || raw["report_version"] === undefined) {
+    return panel("Acquisition", [empty("No acquisition report", "This snapshot has no structured acquisition report. It was not produced by the repository acquisition (Task 5.2).", "Task 5.2")]);
+  }
+  const r = raw as AcquisitionReport;
+  const partial = r.completeness?.status === "partial";
+  const counts = r.counts ?? {};
+  const skipped = Object.entries(counts.skipped_by_reason ?? {});
+  const list = <T,>(items: T[] | undefined, row: (item: T) => HTMLElement, title: string): HTMLElement | null =>
+    items && items.length ? h("details", {}, h("summary", {}, `${title} (${items.length})`), h("ul", { class: "rows" }, ...items.slice(0, 50).map((item) => h("li", { class: "row-static" }, row(item))))) : null;
+  return panel("Acquisition", [
+    h("p", {}, partial ? badge({ label: "Partial", tone: "amber", hint: "Some paths could not be recorded in the manifest; they are listed below." }) : badge({ label: "Complete", tone: "green", hint: "Every entry of the commit's git tree is accounted for: stored, or skipped with a reason." }),
+      " ", h("span", { class: "muted small" }, "Checked against the commit's git tree: every file's git object id and size, and the archive's commit.")),
+    partial ? h("p", { class: "callout callout-warn" }, `${r.completeness?.unrepresentable_total ?? 0} path(s) cannot be recorded in a manifest and are NOT in this snapshot.`) : null,
+    kv([
+      ["Acquired", exactTime(r.acquired_at)], ["Tool", r.tool ? `${r.tool.name ?? "?"} ${r.tool.version ?? ""}` : "—"],
+      ["Requested ref", r.source?.requested_ref ?? "default branch"], ["Resolved commit", r.source?.commit_sha ? mono(r.source.commit_sha) : "—"], ["Tree", r.source?.tree_sha ? mono(shortHash(r.source.tree_sha, 16)) : "—"],
+      ["Archive", r.archive ? `${bytes(r.archive.compressed_bytes ?? null)} compressed, ${r.archive.entries ?? "?"} entries, sha256 ${shortHash(r.archive.sha256, 12)}` : "—"],
+      ["Stored", `${counts.stored ?? 0} files, ${bytes(counts.stored_bytes ?? null)}`],
+      ["Skipped", skipped.length ? h("span", { class: "chips" }, ...skipped.map(([k, n]) => chip(`${SKIP_WORDS[k] ?? k}: ${n}`, "grey"))) : "none"],
+      ["Case collisions", String(counts.case_collisions ?? 0)],
+    ]),
+    list(r.completeness?.unrepresentable, (u) => h("span", {}, mono(u.path), ` ${u.reason}`), "Paths that could not be recorded"),
+    list(r.symlinks, (l) => h("span", {}, mono(l.path), " → ", mono(l.target), l.escapes_root ? chip("points outside the repository", "amber") : null), "Symbolic links (recorded, never followed)"),
+    list(r.submodules, (m) => h("span", {}, mono(m.path), " @ ", mono(shortHash(m.commit_sha, 12)), m.url ? ` ${m.url}` : ""), "Submodules (recorded, never fetched)"),
+    list(r.lfs_pointers, (p) => h("span", {}, mono(p.path), ` points at a Git LFS object of ${bytes(p.size)}, not fetched`), "Git LFS pointers"),
+  ]);
 }
 
 function fileList(ctx: Ctx, id: string, prefix: string): HTMLElement {

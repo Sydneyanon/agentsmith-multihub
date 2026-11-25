@@ -21,6 +21,9 @@ A step state is queued, running, awaiting_approval, succeeded, failed, rejected 
 ## Independent verification
 The investigator records a hypothesis and supporting evidence. The PoC builder produces a minimal, safe reproduction where permitted. The independent judge evaluates evidence against program rules and reproduction criteria. The judge can reject or downgrade a finding without changing the investigator's original record.
 
+## Evidence acquisition
+Repository content enters the system only through acquisition (`docs/repository-acquisition.md`): one repository at one resolved commit SHA becomes one sealed snapshot in the research state (`repo_snapshots`, `repo_snapshot_files`, content-addressed `research_blobs`). Acquisition is passive reading of a public repository: it executes, installs, builds and follows nothing, treats every byte as hostile, verifies the archive against the commit's own git tree (object ids, sizes, completeness, commit identity), accounts for every entry (stored, or skipped with an explicit reason), writes nothing until the whole archive is verified, and is idempotent and resumable. There is one snapshot model; later stages (discovery, structural analysis, specialists, challenge, dossier) read sealed snapshots and cite them by span.
+
 ## Learning loop
 Learning uses reviewed outcomes, not raw model confidence. Store source observations, decision, action or non-action, expected result, actual result and reviewer verdict. Policy changes are versioned, evaluated against a frozen baseline and approved before deployment.
 

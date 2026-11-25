@@ -126,7 +126,7 @@ textarea { min-height: 70px; }
 .timeline { padding-left: 1.2rem; display: grid; gap: .6rem; } .saw { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem .9rem; margin: .3rem 0; }
 .evidence-item { margin-bottom: 1rem; min-width: 0; overflow-wrap: anywhere; }
 .panel-body > *, .stack > *, .view > * { min-width: 0; }
-details { margin: .5rem 0; } summary { cursor: pointer; min-height: 32px; }
+details { margin: .5rem 0; } summary { cursor: pointer; display: list-item; min-height: 44px; padding: .65rem 0; box-sizing: border-box; }
 
 /* unlock */
 .unlock { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }

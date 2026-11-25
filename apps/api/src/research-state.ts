@@ -77,7 +77,13 @@ export class ResearchConflictError extends Error {
   }
 }
 
-const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** JSON with object keys sorted recursively, so two values that are equal compare equal whatever order a store (jsonb) returns the keys in. */
+export function canonicalJson(value: unknown): string {
+  const sort = (v: unknown): unknown => Array.isArray(v) ? v.map(sort)
+    : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sort((v as Record<string, unknown>)[k])])) : v;
+  return JSON.stringify(sort(value));
+}
+const sameJson = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonicalJson(b);
 
 export type ManifestRowFields = {
   blob_sha256: string | null; git_blob_sha: string | null; size_bytes: number | string; classification: string; skip_reason: string | null;
@@ -217,6 +223,19 @@ export class ResearchStore {
       if (!sameJson(row.acquisition_report, input.acquisitionReport ?? {})) differing.push("acquisition report");
       if (differing.length) throw new ResearchConflictError("snapshot", `${input.repository}@${input.commitSha}`, differing);
       return row.id;
+    });
+  }
+
+  /** The snapshot this step's run already has for a repository at a commit, if any (acquisition retries resume or short-circuit on it). */
+  findSnapshot(lease: StepLease, repository: string, commitSha: string): Promise<{
+    id: string; refName: string | null; report: Record<string, unknown>; sealed: boolean; manifestSha256: string | null; fileCount: number | null; totalBytes: number | null;
+  } | null> {
+    return this.leased(lease, async (client, runId) => {
+      const found = await client.query<{ id: string; ref_name: string | null; acquisition_report: Record<string, unknown>; sealed_at: Date | null; manifest_sha256: string | null; file_count: number | null; total_bytes: string | null }>(
+        `SELECT id, ref_name, acquisition_report, sealed_at, manifest_sha256, file_count, total_bytes
+         FROM repo_snapshots WHERE workflow_run_id = $1 AND repository = $2 AND commit_sha = $3`, [runId, repository, commitSha]);
+      const row = found.rows[0];
+      return row ? { id: row.id, refName: row.ref_name, report: row.acquisition_report, sealed: row.sealed_at !== null, manifestSha256: row.manifest_sha256, fileCount: row.file_count, totalBytes: row.total_bytes === null ? null : Number(row.total_bytes) } : null;
     });
   }
 
