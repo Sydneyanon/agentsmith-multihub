@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext } from "./acquisition/step.js";
+import { GitHubSource } from "./acquisition/github-source.js";
 import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
@@ -1009,9 +1011,10 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
 const INTAKE_STEP_KEYS = [
   "resolve_source", "identify_project", "locate_official_repositories", "establish_authorization",
   "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief",
+  ACQUIRE_STEP_KEY,
 ] as const;
 
-async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<void> {
+async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep, acquire: Omit<AcquireStepContext, "pool" | "worker">): Promise<void> {
   if (step.step_key === "resolve_source") await processIntakeResolution(worker, step);
   else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
   else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
@@ -1020,6 +1023,7 @@ async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: Clai
   else if (step.step_key === "generate_hypotheses") await processHypothesisGeneration(pool, worker, step);
   else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
   else if (step.step_key === "prepare_research_brief") await processResearchBrief(pool, worker, step);
+  else if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ pool, worker, ...acquire }, step);
   else throw new Error(`No handler registered for step: ${step.step_key}`);
 }
 
@@ -1045,7 +1049,7 @@ export async function runIntakeWorker(
     reapExhaustedLeases: () => worker.reapExhaustedLeases(),
     claimNext: () => worker.claimNext(INTAKE_STEP_KEYS),
     fail: (stepId, reason, retryable) => worker.fail(stepId, reason, retryable),
-    execute: (step) => dispatchIntakeStep(pool, worker, step),
+    execute: (step) => dispatchIntakeStep(pool, worker, step, { workerId, source: new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) }) }),
     maxAttempts: worker.maxAttempts,
   }, signal, loopOptions);
 }

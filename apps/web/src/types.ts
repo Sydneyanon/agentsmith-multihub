@@ -42,6 +42,18 @@ export interface SnapshotSummary {
   file_count: number | null; total_bytes: number | string | null; manifest_sha256: string | null; spans: number; hypotheses: number; created_at: string;
   acquisition_report: unknown;
 }
+/** The parts of an acquisition report (docs/repository-acquisition.md) the client reads. Every field is optional: older snapshots have none. */
+export interface AcquisitionReport {
+  report_version?: number; tool?: { name?: string; version?: string }; acquired_at?: string;
+  source?: { full_name?: string; repository_id?: number; requested_ref?: string | null; commit_sha?: string; tree_sha?: string; default_branch?: string };
+  archive?: { sha256?: string; compressed_bytes?: number; uncompressed_bytes?: number; entries?: number };
+  completeness?: { status?: string; unrepresentable_total?: number; unrepresentable?: Array<{ path: string; reason: string; kind: string }> };
+  counts?: { tree_entries?: number; manifest_rows?: number; stored?: number; stored_bytes?: number; skipped_by_reason?: Record<string, number>; lfs_pointers?: number; symlinks?: number; submodules?: number; case_collisions?: number };
+  symlinks?: Array<{ path: string; target: string; escapes_root: boolean }>;
+  submodules?: Array<{ path: string; commit_sha: string; url: string | null }>;
+  lfs_pointers?: Array<{ path: string; oid: string; size: number }>;
+  verification?: { method?: string; manifest_sha256?: string };
+}
 export interface SnapshotDetail extends SnapshotSummary {
   sealed: boolean;
   files: { stored: number; skipped: number; by_classification: Counts; skip_reasons: Counts };

@@ -282,3 +282,51 @@ describe("layout contracts that jsdom can see", () => {
     expect(css).toMatch(/\.tabbar\s*\{\s*position:\s*fixed/);
   });
 });
+
+describe("acquisition panel: completeness comes only from the stored report, and untrusted text stays text", () => {
+  const SNAP = "33333333-3333-4333-8333-333333333333";
+  const base = { id: SNAP, workflow_run_id: "r", repository: "synthetic/repo", source_host: "github.com", commit_sha: "a".repeat(40), ref_name: "main", sealed_at: "2026-01-01T00:00:00Z", sealed: true, file_count: 3, total_bytes: 100, manifest_sha256: "d".repeat(64), spans: 0, hypotheses: 0, created_at: "2026-01-01T00:00:00Z", files: { stored: 1, skipped: 2, by_classification: {}, skip_reasons: {} }, verification: null };
+  const report = (over: Record<string, unknown> = {}) => ({
+    report_version: 1, tool: { name: "agentsmith-repository-acquisition", version: "5.2.0" }, acquired_at: "2026-01-02T03:04:05.000Z",
+    source: { full_name: "synthetic/repo", requested_ref: "main", commit_sha: "a".repeat(40), tree_sha: "b".repeat(40) },
+    archive: { sha256: "c".repeat(64), compressed_bytes: 2048, entries: 9 }, completeness: { status: "complete", unrepresentable_total: 0, unrepresentable: [] },
+    counts: { stored: 1, stored_bytes: 40, skipped_by_reason: { symlink: 1, oversize: 1 }, symlinks: 1, submodules: 1, lfs_pointers: 1, case_collisions: 0 },
+    symlinks: [{ path: "evil", target: "/etc/passwd", escapes_root: true }], submodules: [{ path: "deps/lib", commit_sha: "2".repeat(40), url: "https://example.invalid/lib.git" }],
+    lfs_pointers: [{ path: "assets/m.bin", oid: "e".repeat(64), size: 987654 }], ...over,
+  });
+  const open = (acquisition_report: unknown) => {
+    const c = fakeCtx((path) => path.endsWith("/surface") ? { truncated: false, files: [] } : path.endsWith("/files") ? emptyPage : { ...base, acquisition_report });
+    return renderRepository(c, SNAP, {});
+  };
+
+  it("shows a complete acquisition with its provenance, skip reasons and inert links, submodules and LFS pointers", async () => {
+    const el = open(report());
+    await settled(el, /Acquisition/);
+    const text = el.textContent!;
+    expect(text).toMatch(/Complete/); expect(text).not.toMatch(/Partial/);
+    expect(text).toMatch(/agentsmith-repository-acquisition 5\.2\.0/);
+    expect(text).toMatch(/symbolic link \(not followed\): 1/); expect(text).toMatch(/too large to store: 1/);
+    expect(text).toMatch(/\/etc\/passwd/); expect(text).toMatch(/points outside the repository/);
+    expect(text).toMatch(/recorded, never fetched/); expect(text).toMatch(/Git LFS object of [\d.]+ KiB, not fetched/);
+  });
+  it("says Partial and names what is missing when paths could not be recorded", async () => {
+    const el = open(report({ completeness: { status: "partial", unrepresentable_total: 2, unrepresentable: [{ path: "bad\\u{9}name.sol", reason: "tab_or_newline", kind: "file" }] } }));
+    await settled(el, /Partial/);
+    expect(el.textContent).toMatch(/2 path\(s\) cannot be recorded in a manifest and are NOT in this snapshot/);
+    expect(el.textContent).toMatch(/Paths that could not be recorded \(1\)/);
+  });
+  it("renders hostile strings from a repository as text", async () => {
+    const el = open(report({ symlinks: [{ path: "<img src=x onerror=\"window.hacked2=1\">", target: "<script>window.hacked2=1</script>", escapes_root: false }] }));
+    await settled(el, /Symbolic links/);
+    expect(el.querySelector("img")).toBeNull(); expect(el.querySelector("script")).toBeNull();
+    expect((window as unknown as { hacked2?: number }).hacked2).toBeUndefined();
+    expect(el.textContent).toContain("<script>window.hacked2=1</script>");
+  });
+  it("is honest when there is no structured report (older or hand-made snapshots)", async () => {
+    for (const none of [{}, { note: "synthetic" }, null]) {
+      const el = open(none);
+      await settled(el, /No acquisition report/);
+      expect(el.textContent).not.toMatch(/Complete|Partial/);
+    }
+  });
+});

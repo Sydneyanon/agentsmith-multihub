@@ -1,0 +1,93 @@
+import type { Pool } from "pg";
+import { z } from "zod";
+import { LeaseLostError } from "../step-errors.js";
+import { ResearchStore } from "../research-state.js";
+import type { ClaimedStep, WorkflowWorker } from "../worker.js";
+import { acquireRepository, type AcquireRequest, type AcquisitionResult } from "./acquire.js";
+import { AcquisitionError } from "./errors.js";
+import { parseRepositoryName, type RepositorySource } from "./github-source.js";
+
+export const REPOSITORY_RESEARCH_WORKFLOW = "repository_research";
+export const ACQUIRE_STEP_KEY = "acquire_repository";
+
+const stepInput = z.object({
+  repository: z.string().min(3).max(201),
+  ref: z.string().min(1).max(250).optional(),
+  excludePathPrefixes: z.array(z.string().min(1).max(1024)).max(100).optional(),
+  onUnrepresentable: z.enum(["fail", "seal_partial"]).optional(),
+}).strict();
+
+export type RepositoryResearchInput = z.infer<typeof stepInput>;
+
+/**
+ * Creates a `repository_research` run with its single `acquire_repository` step. Nothing creates these automatically yet:
+ * discovery (Task 5.3) will. The run is passive by construction: acquisition reads a public repository and executes nothing.
+ */
+export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator"): Promise<{ runId: string; stepId: string }> {
+  const parsed = stepInput.parse(input);
+  parseRepositoryName(parsed.repository);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const run = await client.query<{ id: string; correlation_id: string }>(
+      `INSERT INTO workflow_runs (workflow_type, status, input, created_by) VALUES ($1, 'queued', $2::jsonb, $3) RETURNING id, correlation_id`,
+      [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: parsed.repository, source: "user", ...(parsed.ref ? { ref: parsed.ref } : {}), execution_mode: "passive_only", authorization_status: "unverified" }), createdBy]);
+    const step = await client.query<{ id: string }>(
+      `INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, 0, 'repository_acquirer', $3::jsonb) RETURNING id`,
+      [run.rows[0]!.id, ACQUIRE_STEP_KEY, JSON.stringify(parsed)]);
+    await client.query(
+      `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload)
+       VALUES ($1, 'repository_research.created', 'workflow_run', $2, $3, 'Repository acquisition requested (passive reading of a public repository)', jsonb_build_object('repository', $4::text, 'passive_only', true))`,
+      [createdBy, run.rows[0]!.id, run.rows[0]!.correlation_id, parsed.repository]);
+    await client.query("COMMIT");
+    return { runId: run.rows[0]!.id, stepId: step.rows[0]!.id };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export type AcquireStepContext = {
+  pool: Pool; worker: WorkflowWorker; workerId: string; source: RepositorySource;
+  /** How often the step lease is renewed while the acquisition runs (the worker's lease is 90 s by default). */
+  heartbeatMs?: number;
+  log?: (message: string, fields?: Record<string, unknown>) => void;
+};
+
+/** Output stored on the step: pointers and counts only, never content. */
+export function stepOutput(result: AcquisitionResult): Record<string, unknown> {
+  return {
+    status: "snapshot_sealed", snapshot_id: result.snapshotId, repository: result.repository, commit_sha: result.commitSha, tree_sha: result.treeSha,
+    manifest_sha256: result.manifestSha256, file_count: result.fileCount, stored_files: result.storedFiles, stored_bytes: result.storedBytes,
+    skipped_by_reason: result.skipped, completeness: result.completeness, reused: result.reused,
+    execution_mode: "passive_only", authorization_status: "unverified", active_testing_allowed: false,
+  };
+}
+
+export async function processAcquireRepositoryStep(context: AcquireStepContext, step: ClaimedStep): Promise<void> {
+  const parsed = stepInput.safeParse(step.input);
+  if (!parsed.success) throw new AcquisitionError("invalid_reference", `the step input is invalid: ${parsed.error.issues[0]?.message ?? "unknown"}`);
+  const request: AcquireRequest = {
+    repository: parsed.data.repository,
+    ...(parsed.data.ref !== undefined ? { ref: parsed.data.ref } : {}),
+    ...(parsed.data.excludePathPrefixes ? { excludePathPrefixes: parsed.data.excludePathPrefixes } : {}),
+    ...(parsed.data.onUnrepresentable ? { onUnrepresentable: parsed.data.onUnrepresentable } : {}),
+  };
+  const controller = new AbortController();
+  let leaseLost = false;
+  const beat = setInterval(() => {
+    context.worker.heartbeat(step.id).then((alive) => { if (!alive) { leaseLost = true; controller.abort(); } }, () => { /* a failed beat is retried at the next interval; the lease check on writes is the authority */ });
+  }, context.heartbeatMs ?? 30_000);
+  try {
+    const store = new ResearchStore(context.pool);
+    const result = await acquireRepository({ store, source: context.source, signal: controller.signal, progress: (event, fields) => context.log?.(`acquisition ${event}`, fields) }, { stepId: step.id, workerId: context.workerId }, request);
+    await context.worker.complete(step.id, stepOutput(result));
+  } catch (error) {
+    if (leaseLost) throw new LeaseLostError("the step lease was lost during acquisition");
+    throw error;
+  } finally {
+    clearInterval(beat);
+  }
+}

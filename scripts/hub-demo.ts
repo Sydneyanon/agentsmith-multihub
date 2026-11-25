@@ -52,7 +52,18 @@ export async function startDemo(): Promise<Demo> {
 
     const ctx = await fx.step();
     await db.pool.query("UPDATE workflow_runs SET input = $2::jsonb, status = 'running' WHERE id = $1", [ctx.runId, JSON.stringify({ kind: "idea", value: "SYNTHETIC demo: fixture vault research run", source: "user" })]);
-    const snapshotId = await fx.store.createSnapshot(ctx.lease, { repository: "synthetic/demo-vault", commitSha: fx.commit(), refName: "main", acquisitionReport: { note: "synthetic" } });
+    const snapshotId = await fx.store.createSnapshot(ctx.lease, { repository: "synthetic/demo-vault", commitSha: fx.commit(), refName: "main", acquisitionReport: {
+      // SYNTHETIC: shaped like a real acquisition report (docs/repository-acquisition.md) so the dashboard's Acquisition panel is exercised; nothing here was acquired.
+      report_version: 1, tool: { name: "agentsmith-repository-acquisition", version: "5.2.0" }, acquired_at: "2026-01-02T03:04:05.000Z",
+      source: { host: "github.com", full_name: "synthetic/demo-vault", requested_ref: "main", commit_sha: "0".repeat(40), tree_sha: "1".repeat(40) },
+      archive: { sha256: "c".repeat(64), compressed_bytes: 18_432, uncompressed_bytes: 61_440, entries: 12 },
+      completeness: { status: "partial", unrepresentable_total: 1, unrepresentable: [{ path: "docs/odd\\u{9}name.md", reason: "tab_or_newline", kind: "file", git_sha: "9".repeat(40), size: 12 }] },
+      counts: { tree_entries: 12, manifest_rows: 10, stored: 9, stored_bytes: 16_000, skipped_by_reason: { oversize: 1, symlink: 1, submodule: 1 }, lfs_pointers: 1, symlinks: 1, submodules: 1, case_collisions: 0 },
+      symlinks: [{ path: "docs/latest", target: "../../outside/notes.md", escapes_root: true }],
+      submodules: [{ path: "lib/dep", commit_sha: "2".repeat(40), url: "https://example.invalid/dep.git" }],
+      lfs_pointers: [{ path: "assets/video.bin", oid: "b".repeat(64), size: 9_000_000 }],
+      verification: { method: "synthetic demo record", manifest_sha256: "d".repeat(64) },
+    } });
     const files: Array<[string, string, string]> = [
       ["contracts/Vault.sol", "source", VAULT], ["contracts/Staking.sol", "source", filler("Staking", 140)], ["contracts/Bridge.sol", "source", filler("Bridge", 90)],
       ["contracts/lib/Math.sol", "source", filler("Math", 30)], ["test/Vault.t.sol", "test", filler("VaultTest", 70)], ["test/Staking.t.sol", "test", filler("StakingTest", 40)],
