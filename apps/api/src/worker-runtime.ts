@@ -916,8 +916,10 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   const surfaceMapped = isRecord(mapOutput) && mapOutput.status === "mapped";
   const researchCompleteness = !sourceSampled || !surfaceMapped ? "not_assessable"
     : leads.length === 0 ? "no_leads_in_bounded_sample" : "preliminary_unreviewed";
+  // Only an explicit claim is a claim; an absent flag is just an absent flag.
   const challengeClaimsReview = isRecord(challengeOutput) &&
-    challengeOutput.independent_review_completed !== false;
+    challengeOutput.independent_review_completed === true;
+  const checklistApplied = isRecord(challengeOutput) && challengeOutput.status === "checklist_applied";
   const brief = {
     brief_version: "passive-research-brief-v1",
     research_status: "preliminary_passive_review",
@@ -928,11 +930,11 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
       ? "No pattern leads were found in a bounded sample; this is not evidence that the project is free of vulnerabilities"
       : researchCompleteness === "not_assessable"
         ? "No bounded source sample and attack-surface map were available to assess"
-        : "Leads exist but none has been reviewed or verified",
+        : "Leads exist; no independent human or model review or verification has been completed",
     verification: {
       independent_review_completed: false,
       independent_review_status: "not_performed",
-      checklist_kind_applied: "deterministic_checklist",
+      checklist_kind_applied: checklistApplied ? "deterministic_checklist" : null,
       verified_findings: 0,
       ...(challengeClaimsReview ? { warning: "challenge_output_claimed_review_without_reviewer_evidence_ignored" } : {}),
     },

@@ -592,6 +592,42 @@ describe("passive intake resolution worker", () => {
       expect(out.brief.verification.warning).toContain("ignored");
     });
 
+    it("does not warn when the upstream review flag is merely absent", async () => {
+      const out = await runBrief({
+        independent_challenge: { status: "checklist_applied", challenges: [] },
+      });
+      expect(out.independent_review_completed).toBe(false);
+      expect(out.brief.verification.independent_review_completed).toBe(false);
+      expect(out.brief.verification).not.toHaveProperty("warning");
+    });
+
+    it("reports no checklist as applied when the challenge stage was not_applicable or absent", async () => {
+      const notApplicable = await runBrief({ independent_challenge: { status: "not_applicable" } });
+      expect(notApplicable.brief.verification.checklist_kind_applied).toBeNull();
+      expect(notApplicable.brief.verification.independent_review_status).toBe("not_performed");
+      expect(notApplicable.brief.verification).not.toHaveProperty("warning");
+
+      const { complete, worker } = fakeWorker();
+      const pool = { query: vi.fn().mockResolvedValue({ rows: [
+        { step_key: "establish_authorization", output: { status: "unverified" } },
+      ] }) } as unknown as import("pg").Pool;
+      await processResearchBrief(pool, worker, { ...step({}), step_key: "prepare_research_brief" });
+      const absent = complete.mock.calls[0]?.[1] as Record<string, any>;
+      expect(absent.brief.verification.checklist_kind_applied).toBeNull();
+    });
+
+    it("reports the deterministic checklist as applied only when the challenge stage applied it", async () => {
+      const out = await runBrief({});
+      expect(out.brief.verification.checklist_kind_applied).toBe("deterministic_checklist");
+    });
+
+    it("words the unreviewed-leads note as the absence of independent review, not of the checklist", async () => {
+      const out = await runBrief({}, [{ rule_id: "SOL-TX-ORIGIN" }]);
+      expect(out.brief.research_completeness_note).toBe(
+        "Leads exist; no independent human or model review or verification has been completed",
+      );
+    });
+
     it("carries the synthetic-seed marker into the brief and omits it for real runs", async () => {
       const seeded = await runBrief({
         identify_project: { ...executed.identify_project, seeded_synthetic: true },
