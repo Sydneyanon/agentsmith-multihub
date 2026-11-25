@@ -103,7 +103,7 @@ Acquired content is hostile: the repository may be written by an attacker who kn
 - **Dashboard:** already reads snapshots, files and the surface map; no change needed. The report fields above are shown in the existing snapshot detail view.
 - **Tests:** a real git repository is built locally for each fixture (`git init`, `git archive`, `git ls-tree`), and a fake GitHub serves the API JSON and the tarball. No third-party host is contacted. Database tests use a disposable loopback Postgres only.
 
-## 9. Known limitations and unresolved decisions (stated up front)
+## 9. Known limitations and unresolved decisions
 1. **Large repositories.** More than 20,000 entries cannot be represented (schema). Acquisition refuses them rather than truncating. A scoped acquisition (path prefixes, subdirectory snapshots) needs its own decision and probably a schema change.
 2. **Unauthenticated API budget.** GitHub allows 60 unauthenticated API requests per hour per address; an acquisition uses four. An optional token is accepted through the environment for higher limits; it is never stored or logged. Whether to provision one is an owner decision.
 3. **Submodules and LFS are recorded, not acquired.** Recursing into submodules or fetching LFS objects expands the trust surface and is deferred to a separate decision.
@@ -112,3 +112,23 @@ Acquired content is hostile: the repository may be written by an attacker who kn
 6. **`.gitmodules` and `.gitattributes`** are read as ordinary text to describe submodules; they are never executed or interpreted beyond that.
 7. **Case-insensitive collisions and Unicode normalisation** are reported, not resolved.
 8. **No GitHub Actions CI** can run (billing); verification is local and is not independent.
+
+10. **The real HTTP client has not met GitHub.** `GitHubSource` is tested against loopback servers that imitate the documented API and against an injected `fetch`, and its response shapes are validated strictly (`zod`). A difference between those shapes and what api.github.com really returns would make the first live acquisition fail closed with `unexpected_response`, not corrupt anything. The first live run is an owner decision (it contacts a third party, passively) and was deliberately not done here.
+11. **Memory.** Stored file content is held in memory until the archive is verified (bounded by the 64 MiB stored-byte budget, plus one file at a time while hashing). A tighter bound would need a spill-to-disk or two-pass design; it is not needed at these limits.
+12. **Reports are provenance, not evidence.** The acquisition report is stored on the snapshot and compared on retry, but unlike the manifest it is not covered by the seal's hash. The manifest hash recorded inside it is checked against the sealed one.
+13. **A worker crash after a successful seal but before the step completes** leaves a sealed snapshot and a step that retries; the retry finds the sealed snapshot, re-verifies it and completes (tested as the sealed short-circuit).
+
+## 11. As implemented
+**Code** (all under `apps/api/src/acquisition/` unless noted): `limits.ts`, `errors.ts`, `paths.ts` (manifest path rules, classification, LFS pointer detection, report escaping), `git-hash.ts`, `tar-reader.ts` (strict parser and bounded gunzip), `github-source.ts` (source interface, hardened client), `plan.ts` (every tree entry accounted for before any download), `acquire.ts` (orchestrator), `step.ts` (`repository_research` run, `acquire_repository` step handler with lease heartbeat). Outside the folder: `ResearchStore.findSnapshot`, value-based report comparison in `research-state.ts`, the step key in `worker-runtime.ts`, the Acquisition panel in `apps/web/src/view-repository.ts`. `testing/` holds test-only support (tar writer that can emit hostile archives, a real-git fixture builder, a fake source, an in-memory recording store).
+
+**What the tests use:** real git repositories built locally (`git init`, `git archive`, `git ls-tree`), so archive bytes and git object ids are genuine; loopback HTTP servers for the client; a disposable loopback PostgreSQL for the database tests. No third-party host is contacted by any test.
+
+**Test coverage by risk** (T-numbers are from section 7):
+- T1, T2, T3, T5, T6 (hostile and malformed archives): about 60 cases: traversal and dot segments, absolute and empty-segment paths, second top-level directory, duplicate entries, hard links, devices, FIFOs, sparse and GNU long names, bad checksums and sizes, base-256 sizes, truncation at every stage, trailing data, non-UTF-8 names, tampered, missing, extra and swapped entries, a symlink whose target text equals a file's bytes, wrong or absent archive commit, wrong tree id, truncated tree listing.
+- T4, T9 (resources): decompression bomb, oversize download, entry and size limits (including many small entries adding up), repository with too many entries refused before any download, stalled download, cancelled step.
+- T7, T8, T16, T17 (network): moving ref resolved once, full-SHA verification, redirects to other hosts or with credentials or in loops, token confined to the API host, rate limits and server errors classified, private repository refused, body stall versus slow steady download, mid-download disconnect, refused connection, test origins refused in production.
+- T10, T11 (idempotency, crash safety): real-Postgres crash injection at blob storage, before sealing and mid-way through a multi-batch manifest; resume gives the same snapshot and the same manifest as an uninterrupted run; a changed or superset retry is refused without writing; sealed snapshot not re-downloaded; two runs share blobs; lease loss writes nothing; sealed rows cannot be changed or deleted.
+- Integration: a snapshot is readable through the existing dashboard API (snapshot, manifest, file text, surface); worker end to end including failure classification and lease loss.
+- Database parity: a table of paths checked against the real constraint (anything accepted by the acquisition is accepted by the database; the only two deliberate differences are pinned).
+
+**Mutation check.** `scripts/acquisition-mutation-check.py` breaks one protection at a time (65 mutants: tar and gunzip limits and checks, every orchestrator verification, the planner, path rules, the HTTP client's redirect, token, size and timeout rules, the step handler) and requires a test to fail. Run it in a throw-away worktree (see its header).
