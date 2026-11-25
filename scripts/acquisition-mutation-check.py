@@ -88,7 +88,7 @@ M=[
  ("step: invalid input accepted unvalidated", A+"step.ts", 'if (!parsed.success) throw new AcquisitionError("invalid_reference"', 'if (false) throw new AcquisitionError("invalid_reference"'),
  ("tar: no cleanup on early exit", A+"tar-reader.ts", '    readable.destroy(); gunzip.destroy();\n  }\n}', '  }\n}'),
  ("source: header timer left running (covers the body)", A+"github-source.ts", '      } finally {\n        clearTimeout(timer);\n      }', '      } finally {\n      }'),
- ("source: stalled body never detected", A+"github-source.ts", '}), idleMs); });', '}), 100000000); });'),
+ ("source: stalled body never detected", A+"github-source.ts", ', true)), idleMs); });', ', true)), 100000000); });'),
  ("source: long tree paths rejected", A+"github-source.ts", 'max(65_536)', 'max(4096)'),
 ]
 sel=sys.argv[1:]  # optional substrings
