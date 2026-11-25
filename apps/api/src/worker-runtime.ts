@@ -639,11 +639,173 @@ export async function processHypothesisGeneration(pool: Pool, worker: WorkflowWo
   return { status: "completed", stepId: step.id };
 }
 
+
+const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvidence: string[] }> = {
+  "solidity-authentication": {
+    counterquestions: [
+      "Is the tx.origin occurrence actually part of an authorization decision, or is it telemetry, a test, or unrelated logic?",
+      "Can an attacker reach the containing function, and is caller identity checked elsewhere in the call path?",
+      "Does the intended threat model deliberately exclude contract-wallet callers?",
+    ],
+    minimumEvidence: ["Containing function and complete modifier chain", "All authorization conditions and inherited guards", "Reachability and caller-controlled path analysis"],
+  },
+  "solidity-lowlevel-call": {
+    counterquestions: [
+      "Is the call target fixed and trusted, or can an untrusted party influence it?",
+      "Are return values checked and state changes ordered safely?",
+      "Is reentrancy prevented by structure, a guard, or an invariant that remains true during the call?",
+    ],
+    minimumEvidence: ["Complete call site and surrounding state updates", "Target address provenance", "Failure handling and reentrancy analysis"],
+  },
+  "solidity-proxy": {
+    counterquestions: [
+      "Is the delegatecall target immutable or controlled by a narrowly authorized upgrade path?",
+      "Are storage layout and initialization invariants compatible?",
+      "Is this a standard, correctly constrained proxy implementation?",
+    ],
+    minimumEvidence: ["Target-selection path", "Upgrade authorization and initialization code", "Storage layout comparison"],
+  },
+  "solidity-entrypoint": {
+    counterquestions: [
+      "Is permissionless access intentional and safe for this operation?",
+      "Are access checks inherited or applied through modifiers not visible in the sampled line?",
+      "Do state and value invariants prevent harmful repeated or reordered calls?",
+    ],
+    minimumEvidence: ["Complete function body", "Modifiers and inherited implementation", "State transition and caller analysis"],
+  },
+  "solidity-destructive-op": {
+    counterquestions: [
+      "Is the operation reachable in the deployed version and protected by appropriate authority?",
+      "Is the lifecycle behavior intentionally constrained by the compiler version or execution environment?",
+      "Does the operation affect user-controlled assets or only an isolated test fixture?",
+    ],
+    minimumEvidence: ["Reachability and access-control path", "Compiler and deployment context", "Asset custody impact"],
+  },
+  "dynamic-code": {
+    counterquestions: [
+      "Can untrusted data reach the evaluated expression, or is the expression constant?",
+      "Is the call confined to tests, build tooling, or a non-production path?",
+      "Do sandboxing and validation prevent meaningful attacker influence?",
+    ],
+    minimumEvidence: ["Complete sink call", "Input provenance and sanitization", "Production reachability and execution context"],
+  },
+  "process-execution": {
+    counterquestions: [
+      "Are command and arguments constants, or can untrusted input alter them?",
+      "Is shell interpretation enabled, and can metacharacters change command structure?",
+      "Does the code run with privileges or filesystem access that increase impact?",
+    ],
+    minimumEvidence: ["Complete process invocation", "Argument and shell configuration", "Input provenance and runtime privileges"],
+  },
+  "sql-construction": {
+    counterquestions: [
+      "Does the database driver bind values separately from SQL syntax?",
+      "Is concatenation limited to validated identifiers or fixed fragments?",
+      "Does a query-builder or wrapper guarantee parameterization?",
+    ],
+    minimumEvidence: ["Complete query construction", "Driver API and parameter binding", "Origin and validation of dynamic fragments"],
+  },
+  "unsafe-memory": {
+    counterquestions: [
+      "Are all unsafe preconditions upheld by the surrounding safe abstraction?",
+      "Can callers violate pointer, aliasing, lifetime or bounds assumptions?",
+      "Is the unsafe block a narrow and documented FFI boundary?",
+    ],
+    minimumEvidence: ["Complete unsafe block", "Pointer and lifetime provenance", "Caller invariants and concurrency assumptions"],
+  },
+};
+
+export async function processIndependentChallenge(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<ProcessResult> {
+  if (step.step_key !== "independent_challenge") {
+    throw new Error(`Unsupported step for independent challenge: ${step.step_key}`);
+  }
+  const result = await pool.query<{ output: unknown }>(
+    `SELECT step_key, output FROM workflow_steps
+     WHERE workflow_run_id = $1 AND step_key IN ('generate_hypotheses', 'map_attack_surface')
+       AND status = 'succeeded'`,
+    [step.workflow_run_id],
+  );
+  const byKey = new Map(result.rows.map((row) => [row.step_key, row.output]));
+  const generated = byKey.get("generate_hypotheses");
+  const mapped = byKey.get("map_attack_surface");
+  if (!isRecord(generated) || generated.status !== "hypotheses_generated" ||
+      !Array.isArray(generated.hypotheses) || !isRecord(mapped) || mapped.status !== "mapped") {
+    await worker.complete(step.id, {
+      status: "not_applicable",
+      reason: "No completed hypothesis set and attack-surface map are available to challenge",
+      challenge_count: 0,
+      execution_mode: "passive_only",
+      authorization_status: "unverified",
+      independent_review_completed: false,
+    });
+    return { status: "completed", stepId: step.id };
+  }
+  const hypotheses = generated.hypotheses.filter((item): item is Record<string, unknown> =>
+    isRecord(item) && typeof item.rule_id === "string" && typeof item.family === "string" &&
+    typeof item.path === "string" && typeof item.id === "string"
+  );
+  const mapLeads = Array.isArray(mapped.leads) ? mapped.leads.filter(isRecord) : [];
+  const challenges = hypotheses.map((hypothesis) => {
+    const lead = mapLeads.find((candidate) =>
+      candidate.rule_id === hypothesis.rule_id && candidate.family === hypothesis.family &&
+      candidate.path === hypothesis.path
+    );
+    const rules = CHALLENGE_RULES[String(hypothesis.family)];
+    const evidenceLinked = Boolean(lead) && isRecord(generated.evidence) &&
+      typeof generated.evidence.snapshot_id === "string" && isRecord(mapped.evidence) &&
+      typeof mapped.evidence.snapshot_id === "string";
+    return {
+      hypothesis_id: hypothesis.id,
+      rule_id: hypothesis.rule_id,
+      path: hypothesis.path,
+      challenge_status: evidenceLinked && rules ? "counter_review_required" : "insufficient_linked_evidence",
+      source_lead_confirmed_in_map: Boolean(lead),
+      counterquestions: rules?.counterquestions ?? ["Is the pattern reachable and security-relevant in production code?", "What source context or design invariant could make this safe?"],
+      minimum_evidence_required: rules?.minimumEvidence ?? ["Complete source context", "Input and caller provenance", "Reachability and impact analysis"],
+      reasons_not_to_accept: [
+        "A lexical pattern match alone does not establish a vulnerability",
+        "The bounded source sample may omit guards, callers, tests or relevant configuration",
+        "No exploitability, impact or authorization claim has been independently established",
+      ],
+      verdict: "unverified",
+    };
+  });
+  const content = {
+    challenge_protocol: "deterministic-counterreview-v1",
+    hypothesis_snapshot_id: isRecord(generated.evidence) ? generated.evidence.snapshot_id : null,
+    surface_map_snapshot_id: isRecord(mapped.evidence) ? mapped.evidence.snapshot_id : null,
+    challenge_count: challenges.length,
+    challenges,
+    protocol_limitations: [
+      "This is an adversarial checklist pass, not an independent human or model reviewer",
+      "No source was fetched beyond the existing bounded snapshot",
+      "No hypothesis is verified or rejected by this stage",
+    ],
+  };
+  const evidence = await worker.persistSourceSnapshot(step.id, {
+    sourceUri: `internal://workflow-runs/${step.workflow_run_id}/counterreview-v1`,
+    sourceKind: "deterministic_counterreview",
+    content,
+  });
+  await worker.complete(step.id, {
+    status: "challenged",
+    challenge_count: challenges.length,
+    challenges,
+    evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
+    execution_mode: "passive_only",
+    authorization_status: "unverified",
+    active_testing_allowed: false,
+    independent_review_completed: false,
+    requires_human_or_separate_model_review: true,
+  });
+  return { status: "completed", stepId: step.id };
+}
+
 export async function runIntakeWorker(pool: Pool, workerId: string, signal: AbortSignal, pollMs = 2_000): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
   while (!signal.aborted) {
     await worker.reapExhaustedLeases();
-    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses"]);
+    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses", "independent_challenge"]);
     if (!step) {
       await new Promise<void>((resolve) => {
         let timer: ReturnType<typeof setTimeout>;
@@ -664,7 +826,8 @@ export async function runIntakeWorker(pool: Pool, workerId: string, signal: Abor
       else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
       else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
       else if (step.step_key === "map_attack_surface") await processAttackSurfaceMapping(pool, worker, step);
-      else await processHypothesisGeneration(pool, worker, step);
+      else if (step.step_key === "generate_hypotheses") await processHypothesisGeneration(pool, worker, step);
+      else await processIndependentChallenge(pool, worker, step);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown intake resolution error";
       await worker.fail(step.id, reason, false);
