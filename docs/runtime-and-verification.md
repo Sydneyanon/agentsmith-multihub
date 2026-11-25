@@ -18,6 +18,14 @@ Runs, locally and without GitHub Actions: lockfile consistency (`npm ci --dry-ru
 - `npm run verify -- --docker` also attempts a real `docker build`. With no reachable Docker daemon it reports SKIPPED, never PASS.
 - It is a local run. It does not replace independent CI, and it says nothing about a deployment.
 
+## Database client settings
+All pools (API, worker, migration runner) are built by `buildPoolConfig` (`apps/api/src/db-config.ts`):
+- `DATABASE_CONNECT_TIMEOUT_MS` (default 3000, allowed 1000-60000). `fly.toml` sets 30000 because a Fly Managed Postgres **Developer** cluster auto-pauses after 15 minutes idle and takes about 15-25 s to wake.
+- TLS is used in production and for any non-loopback host, with certificate verification. `DATABASE_SSL_VERIFY=false` turns verification off and is meant only as a documented fallback if the first connection fails with a certificate error; Fly's documentation says SSL is enabled but does not say which CA signs it, so this is **unverified until the first staging connection**.
+- Connections are recycled after 10 minutes and idle ones after 30 s, per Fly's guidance to stay under the proxy's drain timeout.
+- Developer-plan limits to plan around: up to 20 connections shared by all clients (API pool 5, worker pool 3, migration 1), 1 GB growing to 5 GB, one backup a day kept for one day (take your own `pg_dump` of anything that matters).
+- Migrations use the cluster's **direct** URL and, because the host is not loopback, need `MIGRATE_CONFIRM_REMOTE_HOST=<that exact host>`; they are still a separate, explicitly approved step.
+
 ## Tests: unit versus real Postgres
 - `npm test` runs the unit tests. They use a mocked database and say nothing about SQL behaviour.
 - `npm run test:integration` runs real-Postgres tests (queue SQL, retry ceiling, reaper, snapshot immutability, the worker loop over the real queue, and the migration runner's checksum, advisory-lock, rollback and connection-safety protections). It needs `TEST_DATABASE_URL` pointing at a **loopback** Postgres server and exits 2 without it. Each test file creates its own `agentsmith_test_<hex>` database and drops it afterwards; non-loopback hosts are refused before any connection (`apps/api/src/db-safety.ts`). Use a disposable local server, never a shared or hosted database.

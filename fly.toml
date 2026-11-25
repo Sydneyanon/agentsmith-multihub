@@ -10,6 +10,8 @@ primary_region = "syd"
   HOST = "0.0.0.0"
   PORT = "8080"
   LOG_LEVEL = "info"
+  # Fly Managed Postgres (Developer plan) auto-pauses and takes up to ~25s to wake.
+  DATABASE_CONNECT_TIMEOUT_MS = "30000"
 
 # Two process groups from the same image. The worker has no HTTP service, so Fly
 # never auto-stops it; its machine count is set at deploy time, not in this file.
