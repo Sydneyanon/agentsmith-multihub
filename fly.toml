@@ -1,3 +1,5 @@
+# This names the existing app. Never deploy with this file without an explicit
+# `--app <name>`; staging must use its own app (see docs/runtime-and-verification.md).
 app = "agentsmith-multihub"
 primary_region = "syd"
 
@@ -9,6 +11,12 @@ primary_region = "syd"
   PORT = "8080"
   LOG_LEVEL = "info"
 
+# Two process groups from the same image. The worker has no HTTP service, so Fly
+# never auto-stops it; its machine count is set at deploy time, not in this file.
+[processes]
+  app = "npm start"
+  worker = "npm run worker:intake"
+
 [http_service]
   internal_port = 8080
   force_https = true
@@ -17,7 +25,22 @@ primary_region = "syd"
   min_machines_running = 0
   processes = ["app"]
 
+  # Liveness only: /health/ready depends on the database and must not restart the API.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health/live"
+
 [[vm]]
+  processes = ["app"]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[vm]]
+  processes = ["worker"]
   memory = "512mb"
   cpu_kind = "shared"
   cpus = 1
