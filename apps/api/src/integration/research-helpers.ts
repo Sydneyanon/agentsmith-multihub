@@ -37,7 +37,8 @@ export class ResearchFixture {
     this.worker = new WorkflowWorker(db.pool, "research-writer", 30, 3);
   }
 
-  get pool(): Pool { return this.db.pool; }
+  /** Owner connection: fixture setup and deliberate trigger probes. The store and worker under test use the runtime pool. */
+  get pool(): Pool { return this.db.ownerPool; }
 
   next(): number { return ++this.counter; }
 

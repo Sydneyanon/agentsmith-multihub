@@ -37,8 +37,8 @@ describe.skipIf(skipIntegration)("research state: provenance across runs, safe r
         "INSERT INTO repo_snapshots (workflow_run_id, produced_by_step_id, source_host, repository, commit_sha) VALUES ($1,$2,'github.com','x/y',$3)",
         [a.runId, b.lease.stepId, fx.commit()])).rejects.toThrow(FK);
       const building = await fx.rawSnapshot();
-      await expect(db.pool.query("UPDATE repo_snapshots SET sealed_at = now(), sealed_by_step_id = $2 WHERE id = $1", [building, b.lease.stepId])).rejects.toThrow(FK);
-      await expect(db.pool.query("UPDATE repo_snapshots SET sealed_at = now() WHERE id = $1", [building])).rejects.toThrow(/must name the sealing step/);
+      await expect(db.ownerPool.query("UPDATE repo_snapshots SET sealed_at = now(), sealed_by_step_id = $2 WHERE id = $1", [building, b.lease.stepId])).rejects.toThrow(FK);
+      await expect(db.ownerPool.query("UPDATE repo_snapshots SET sealed_at = now() WHERE id = $1", [building])).rejects.toThrow(/must name the sealing step/);
       await expect(fx.rawSeal(building)).resolves.toBeTruthy(); // its own step may seal it
     });
 

@@ -24,8 +24,14 @@ export function assertIntegrationConfigured(): void {
 export type TestDatabase = {
   url: string;
   name: string;
+  /** What the code under test uses. In restricted mode (TEST_RUNTIME_ROLE=1) this connects as the least-privilege runtime role. */
   pool: pg.Pool;
+  /** The owner/migration connection to this database (fixtures that need more than the runtime role may do). Same as `pool` unless restricted. */
+  ownerPool: pg.Pool;
   adminPool: pg.Pool;
+  /** The runtime role's name when restricted mode is on. */
+  runtimeRole?: string;
+  afterDrop?: () => Promise<void>;
   drop(): Promise<void>;
 };
 
@@ -47,14 +53,17 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   await adminPool.query(`CREATE DATABASE ${name}`);
   const pool = new pg.Pool({ connectionString: url, max: 25, connectionTimeoutMillis: 5_000 });
   pool.on("error", () => undefined); // tests terminate backends on purpose
-  return {
-    url, name, pool, adminPool,
+  const db: TestDatabase = {
+    url, name, pool, ownerPool: pool, adminPool,
     async drop() {
-      await pool.end().catch(() => undefined);
+      await db.pool.end().catch(() => undefined);
+      if (db.ownerPool !== db.pool) await db.ownerPool.end().catch(() => undefined);
       await adminPool.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+      await db.afterDrop?.();
       await adminPool.end();
     },
   };
+  return db;
 }
 
 export type RunResult = { code: number | null; stdout: string; stderr: string; ms: number };
@@ -81,12 +90,48 @@ export function runMigrate(options: { directUrl?: string; cwd?: string; extraEnv
   });
 }
 
+export const restrictedMode = process.env.TEST_RUNTIME_ROLE === "1";
+
+/** Creates a login role with no privileges beyond connecting, then applies db/runtime-grants.json to it with the real script. */
+export async function createRuntimeRole(db: TestDatabase): Promise<{ role: string; url: string; pool: pg.Pool }> {
+  const role = `rt_${db.name.slice("agentsmith_test_".length)}`;
+  const password = randomBytes(18).toString("hex");
+  await db.adminPool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+  await db.adminPool.query(`GRANT CONNECT ON DATABASE ${db.name} TO ${role}`);
+  const applied = await runScript("scripts/apply-runtime-grants.ts", { DIRECT_DATABASE_URL: db.url, RUNTIME_ROLE: role });
+  if (applied.code !== 0) throw new Error(`apply-runtime-grants failed: ${applied.stderr.slice(0, 600)}`);
+  const u = new URL(db.url); u.username = role; u.password = password;
+  const pool = new pg.Pool({ connectionString: u.toString(), max: 25, connectionTimeoutMillis: 5_000 });
+  pool.on("error", () => undefined);
+  return { role, url: u.toString(), pool };
+}
+
+export function runScript(script: string, env: Record<string, string>): Promise<RunResult> {
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    const child = spawn(`${REPO_ROOT}node_modules/.bin/tsx`, [`${REPO_ROOT}${script}`], {
+      cwd: REPO_ROOT, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...env }, stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = ""; let stderr = "";
+    child.stdout.on("data", (c) => { stdout += c; }); child.stderr.on("data", (c) => { stderr += c; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr, ms: Date.now() - started }));
+  });
+}
+
 export async function migratedTestDatabase(): Promise<TestDatabase> {
   const db = await createTestDatabase();
   const result = await runMigrate({ directUrl: db.url });
   if (result.code !== 0) {
     await db.drop();
     throw new Error(`Migrations failed in the test database: ${result.stderr.slice(0, 500)}`);
+  }
+  if (restrictedMode) {
+    const rt = await createRuntimeRole(db);
+    db.runtimeRole = rt.role;
+    db.ownerPool = db.pool;
+    db.pool = rt.pool;
+    db.afterDrop = async () => { await db.adminPool.query(`DROP ROLE IF EXISTS ${rt.role}`).catch(() => undefined); };
   }
   return db;
 }

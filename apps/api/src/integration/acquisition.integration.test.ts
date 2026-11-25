@@ -87,10 +87,10 @@ describe.skipIf(skipIntegration)("repository acquisition over real Postgres", ()
     });
     it("a sealed snapshot cannot be changed, extended or deleted", async () => {
       await expect(store.addSnapshotFiles(lease, result.snapshotId, [{ path: "new.sol", classification: "source", sizeBytes: 0, skipReason: "excluded_by_policy" }])).rejects.toThrow(/sealed/);
-      await expect(db.pool.query("UPDATE repo_snapshot_files SET size_bytes = 1 WHERE snapshot_id = $1", [result.snapshotId])).rejects.toThrow();
-      await expect(db.pool.query("DELETE FROM repo_snapshot_files WHERE snapshot_id = $1", [result.snapshotId])).rejects.toThrow();
-      await expect(db.pool.query("DELETE FROM repo_snapshots WHERE id = $1", [result.snapshotId])).rejects.toThrow();
-      await expect(db.pool.query("UPDATE repo_snapshots SET commit_sha = $2 WHERE id = $1", [result.snapshotId, "f".repeat(40)])).rejects.toThrow();
+      await expect(db.ownerPool.query("UPDATE repo_snapshot_files SET size_bytes = 1 WHERE snapshot_id = $1", [result.snapshotId])).rejects.toThrow();
+      await expect(db.ownerPool.query("DELETE FROM repo_snapshot_files WHERE snapshot_id = $1", [result.snapshotId])).rejects.toThrow();
+      await expect(db.ownerPool.query("DELETE FROM repo_snapshots WHERE id = $1", [result.snapshotId])).rejects.toThrow();
+      await expect(db.ownerPool.query("UPDATE repo_snapshots SET commit_sha = $2 WHERE id = $1", [result.snapshotId, "f".repeat(40)])).rejects.toThrow();
     });
     it("running it again in the same run changes nothing and says so", async () => {
       const before = { rows: await count("SELECT count(*) n FROM repo_snapshot_files"), blobs: await count("SELECT count(*) n FROM research_blobs"), snaps: await count("SELECT count(*) n FROM repo_snapshots") };
@@ -228,7 +228,7 @@ describe.skipIf(skipIntegration)("repository acquisition over real Postgres", ()
       const { lease, runId } = await fx.step();
       const source = new FakeSource(main);
       const original = source.openArchive.bind(source);
-      source.openArchive = async (...args) => { await db.pool.query("UPDATE workflow_steps SET lease_expires_at = now() - interval '1 minute' WHERE id = $1", [lease.stepId]); return original(...args); };
+      source.openArchive = async (...args) => { await db.ownerPool.query("UPDATE workflow_steps SET lease_expires_at = now() - interval '1 minute' WHERE id = $1", [lease.stepId]); return original(...args); };
       await expect(acquire(lease, source)).rejects.toBeInstanceOf(LeaseLostError);
       expect(await count("SELECT count(*) n FROM repo_snapshots WHERE workflow_run_id = $1", [runId])).toBe(0);
     });
@@ -275,7 +275,7 @@ describe.skipIf(skipIntegration)("repository acquisition over real Postgres", ()
       const step = (await worker.claimNext([ACQUIRE_STEP_KEY]))!;
       const source = new FakeSource(main); source.hang = true;
       const running = processAcquireRepositoryStep({ pool: db.pool, worker, workerId: "acq-worker-3", source, heartbeatMs: 30 }, step);
-      setTimeout(() => { void db.pool.query("UPDATE workflow_steps SET lease_owner = 'someone-else' WHERE id = $1", [stepId]); }, 80);
+      setTimeout(() => { void db.ownerPool.query("UPDATE workflow_steps SET lease_owner = 'someone-else' WHERE id = $1", [stepId]); }, 80);
       await expect(running).rejects.toBeInstanceOf(LeaseLostError);
       expect(classifyStepError(await running.catch((e) => e)).kind).toBe("lease_lost");
     });
