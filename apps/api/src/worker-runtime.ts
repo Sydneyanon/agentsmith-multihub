@@ -864,6 +864,15 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   const mapOutput = outputs.get("map_attack_surface");
   const repositoryOutput = outputs.get("identify_project");
   const sourceOutput = outputs.get("locate_official_repositories");
+  const requiredStepKeys = [
+    "identify_project",
+    "locate_official_repositories",
+    "establish_authorization",
+    "map_attack_surface",
+    "generate_hypotheses",
+    "independent_challenge",
+  ] as const;
+  const missingStepKeys = requiredStepKeys.filter((key) => !outputs.has(key));
   const hypotheses = isRecord(hypothesesOutput) && Array.isArray(hypothesesOutput.hypotheses)
     ? hypothesesOutput.hypotheses.filter(isRecord) : [];
   const challenges = isRecord(challengeOutput) && Array.isArray(challengeOutput.challenges)
@@ -872,6 +881,8 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   const brief = {
     brief_version: "passive-research-brief-v1",
     research_status: "preliminary_passive_review",
+    completeness: missingStepKeys.length === 0 ? "all_pipeline_stages_present" : "partial_pipeline",
+    missing_step_keys: missingStepKeys,
     repository: isRecord(repositoryOutput) && isRecord(repositoryOutput.repository)
       ? repositoryOutput.repository : null,
     source_sample: isRecord(sourceOutput) ? {
@@ -917,6 +928,8 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   });
   await worker.complete(step.id, {
     status: "brief_prepared",
+    pipeline_completeness: missingStepKeys.length === 0 ? "complete" : "partial",
+    missing_step_keys: missingStepKeys,
     brief,
     evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
     execution_mode: "passive_only",
