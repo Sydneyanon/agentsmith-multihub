@@ -56,7 +56,7 @@ describe("the release plan is a plan, not a record", () => {
   });
   it("names exact rollback target, migrations, permissions and the open blockers", () => {
     expect(rel).toContain("hub-b5bc4b548c2e");
-    expect(rel).toContain("sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8");
+    expect(rel).toMatch(/\| 8 \| \*\*Rollback target and procedure\*\* \|[^\n]*sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8/);
     expect(rel).toMatch(/## 2\. Migrations\n\*\*None\.\*\*/);
     expect(rel).toMatch(/a0c96e3/);
     expect(rel).toMatch(/Real Docker build never performed/);

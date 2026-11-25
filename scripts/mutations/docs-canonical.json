@@ -40,8 +40,8 @@
   {
    "name": "rollback digest removed",
    "file": "docs/first-production-release-plan.md",
-   "old": "sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8",
-   "new": "sha256:unknown"
+   "old": "digest `sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8` (commit `b5bc4b5`)",
+   "new": "digest `sha256:unknown` (commit `b5bc4b5`)"
   }
  ]
 }

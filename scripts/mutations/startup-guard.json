@@ -10,7 +10,7 @@
   {
    "name": "no retry between failed checks",
    "file": "apps/api/src/db-roles.ts",
-   "old": "if (attempt < attempts) await sleep(delay);",
+   "old": "        await sleep(delay);\n",
    "new": ""
   },
   {
