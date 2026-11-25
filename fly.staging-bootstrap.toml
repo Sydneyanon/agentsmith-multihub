@@ -1,0 +1,42 @@
+# GENERATED from fly.toml by `npm run staging:configs` (scripts/staging-config.ts). Do not edit.
+# STAGING ONLY: this names the staging app, never the existing one.
+# FIRST RELEASE: app process group only, no worker (it needs a database).
+app = "agentsmith-multihub-staging"
+primary_region = "syd"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  LOG_LEVEL = "info"
+  # Fly Managed Postgres (Developer plan) auto-pauses and takes up to ~25s to wake.
+  DATABASE_CONNECT_TIMEOUT_MS = "30000"
+
+# Two process groups from the same image. The worker has no HTTP service, so Fly
+# never auto-stops it; its machine count is set at deploy time, not in this file.
+[processes]
+  app = "npm start"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  # Liveness only: /health/ready depends on the database and must not restart the API.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health/live"
+
+[[vm]]
+  processes = ["app"]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

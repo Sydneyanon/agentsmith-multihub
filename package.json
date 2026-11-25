@@ -16,6 +16,7 @@
     "db:migrate": "node dist/scripts/migrate.js",
     "worker:intake": "node dist/apps/api/src/worker-main.js",
     "worker:intake:dev": "tsx apps/api/src/worker-main.ts",
+    "staging:configs": "tsx scripts/staging-config.ts",
     "verify": "node scripts/verify.mjs"
   },
   "dependencies": {

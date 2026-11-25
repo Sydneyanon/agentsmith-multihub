@@ -10,7 +10,7 @@ One image runs two process groups (`fly.toml` `[processes]`):
 
 `npm run worker:intake:dev` runs the worker through `tsx` for local development only. `tsx` is a dev dependency and is not in the runtime image (`npm ci --omit=dev`). Machine counts per group are set at deploy time, not in `fly.toml`.
 
-`fly.toml` names the existing app. **Always pass an explicit `--app <name>`** and use a separate staging app; never deploy this file without it. No `release_command` is configured on purpose: migrations are a separate, explicitly approved step (`docs/database-migrations.md`), not something every deploy runs automatically.
+`fly.toml` names the existing app. **Always pass an explicit `--app <name>`** and use a separate staging app; never deploy this file without it. Staging uses its own generated configs (`fly.staging-bootstrap.toml`, `fly.staging.toml`), see `docs/fly-staging-runbook.md`. No `release_command` is configured on purpose: migrations are a separate, explicitly approved step (`docs/database-migrations.md`), not something every deploy runs automatically.
 
 ## `npm run verify`
 Runs, locally and without GitHub Actions: lockfile consistency (`npm ci --dry-run`), typecheck, tests and build, then prints PASS / FAIL / SKIPPED per check and exits non-zero on any failure.
