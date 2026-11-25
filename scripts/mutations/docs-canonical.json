@@ -1,0 +1,47 @@
+{
+ "command": "npx vitest run apps/api/src/docs-canonical",
+ "mutations": [
+  {
+   "name": "control room allowed to be simulated",
+   "file": "docs/research-intelligence-plan.md",
+   "old": "**No simulated or demo activity in production**",
+   "new": "Demo activity is acceptable"
+  },
+  {
+   "name": "Weirdness Engine claimed to be defined",
+   "file": "docs/research-intelligence-plan.md",
+   "old": "**The definition is not yet written.**",
+   "new": "Defined."
+  },
+  {
+   "name": "Task 5.3 authorised",
+   "file": "docs/research-intelligence-plan.md",
+   "old": "**Task 5.3 (Discover) is not authorised** and has not been started.",
+   "new": "Task 5.3 is authorised."
+  },
+  {
+   "name": "Automated Security Toolchain dropped",
+   "file": "docs/research-intelligence-plan.md",
+   "old": "| **5.4B** | **Automated Security Toolchain** |",
+   "new": "| **5.4B** | **Something else** |"
+  },
+  {
+   "name": "fly.toml header reverts to 'existing app'",
+   "file": "fly.toml",
+   "old": "# LEGACY / DO NOT DEPLOY. This file names",
+   "new": "# This names the existing app. This file names"
+  },
+  {
+   "name": "release plan claims execution",
+   "file": "docs/first-production-release-plan.md",
+   "old": "**Nothing in this document has been executed.**",
+   "new": "This was executed."
+  },
+  {
+   "name": "rollback digest removed",
+   "file": "docs/first-production-release-plan.md",
+   "old": "sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8",
+   "new": "sha256:unknown"
+  }
+ ]
+}

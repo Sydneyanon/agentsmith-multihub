@@ -1,7 +1,6 @@
-# PRODUCTION HUB (PREPARED, NOT DEPLOYED): the private dashboard and research API at https://hub.agentsmithdesk.xyz.
-# Nothing has been created from this file. The app name below is a PROPOSAL: Fly app names are global, so
-# availability is unknown until the owner creates the app. Deploy only with an explicit `--app` and only after the
-# owner approves docs/hub-production-plan.md. Never use fly.toml (it names a pre-existing app) for the hub.
+# PRODUCTION HUB: the private dashboard and research API at https://hub.agentsmithdesk.xyz. DEPLOYED (first release 2026-11-25; see
+# docs/hub-production-plan.md sections 12-15). Changes to this file take effect only on a deploy, which needs the owner's explicit
+# approval; the next release is planned in docs/first-production-release-plan.md. Never use fly.toml for the hub.
 app = "agentsmith-hub"
 primary_region = "syd"
 

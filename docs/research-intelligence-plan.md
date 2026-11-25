@@ -185,6 +185,8 @@ Model calls, X discovery, active testing, scope or approval handling, learning/c
 - No exploit or proof-of-concept content is stored in the public repository; fixtures are educational contracts with recorded licences, and research outputs for real targets stay in the private database.
 
 ## 8. Decisions recorded (owner, after review of this document)
+> *These rows are the decisions as first recorded and are kept unedited. Several are superseded by later, dated decisions in section 10 (notably: hosting no longer waits: the production hub is live; PR 5.2 is approved and implemented as a draft). Section 10 is the current, canonical decision log.*
+
 | Question | Decision |
 |---|---|
 | First-class research state | **Approved.** Stop extending workflow-step JSON as the permanent research store. |
@@ -193,3 +195,33 @@ Model calls, X discovery, active testing, scope or approval handling, learning/c
 | Hosting (Fly staging) | **Waits** until the offline research slice passes. |
 
 Only the architecture and PR 5.1 are approved. Later PRs (5.2 onwards) are not pre-approved and each needs its own review. No model spend, hosted database, Fly resource, deployment, active testing or public-repository scope is authorised by these decisions.
+
+## 9. Roadmap additions (agreed as capabilities; none designed, approved for implementation or started)
+Recorded 2026-11-25 at the owner's direction. Each needs its own design document and explicit approval before any code. They sit after the current Task 5 line and do not change the 5.1-5.8 plan above; none may weaken the safety boundaries in section 7 (nothing untrusted is executed outside an approved sandbox, no model spend outside the gateway, no active testing without current verified scope and approval).
+
+| ID | Capability | What is agreed now | Open before it can start |
+|---|---|---|---|
+| **5.4B** | **Automated Security Toolchain** | Integrate established static-analysis and security tooling as pluggable, versioned components whose findings enter the research state as *hypotheses and evidence with provenance* (tool name, version, input hashes), never as confirmed findings. Follows 5.4 (Understand). | Sandbox design for any tool that executes code or builds a project (requires its own approval; until then tools may only read and parse); tool selection and licences; result schema. |
+| **5.5A** | **Weirdness Engine** | A named engine for surfacing unusual or anomalous behaviour and structure for investigation, feeding the specialist/hypothesis pipeline (5.5). | **The definition is not yet written.** This entry records only that it was agreed as a roadmap capability; scope, inputs and outputs are to be specified with the owner. |
+| **-** | **Adaptive Research Priority Engine** | Decides what to research next from recorded outcomes (evaluation results, reviews, cost), within budget caps, with every ranking decision explainable and stored. | Definition, objective function, the data it learns from (needs the 5.8 baseline), and approval to adapt behaviour at all. |
+| **5.9** | **Live Engine Control Room** | A real-time view of the research engine in the hub. It must show **genuine** research events, running tools, agent activity, queues, costs, errors and progress, taken only from real records, leases and heartbeats. **No simulated or demo activity in production**; an idle engine shows as idle; stale data is labelled stale (as in `docs/existing-hunt-board-integration.md`); unknown values are shown as unknown. | Event/heartbeat sources for tools and agents (do not exist yet), cost attribution from the gateway ledger, access model, and a test that the UI refuses to render anything not backed by a stored record. |
+
+Status: these rows are committed to this document by the PR that adds them; until that PR is reviewed and merged they are not part of the canonical roadmap on `main`.
+
+## 10. Dated decision log (canonical; newest last)
+Each entry is a decision the owner made or an event that changed the plan. "Approval" is for the stated scope only.
+
+| Date | Decision / event | Scope and conditions |
+|---|---|---|
+| 2026-11 (earlier) | First-class research state; Solidity first; offline slice first (section 8) | Architecture and PR 5.1 approved. |
+| 2026-11-25 | **Hosting approved and executed.** Separate Fly app `agentsmith-hub` (region `syd`), one `app` machine, no worker; separate Fly Managed Postgres `agentsmith-hub-db`; permanent hostname `hub.agentsmithdesk.xyz` (three DNS records added by the owner in Porkbun; `hunt.` untouched); bearer-token auth; migrations run manually after confirming the target database. | Supersedes "Hosting waits" (section 8). Image built **without Docker** (`scripts/hub-image.sh`) because no Docker/remote builder was reachable; owner approved that route. Releases: `hub-dd28d27ed085`, then `hub-b5bc4b548c2e` (current). No old resources deleted. |
+| 2026-11-25 | **Token custody.** The owner confirmed the bearer token is stored in their password manager; the local copy was deleted. | Rotation requires a new approval. |
+| 2026-11-25 | **PR 5.2 Repository Acquisition approved**, with eleven requirements (commit-SHA resolution, complete repository, provenance, content-addressed blobs and manifest in the 5.1 schema, sealing, hostile input, never execute/install/build, size/count/path/archive limits, explicit symlink/submodule/LFS handling, idempotent retries, no partial or misleading snapshots). | Implemented as draft PR #10 (`8e0121d`). **No live GitHub acquisition has run.** No production deployment, hosted migration, paid model call, active testing or external submission authorised. |
+| 2026-11-25 | **Stack review of PRs #7-#10** produced ten findings (SSRF validator, auth before body parsing, lockout and proxy trust, database owner role, image contents, plus roadmap, tagging, stale docs, PR breadth, CI). | Owner approved fixing findings 1-5 as separate, test-first draft PRs. |
+| 2026-11-25 | **Security fix PRs opened (draft, stacked, unmerged, undeployed):** #11 SSRF-safe outbound requests; #12 authentication before body parsing with default-deny; #13 valid operator never locked out, no trust in spoofable proxy headers; #14 least-privilege runtime database role; #15 production image excludes tests and dev code. | Nothing merged, deployed or migrated; no production role, credential, DNS or Hunt change. A combined stack review precedes any release (`docs/first-production-release-plan.md`). |
+| 2026-11-25 | **Roadmap capabilities agreed**: 5.4B Automated Security Toolchain, 5.5A Weirdness Engine, Adaptive Research Priority Engine, 5.9 Live Engine Control Room (section 9). | Agreed as capabilities only; each needs its own design and approval. |
+| 2026-11-25 | **Task 5.3 (Discover) is not authorised** and has not been started. | Requires explicit approval. |
+| 2026-11-25 | **Release strategy.** Deploy the reviewed security foundation first with the research engine idle; do not wait for 5.3; do not deploy an incomplete or unreviewed security stack. | Plan only: `docs/first-production-release-plan.md`. Execution needs separate approval. |
+
+### Open owner decisions
+First live GitHub acquisition target; optional `GITHUB_TOKEN`; policy for partial snapshots; worker deployment for production acquisition; whether the Fly Managed Postgres user can create roles (needed for PR #14); enabling `HUB_TRUSTED_PROXY_CIDRS` after the peer range is observed.

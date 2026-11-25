@@ -1,12 +1,13 @@
 // Derives the staging Fly configs from fly.toml so the three files cannot drift.
 //   npm run staging:configs        rewrites fly.staging.toml and fly.staging-bootstrap.toml
-// fly.toml names the existing app and is never used for staging. These files name the staging app.
+// fly.toml names the legacy app `agentsmith-multihub` and is never used for staging. These files name the staging app.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const SOURCE_HEADER = [
-  "# This names the existing app. Never deploy with this file without an explicit",
-  "# `--app <name>`; staging must use its own app (see docs/runtime-and-verification.md).",
+  "# LEGACY / DO NOT DEPLOY. This file names `agentsmith-multihub`. When the production hub was provisioned (2026-11-25) the Fly",
+  "# organisation held no apps at all, so this app did not exist there and the name is not a live production app. The production hub is",
+  "# `agentsmith-hub` and uses fly.hub.toml. Never deploy with this file without an explicit `--app <name>`.",
   'app = "agentsmith-multihub"',
 ].join("\n");
 const GROUPS_COMMENT = [
