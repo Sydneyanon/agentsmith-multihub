@@ -745,15 +745,26 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     typeof item.path === "string" && typeof item.id === "string"
   );
   const mapLeads = Array.isArray(mapped.leads) ? mapped.leads.filter(isRecord) : [];
+  const hypothesisSnapshotId = isRecord(generated.evidence) && typeof generated.evidence.snapshot_id === "string"
+    ? generated.evidence.snapshot_id : null;
+  const mapSnapshotId = isRecord(mapped.evidence) && typeof mapped.evidence.snapshot_id === "string"
+    ? mapped.evidence.snapshot_id : null;
+  const snapshotIds = [hypothesisSnapshotId, mapSnapshotId].filter((id): id is string => id !== null);
+  const persistedSnapshots = snapshotIds.length
+    ? await pool.query<{ id: string; content_sha256: string }>(
+        "SELECT id, content_sha256 FROM source_snapshots WHERE id = ANY($1::uuid[])",
+        [snapshotIds],
+      )
+    : { rows: [] as Array<{ id: string; content_sha256: string }> };
+  const persistedSnapshotIds = new Set(persistedSnapshots.rows.map((row) => row.id));
   const challenges = hypotheses.map((hypothesis) => {
     const lead = mapLeads.find((candidate) =>
       candidate.rule_id === hypothesis.rule_id && candidate.family === hypothesis.family &&
       candidate.path === hypothesis.path
     );
     const rules = CHALLENGE_RULES[String(hypothesis.family)];
-    const evidenceLinked = Boolean(lead) && isRecord(generated.evidence) &&
-      typeof generated.evidence.snapshot_id === "string" && isRecord(mapped.evidence) &&
-      typeof mapped.evidence.snapshot_id === "string";
+    const evidenceLinked = Boolean(lead) && hypothesisSnapshotId !== null && mapSnapshotId !== null &&
+      persistedSnapshotIds.has(hypothesisSnapshotId) && persistedSnapshotIds.has(mapSnapshotId);
     return {
       hypothesis_id: hypothesis.id,
       rule_id: hypothesis.rule_id,
@@ -772,8 +783,9 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
   });
   const content = {
     challenge_protocol: "deterministic-counterreview-v1",
-    hypothesis_snapshot_id: isRecord(generated.evidence) ? generated.evidence.snapshot_id : null,
-    surface_map_snapshot_id: isRecord(mapped.evidence) ? mapped.evidence.snapshot_id : null,
+    hypothesis_snapshot_id: hypothesisSnapshotId,
+    surface_map_snapshot_id: mapSnapshotId,
+    persisted_evidence_snapshot_count: persistedSnapshotIds.size,
     challenge_count: challenges.length,
     challenges,
     protocol_limitations: [
