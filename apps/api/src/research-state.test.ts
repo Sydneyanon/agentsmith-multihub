@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import {
-  MAX_BLOB_BYTES, ResearchStore, claimFingerprint, decodeUtf8Strict, extractSpan, manifestSha256, sha256Hex, splitLines,
+  MAX_BLOB_BYTES, ResearchConflictError, ResearchStore, claimFingerprint, decodeUtf8Strict, diffHypothesis, diffManifestRow,
+  extractSpan, manifestSha256, sha256Hex, splitLines,
 } from "./research-state.js";
 
 describe("line semantics", () => {
@@ -75,12 +76,18 @@ describe("claim fingerprint", () => {
     expect(claimFingerprint(input)).toBe(claimFingerprint({ ...input, spans: [...input.spans].reverse() }));
   });
 
-  it("depends on the claim, the generator, the snapshot and the evidence", () => {
+  it("depends on the claim, the generator, the family, the snapshot and the cited spans", () => {
     const base = claimFingerprint(input);
     expect(claimFingerprint({ ...input, claim: "a different claim text" })).not.toBe(base);
+    expect(claimFingerprint({ ...input, family: "access-control" })).not.toBe(base);
     expect(claimFingerprint({ ...input, generator: { ...input.generator, version: "2" } })).not.toBe(base);
     expect(claimFingerprint({ ...input, snapshotId: "s2" })).not.toBe(base);
     expect(claimFingerprint({ ...input, spans: input.spans.slice(0, 1) })).not.toBe(base);
+  });
+
+  it("leaves roles out of the identity, so a retry that changes only a role is compared and rejected, not duplicated", () => {
+    const swapped = input.spans.map((span) => ({ ...span, role: span.role === "primary" ? "supporting" : "primary" }));
+    expect(claimFingerprint({ ...input, spans: swapped })).toBe(claimFingerprint(input));
   });
 });
 
@@ -99,5 +106,54 @@ describe("store guards that need no database", () => {
     };
     await expect(store.recordReview({ kind: "operator", operatorId: "alice" }, { ...base, reviewerKind: "human", reviewerId: "bob" })).rejects.toThrow(/own identity/);
     await expect(store.recordReview({ kind: "operator", operatorId: "alice" }, { ...base, reviewerKind: "model", reviewerId: "alice" })).rejects.toThrow(/own identity/);
+  });
+});
+
+
+describe("retry comparison helpers", () => {
+  const stored = {
+    family: "solidity-low-level-call", claim: "The call precedes the update.", rationale: "State changes after the call.",
+    required_checks: ["trace the target"], alternative_explanations: ["a guard exists"],
+    generator_kind: "deterministic_rule", generator_id: "rule-x", generator_version: "1", generator_reservation_id: null,
+    supersedes_id: null, spans: [{ span_id: "s1", role: "primary" }, { span_id: "s2", role: "supporting" }],
+  };
+  const requested = {
+    family: stored.family, claim: stored.claim, rationale: stored.rationale, requiredChecks: ["trace the target"],
+    alternativeExplanations: ["a guard exists"], generator: { kind: "deterministic_rule" as const, id: "rule-x", version: "1" },
+    supersedesId: null, spans: [{ spanId: "s2", role: "supporting" }, { spanId: "s1", role: "primary" }],
+  };
+
+  it("finds no difference in an identical retry, whatever the span order", () => {
+    expect(diffHypothesis(stored, requested)).toEqual([]);
+  });
+
+  it("names every immutable field that a changed retry alters", () => {
+    expect(diffHypothesis(stored, { ...requested, rationale: "different" })).toEqual(["rationale"]);
+    expect(diffHypothesis(stored, { ...requested, requiredChecks: ["other"] })).toEqual(["required checks"]);
+    expect(diffHypothesis(stored, { ...requested, requiredChecks: [] })).toEqual(["required checks"]);
+    expect(diffHypothesis(stored, { ...requested, alternativeExplanations: ["x", "y"] })).toEqual(["alternative explanations"]);
+    expect(diffHypothesis(stored, { ...requested, supersedesId: "h0" })).toEqual(["supersedes"]);
+    expect(diffHypothesis(stored, { ...requested, generator: { ...requested.generator, reservationId: "r1" } })).toEqual(["generator reservation"]);
+    expect(diffHypothesis(stored, { ...requested, spans: [{ spanId: "s1", role: "supporting" }, { spanId: "s2", role: "supporting" }] })).toEqual(["evidence"]);
+    expect(diffHypothesis(stored, { ...requested, rationale: "x", supersedesId: "h0" })).toEqual(["rationale", "supersedes"]);
+  });
+
+  const row = { blob_sha256: "a".repeat(64), git_blob_sha: null, size_bytes: "12", classification: "source", skip_reason: null };
+  const wanted = { blobSha256: "a".repeat(64), gitBlobSha: null, sizeBytes: 12, classification: "source", skipReason: null };
+
+  it("treats an identical manifest row as the same and names each differing field otherwise", () => {
+    expect(diffManifestRow(row, wanted)).toEqual([]);
+    expect(diffManifestRow(row, { ...wanted, blobSha256: "b".repeat(64) })).toEqual(["blob"]);
+    expect(diffManifestRow(row, { ...wanted, sizeBytes: 13 })).toEqual(["size"]);
+    expect(diffManifestRow(row, { ...wanted, classification: "test" })).toEqual(["classification"]);
+    expect(diffManifestRow(row, { ...wanted, gitBlobSha: "c".repeat(40) })).toEqual(["git blob id"]);
+    expect(diffManifestRow(row, { ...wanted, blobSha256: null, skipReason: "oversize" })).toEqual(["blob", "skip reason"]);
+  });
+
+  it("explains a conflict without leaking content", () => {
+    const error = new ResearchConflictError("manifest row", "src/A.sol", ["blob", "size"]);
+    expect(error.message).toContain("src/A.sol");
+    expect(error.message).toContain("blob, size");
+    expect(error.name).toBe("ResearchConflictError");
   });
 });

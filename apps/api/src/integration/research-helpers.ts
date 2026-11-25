@@ -29,6 +29,8 @@ export class ResearchFixture {
   readonly store: ResearchStore;
   private readonly worker: WorkflowWorker;
   private counter = 0;
+  /** run and step that own each raw-built snapshot, so raw SQL in tests can carry the provenance columns */
+  private readonly owners = new Map<string, { runId: string; stepId: string }>();
 
   constructor(readonly db: TestDatabase) {
     this.store = new ResearchStore(db.pool);
@@ -61,6 +63,7 @@ export class ResearchFixture {
     }
     await this.store.addSnapshotFiles(ctx.lease, snapshotId, entries);
     const sealed = await this.store.sealSnapshot(ctx.lease, snapshotId);
+    this.owners.set(snapshotId, { runId: ctx.runId, stepId: ctx.lease.stepId });
     return { ...ctx, snapshotId, sealed };
   }
 
@@ -116,15 +119,53 @@ export class ResearchFixture {
     return sha;
   }
 
+  /** A building snapshot inserted with raw SQL, owned by a fresh run and step. */
   async rawSnapshot(): Promise<string> {
-    const { runId } = await seedRun(this.pool, [`raw_${this.next()}`]);
-    return (await this.pool.query<{ id: string }>(
-      "INSERT INTO repo_snapshots (workflow_run_id, source_host, repository, commit_sha) VALUES ($1,'github.com','acme/raw',$2) RETURNING id", [runId, this.commit()])).rows[0]!.id;
+    const { runId, stepIds } = await seedRun(this.pool, [`raw_${this.next()}`]);
+    const id = (await this.pool.query<{ id: string }>(
+      "INSERT INTO repo_snapshots (workflow_run_id, produced_by_step_id, source_host, repository, commit_sha) VALUES ($1,$2,'github.com','acme/raw',$3) RETURNING id",
+      [runId, stepIds[0], this.commit()])).rows[0]!.id;
+    this.owners.set(id, { runId, stepId: stepIds[0]! });
+    return id;
+  }
+
+  /** Registers the owner of a snapshot built through the store, so raw SQL can carry its provenance. */
+  adopt(ctx: { snapshotId: string; runId: string; lease: StepLease }): void {
+    this.owners.set(ctx.snapshotId, { runId: ctx.runId, stepId: ctx.lease.stepId });
+  }
+
+  owner(snapshotId: string): { runId: string; stepId: string } {
+    const owner = this.owners.get(snapshotId);
+    if (!owner) throw new Error(`no recorded owner for snapshot ${snapshotId}`);
+    return owner;
+  }
+
+  /** A manifest row inserted with raw SQL (stored when `blobSha` is set, skipped when `skipReason` is set). */
+  async rawInsertFile(snapshotId: string, file: { path: string; blobSha?: string | null; size: number; classification?: string; skipReason?: string | null }) {
+    const owner = this.owner(snapshotId);
+    await this.pool.query(
+      `INSERT INTO repo_snapshot_files (snapshot_id, workflow_run_id, produced_by_step_id, path, blob_sha256, size_bytes, classification, skip_reason)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [snapshotId, owner.runId, owner.stepId, file.path, file.blobSha ?? null, file.size, file.classification ?? "source", file.skipReason ?? null]);
   }
 
   async rawFile(snapshotId: string, path: string, blobSha: string, size: number, classification = "source") {
-    await this.pool.query(
-      "INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, size_bytes, classification) VALUES ($1,$2,$3,$4,$5)", [snapshotId, path, blobSha, size, classification]);
+    await this.rawInsertFile(snapshotId, { path, blobSha, size, classification });
+  }
+
+  /** Seals a raw snapshot as its own step; `extraSet` adds hand-written columns to the same UPDATE. */
+  rawSeal(snapshotId: string, extraSet = "", extraParams: unknown[] = []) {
+    const owner = this.owner(snapshotId);
+    return this.pool.query(
+      `UPDATE repo_snapshots SET sealed_at = now(), sealed_by_step_id = $2${extraSet ? `, ${extraSet}` : ""} WHERE id = $1`,
+      [snapshotId, owner.stepId, ...extraParams]);
+  }
+
+  rawSpan(snapshotId: string, path: string, blobSha: string, lineStart: number, lineEnd: number, excerptSha: string) {
+    const owner = this.owner(snapshotId);
+    return this.pool.query(
+      `INSERT INTO evidence_spans (workflow_run_id, produced_by_step_id, snapshot_id, path, blob_sha256, line_start, line_end, excerpt_sha256)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [owner.runId, owner.stepId, snapshotId, path, blobSha, lineStart, lineEnd, excerptSha]);
   }
 
   /** Runs SQL with one named trigger switched off, to simulate corruption that normal writes cannot produce. */

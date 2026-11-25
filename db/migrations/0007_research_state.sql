@@ -2,6 +2,12 @@
 -- Records are append-only, history is an event log, status is derived by a view.
 -- Blob bytes can be removed only through evict_research_blob(), which never removes cited evidence.
 -- These checks guard against application mistakes; an owner-level SQL user can still disable triggers.
+--
+-- Provenance rule: every record carries workflow_run_id (and, where a step wrote it, produced_by_step_id).
+-- Composite foreign keys (id, workflow_run_id) force a record, its parent records and its writing step to
+-- belong to the SAME run, so a worker cannot attach evidence, hypotheses, evaluations or reviews to another
+-- run's records whatever the application does. A step's lease is still checked by the application.
+ALTER TABLE workflow_steps ADD CONSTRAINT workflow_steps_id_run_key UNIQUE (id, workflow_run_id);
 
 CREATE FUNCTION research_reject_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -64,7 +70,7 @@ CREATE TRIGGER research_blob_evictions_append_only BEFORE UPDATE OR DELETE ON re
 CREATE TABLE repo_snapshots (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workflow_run_id uuid NOT NULL REFERENCES workflow_runs(id),
-  produced_by_step_id uuid REFERENCES workflow_steps(id),
+  produced_by_step_id uuid NOT NULL,
   source_host text NOT NULL CHECK (source_host IN ('github.com')),
   repository text NOT NULL CHECK (repository ~ '^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$'),
   commit_sha text NOT NULL CHECK (commit_sha ~ '^[a-f0-9]{40}$'),
@@ -74,15 +80,22 @@ CREATE TABLE repo_snapshots (
   total_bytes bigint CHECK (total_bytes IS NULL OR total_bytes BETWEEN 0 AND 67108864),
   manifest_sha256 text CHECK (manifest_sha256 IS NULL OR manifest_sha256 ~ '^[a-f0-9]{64}$'),
   sealed_at timestamptz,
+  sealed_by_step_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK ((sealed_at IS NULL) = (manifest_sha256 IS NULL)),
   CHECK ((sealed_at IS NULL) = (file_count IS NULL)),
   CHECK ((sealed_at IS NULL) = (total_bytes IS NULL)),
-  UNIQUE (workflow_run_id, repository, commit_sha)
+  CHECK ((sealed_at IS NULL) = (sealed_by_step_id IS NULL)),
+  UNIQUE (workflow_run_id, repository, commit_sha),
+  UNIQUE (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id),
+  FOREIGN KEY (sealed_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id)
 );
 
 CREATE TABLE repo_snapshot_files (
-  snapshot_id uuid NOT NULL REFERENCES repo_snapshots(id),
+  snapshot_id uuid NOT NULL,
+  workflow_run_id uuid NOT NULL,
+  produced_by_step_id uuid NOT NULL,
   path text NOT NULL CHECK (
     length(path) BETWEEN 1 AND 1024
     AND path !~ '^/' AND path !~ '(^|/)\.\.?(/|$)' AND path !~ '//' AND path !~ '[\t\n\r]'
@@ -95,7 +108,9 @@ CREATE TABLE repo_snapshot_files (
     ('binary','oversize','symlink','submodule','excluded_by_policy','unreadable_encoding','limit_reached')),
   PRIMARY KEY (snapshot_id, path),
   UNIQUE (snapshot_id, path, blob_sha256),
-  CHECK ((blob_sha256 IS NULL) = (skip_reason IS NOT NULL))
+  CHECK ((blob_sha256 IS NULL) = (skip_reason IS NOT NULL)),
+  FOREIGN KEY (snapshot_id, workflow_run_id) REFERENCES repo_snapshots (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id)
 );
 
 -- Rows may be added only while the snapshot is building, and only for blobs that exist with the stated size.
@@ -140,6 +155,7 @@ BEGIN
   IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'repo_snapshots are append-only'; END IF;
   IF OLD.sealed_at IS NOT NULL THEN RAISE EXCEPTION 'snapshot % is sealed and immutable', OLD.id; END IF;
   IF NEW.sealed_at IS NULL THEN RAISE EXCEPTION 'a building snapshot can only be sealed'; END IF;
+  IF NEW.sealed_by_step_id IS NULL THEN RAISE EXCEPTION 'sealing must name the sealing step (of the same run)'; END IF;
   IF (NEW.id, NEW.workflow_run_id, NEW.produced_by_step_id, NEW.source_host, NEW.repository, NEW.commit_sha, NEW.ref_name, NEW.created_at)
      IS DISTINCT FROM
      (OLD.id, OLD.workflow_run_id, OLD.produced_by_step_id, OLD.source_host, OLD.repository, OLD.commit_sha, OLD.ref_name, OLD.created_at) THEN
@@ -187,6 +203,8 @@ $$;
 
 CREATE TABLE evidence_spans (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  workflow_run_id uuid NOT NULL,
+  produced_by_step_id uuid,
   snapshot_id uuid NOT NULL,
   path text NOT NULL,
   blob_sha256 text NOT NULL CHECK (blob_sha256 ~ '^[a-f0-9]{64}$'),
@@ -196,7 +214,10 @@ CREATE TABLE evidence_spans (
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK (line_end >= line_start AND line_end - line_start < 400),
   FOREIGN KEY (snapshot_id, path, blob_sha256) REFERENCES repo_snapshot_files (snapshot_id, path, blob_sha256),
-  UNIQUE (snapshot_id, path, line_start, line_end)
+  FOREIGN KEY (snapshot_id, workflow_run_id) REFERENCES repo_snapshots (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id),
+  UNIQUE (snapshot_id, path, line_start, line_end),
+  UNIQUE (id, workflow_run_id)
 );
 
 CREATE FUNCTION evidence_spans_guard() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -272,9 +293,9 @@ $$;
 CREATE TABLE hypotheses (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workflow_run_id uuid NOT NULL REFERENCES workflow_runs(id),
-  produced_by_step_id uuid REFERENCES workflow_steps(id),
-  snapshot_id uuid NOT NULL REFERENCES repo_snapshots(id),
-  supersedes_id uuid REFERENCES hypotheses(id),
+  produced_by_step_id uuid,
+  snapshot_id uuid NOT NULL,
+  supersedes_id uuid,
   family text NOT NULL CHECK (family ~ '^[a-z0-9][a-z0-9-]{0,99}$'),
   claim text NOT NULL CHECK (length(claim) BETWEEN 10 AND 2000),
   rationale text NOT NULL CHECK (length(rationale) BETWEEN 1 AND 8000),
@@ -287,7 +308,11 @@ CREATE TABLE hypotheses (
   claim_fingerprint text NOT NULL CHECK (claim_fingerprint ~ '^[a-f0-9]{64}$'),
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK ((generator_kind = 'model') = (generator_reservation_id IS NOT NULL)),
-  UNIQUE (snapshot_id, claim_fingerprint)
+  UNIQUE (snapshot_id, claim_fingerprint),
+  UNIQUE (id, workflow_run_id),
+  FOREIGN KEY (snapshot_id, workflow_run_id) REFERENCES repo_snapshots (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id),
+  FOREIGN KEY (supersedes_id, workflow_run_id) REFERENCES hypotheses (id, workflow_run_id)
 );
 CREATE INDEX hypotheses_run_idx ON hypotheses (workflow_run_id, created_at);
 
@@ -304,10 +329,15 @@ CREATE TRIGGER hypotheses_before_insert BEFORE INSERT ON hypotheses FOR EACH ROW
 CREATE TRIGGER hypotheses_immutable BEFORE UPDATE OR DELETE ON hypotheses FOR EACH ROW EXECUTE FUNCTION research_reject_mutation();
 
 CREATE TABLE hypothesis_evidence (
-  hypothesis_id uuid NOT NULL REFERENCES hypotheses(id),
-  span_id uuid NOT NULL REFERENCES evidence_spans(id),
+  hypothesis_id uuid NOT NULL,
+  span_id uuid NOT NULL,
+  workflow_run_id uuid NOT NULL,
+  produced_by_step_id uuid,
   role text NOT NULL CHECK (role IN ('primary','supporting','context')),
-  PRIMARY KEY (hypothesis_id, span_id)
+  PRIMARY KEY (hypothesis_id, span_id),
+  FOREIGN KEY (hypothesis_id, workflow_run_id) REFERENCES hypotheses (id, workflow_run_id),
+  FOREIGN KEY (span_id, workflow_run_id) REFERENCES evidence_spans (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id)
 );
 
 CREATE FUNCTION hypothesis_evidence_guard() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -348,24 +378,33 @@ CREATE CONSTRAINT TRIGGER hypotheses_primary_evidence AFTER INSERT ON hypotheses
 -- ---------------------------------------------------------------------------
 CREATE TABLE hypothesis_evaluations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  hypothesis_id uuid NOT NULL REFERENCES hypotheses(id),
-  produced_by_step_id uuid REFERENCES workflow_steps(id),
+  workflow_run_id uuid NOT NULL,
+  hypothesis_id uuid NOT NULL,
+  produced_by_step_id uuid NOT NULL,
   actor_kind text NOT NULL DEFAULT 'deterministic_rule' CHECK (actor_kind = 'deterministic_rule'),
   evaluator_id text NOT NULL CHECK (length(evaluator_id) BETWEEN 1 AND 200),
   evaluator_version text NOT NULL CHECK (length(evaluator_version) BETWEEN 1 AND 100),
   outcome text NOT NULL CHECK (outcome IN ('supports','weakens','contradicts','inconclusive')),
   rationale text NOT NULL CHECK (length(rationale) BETWEEN 1 AND 8000),
   input_sha256 text NOT NULL CHECK (input_sha256 ~ '^[a-f0-9]{64}$'),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (id, workflow_run_id),
+  FOREIGN KEY (hypothesis_id, workflow_run_id) REFERENCES hypotheses (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id)
 );
 CREATE INDEX hypothesis_evaluations_hypothesis_idx ON hypothesis_evaluations (hypothesis_id);
 CREATE TRIGGER hypothesis_evaluations_immutable BEFORE UPDATE OR DELETE ON hypothesis_evaluations
   FOR EACH ROW EXECUTE FUNCTION research_reject_mutation();
 
 CREATE TABLE evaluation_evidence (
-  evaluation_id uuid NOT NULL REFERENCES hypothesis_evaluations(id),
-  span_id uuid NOT NULL REFERENCES evidence_spans(id),
-  PRIMARY KEY (evaluation_id, span_id)
+  evaluation_id uuid NOT NULL,
+  span_id uuid NOT NULL,
+  workflow_run_id uuid NOT NULL,
+  produced_by_step_id uuid NOT NULL,
+  PRIMARY KEY (evaluation_id, span_id),
+  FOREIGN KEY (evaluation_id, workflow_run_id) REFERENCES hypothesis_evaluations (id, workflow_run_id),
+  FOREIGN KEY (span_id, workflow_run_id) REFERENCES evidence_spans (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id)
 );
 CREATE FUNCTION evaluation_evidence_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -407,7 +446,9 @@ $$;
 
 CREATE TABLE hypothesis_reviews (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  hypothesis_id uuid NOT NULL REFERENCES hypotheses(id),
+  workflow_run_id uuid NOT NULL,
+  hypothesis_id uuid NOT NULL,
+  produced_by_step_id uuid,
   reviewer_kind text NOT NULL CHECK (reviewer_kind IN ('model','human')),
   reviewer_id text NOT NULL CHECK (length(reviewer_id) BETWEEN 1 AND 200),
   review_mode text NOT NULL CHECK (review_mode IN ('blinded_independent_assessment','disclosed_adjudication')),
@@ -428,7 +469,10 @@ CREATE TABLE hypothesis_reviews (
   CHECK (review_mode <> 'blinded_independent_assessment' OR (
     (reviewer_saw->>'claim')::boolean AND (reviewer_saw->>'evidence_spans')::boolean
     AND NOT (reviewer_saw->>'generator_rationale')::boolean AND NOT (reviewer_saw->>'generator_identity')::boolean
-    AND NOT (reviewer_saw->>'prior_evaluations')::boolean AND NOT (reviewer_saw->>'prior_reviews')::boolean))
+    AND NOT (reviewer_saw->>'prior_evaluations')::boolean AND NOT (reviewer_saw->>'prior_reviews')::boolean)),
+  UNIQUE (id, workflow_run_id),
+  FOREIGN KEY (hypothesis_id, workflow_run_id) REFERENCES hypotheses (id, workflow_run_id),
+  FOREIGN KEY (produced_by_step_id, workflow_run_id) REFERENCES workflow_steps (id, workflow_run_id)
 );
 CREATE INDEX hypothesis_reviews_hypothesis_idx ON hypothesis_reviews (hypothesis_id);
 
@@ -454,10 +498,11 @@ CREATE TRIGGER hypothesis_reviews_immutable BEFORE UPDATE OR DELETE ON hypothesi
 -- ---------------------------------------------------------------------------
 CREATE TABLE hypothesis_events (
   seq bigserial PRIMARY KEY,
-  hypothesis_id uuid NOT NULL REFERENCES hypotheses(id),
+  workflow_run_id uuid NOT NULL,
+  hypothesis_id uuid NOT NULL,
   event_type text NOT NULL CHECK (event_type IN ('registered','evaluation_recorded','review_recorded','withdrawn')),
-  evaluation_id uuid REFERENCES hypothesis_evaluations(id),
-  review_id uuid REFERENCES hypothesis_reviews(id),
+  evaluation_id uuid,
+  review_id uuid,
   actor_kind text NOT NULL CHECK (actor_kind IN ('deterministic_rule','model','human')),
   actor_id text NOT NULL CHECK (length(actor_id) BETWEEN 1 AND 200),
   reason text CHECK (reason IS NULL OR length(reason) BETWEEN 3 AND 2000),
@@ -465,7 +510,10 @@ CREATE TABLE hypothesis_events (
   CHECK ((event_type = 'evaluation_recorded') = (evaluation_id IS NOT NULL)),
   CHECK ((event_type = 'review_recorded') = (review_id IS NOT NULL)),
   CHECK ((event_type = 'withdrawn') = (reason IS NOT NULL)),
-  CHECK (event_type <> 'withdrawn' OR actor_kind = 'human')
+  CHECK (event_type <> 'withdrawn' OR actor_kind = 'human'),
+  FOREIGN KEY (hypothesis_id, workflow_run_id) REFERENCES hypotheses (id, workflow_run_id),
+  FOREIGN KEY (evaluation_id, workflow_run_id) REFERENCES hypothesis_evaluations (id, workflow_run_id),
+  FOREIGN KEY (review_id, workflow_run_id) REFERENCES hypothesis_reviews (id, workflow_run_id)
 );
 CREATE UNIQUE INDEX hypothesis_events_registered_once ON hypothesis_events (hypothesis_id) WHERE event_type = 'registered';
 CREATE UNIQUE INDEX hypothesis_events_withdrawn_once ON hypothesis_events (hypothesis_id) WHERE event_type = 'withdrawn';
@@ -490,8 +538,8 @@ CREATE TRIGGER hypothesis_events_immutable BEFORE UPDATE OR DELETE ON hypothesis
 
 CREATE FUNCTION hypotheses_log_registered() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  INSERT INTO hypothesis_events (hypothesis_id, event_type, actor_kind, actor_id)
-  VALUES (NEW.id, 'registered', NEW.generator_kind, NEW.generator_id);
+  INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, actor_kind, actor_id)
+  VALUES (NEW.workflow_run_id, NEW.id, 'registered', NEW.generator_kind, NEW.generator_id);
   RETURN NULL;
 END;
 $$;
@@ -499,8 +547,8 @@ CREATE TRIGGER hypotheses_after_insert AFTER INSERT ON hypotheses FOR EACH ROW E
 
 CREATE FUNCTION evaluations_log_event() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  INSERT INTO hypothesis_events (hypothesis_id, event_type, evaluation_id, actor_kind, actor_id)
-  VALUES (NEW.hypothesis_id, 'evaluation_recorded', NEW.id, NEW.actor_kind, NEW.evaluator_id);
+  INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, evaluation_id, actor_kind, actor_id)
+  VALUES (NEW.workflow_run_id, NEW.hypothesis_id, 'evaluation_recorded', NEW.id, NEW.actor_kind, NEW.evaluator_id);
   RETURN NULL;
 END;
 $$;
@@ -509,8 +557,8 @@ CREATE TRIGGER hypothesis_evaluations_after_insert AFTER INSERT ON hypothesis_ev
 
 CREATE FUNCTION reviews_log_event() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  INSERT INTO hypothesis_events (hypothesis_id, event_type, review_id, actor_kind, actor_id)
-  VALUES (NEW.hypothesis_id, 'review_recorded', NEW.id, NEW.reviewer_kind, NEW.reviewer_id);
+  INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, review_id, actor_kind, actor_id)
+  VALUES (NEW.workflow_run_id, NEW.hypothesis_id, 'review_recorded', NEW.id, NEW.reviewer_kind, NEW.reviewer_id);
   RETURN NULL;
 END;
 $$;

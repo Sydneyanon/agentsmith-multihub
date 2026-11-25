@@ -157,8 +157,8 @@ describe.skipIf(skipIntegration)("research state: hypotheses, evaluations, revie
       const h = await fx.hypothesis(ctx, [ctx.call]);
       for (const actor of ["model", "human"]) {
         await expect(fx.pool.query(
-          "INSERT INTO hypothesis_evaluations (hypothesis_id, actor_kind, evaluator_id, evaluator_version, outcome, rationale, input_sha256) VALUES ($1,$2,'e','1','inconclusive','r',$3)",
-          [h, actor, sha256Hex(actor)])).rejects.toThrow(/check constraint/);
+          "INSERT INTO hypothesis_evaluations (workflow_run_id, produced_by_step_id, hypothesis_id, actor_kind, evaluator_id, evaluator_version, outcome, rationale, input_sha256) VALUES ($1,$2,$3,$4,'e','1','inconclusive','r',$5)",
+          [ctx.runId, ctx.lease.stepId, h, actor, sha256Hex(actor)])).rejects.toThrow(/check constraint/);
       }
     });
 
@@ -194,8 +194,8 @@ describe.skipIf(skipIntegration)("research state: hypotheses, evaluations, revie
       const ctx = await setup();
       const h = await fx.hypothesis(ctx, [ctx.call]);
       const attempt = (saw: Record<string, unknown>) => fx.pool.query(
-        `INSERT INTO hypothesis_reviews (hypothesis_id, reviewer_kind, reviewer_id, review_mode, reviewer_saw, input_sha256, verdict, rationale)
-         VALUES ($1,'human','bob','blinded_independent_assessment',$2::jsonb,$3,'supports','r')`, [h, JSON.stringify(saw), sha256Hex("x")]);
+        `INSERT INTO hypothesis_reviews (workflow_run_id, hypothesis_id, reviewer_kind, reviewer_id, review_mode, reviewer_saw, input_sha256, verdict, rationale)
+         VALUES ($1,$2,'human','bob','blinded_independent_assessment',$3::jsonb,$4,'supports','r')`, [ctx.runId, h, JSON.stringify(saw), sha256Hex("x")]);
       for (const leak of ["generator_rationale", "generator_identity", "prior_evaluations", "prior_reviews"]) {
         await expect(attempt({ ...BLINDED_SAW, [leak]: true }), leak).rejects.toThrow(/check constraint/);
       }
@@ -208,8 +208,8 @@ describe.skipIf(skipIntegration)("research state: hypotheses, evaluations, revie
       const ctx = await setup();
       const h = await fx.hypothesis(ctx, [ctx.call]);
       const attempt = (saw: unknown) => fx.pool.query(
-        `INSERT INTO hypothesis_reviews (hypothesis_id, reviewer_kind, reviewer_id, review_mode, reviewer_saw, input_sha256, verdict, rationale)
-         VALUES ($1,'human','carol','disclosed_adjudication',$2::jsonb,$3,'supports','r')`, [h, JSON.stringify(saw), sha256Hex("y")]);
+        `INSERT INTO hypothesis_reviews (workflow_run_id, hypothesis_id, reviewer_kind, reviewer_id, review_mode, reviewer_saw, input_sha256, verdict, rationale)
+         VALUES ($1,$2,'human','carol','disclosed_adjudication',$3::jsonb,$4,'supports','r')`, [ctx.runId, h, JSON.stringify(saw), sha256Hex("y")]);
       const { claim, ...missing } = FULL_SAW;
       void claim;
       await expect(attempt(missing)).rejects.toThrow(/check constraint/);
@@ -262,9 +262,9 @@ describe.skipIf(skipIntegration)("research state: hypotheses, evaluations, revie
       const ctx = await setup();
       const h = await fx.hypothesis(ctx, [ctx.call]);
       const evaluation = await fx.evaluate(ctx, h, "inconclusive", [], "eval-b");
-      await expect(fx.pool.query("INSERT INTO hypothesis_events (hypothesis_id, event_type, actor_kind, actor_id) VALUES ($1,'registered','human','mallory')", [h])).rejects.toThrow(/created by recording the underlying record/);
-      await expect(fx.pool.query("INSERT INTO hypothesis_events (hypothesis_id, event_type, actor_kind, actor_id, review_id) VALUES ($1,'review_recorded','human','forged',$2)", [h, await fx.review(h, "alice")])).rejects.toThrow(/created by recording the underlying record/);
-      await expect(fx.pool.query("INSERT INTO hypothesis_events (hypothesis_id, event_type, actor_kind, actor_id, evaluation_id) VALUES ($1,'evaluation_recorded','deterministic_rule','forged',$2)", [h, evaluation])).rejects.toThrow(/created by recording the underlying record/);
+      await expect(fx.pool.query("INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, actor_kind, actor_id) VALUES ($1,$2,'registered','human','mallory')", [ctx.runId, h])).rejects.toThrow(/created by recording the underlying record/);
+      await expect(fx.pool.query("INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, actor_kind, actor_id, review_id) VALUES ($1,$2,'review_recorded','human','forged',$3)", [ctx.runId, h, await fx.review(h, "alice")])).rejects.toThrow(/created by recording the underlying record/);
+      await expect(fx.pool.query("INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, actor_kind, actor_id, evaluation_id) VALUES ($1,$2,'evaluation_recorded','deterministic_rule','forged',$3)", [ctx.runId, h, evaluation])).rejects.toThrow(/created by recording the underlying record/);
       await expect(fx.store.withdraw("alice", h, "no")).rejects.toThrow(/check constraint/); // reason too short
     });
 
@@ -274,7 +274,7 @@ describe.skipIf(skipIntegration)("research state: hypotheses, evaluations, revie
       await fx.store.withdraw("alice", h, "Superseded by a narrower claim.");
       expect(await fx.status(h)).toMatchObject({ status: "withdrawn", withdrawn: true });
       await expect(fx.store.withdraw("alice", h, "Withdrawing again.")).rejects.toThrow(/duplicate key/);
-      await expect(fx.pool.query("INSERT INTO hypothesis_events (hypothesis_id, event_type, actor_kind, actor_id, reason) VALUES ($1,'withdrawn','model','bot','Models cannot withdraw.')", [h])).rejects.toThrow(/check constraint/);
+      await expect(fx.pool.query("INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, actor_kind, actor_id, reason) VALUES ($1,$2,'withdrawn','model','bot','Models cannot withdraw.')", [ctx.runId, h])).rejects.toThrow(/check constraint/);
       await expect(fx.pool.query("UPDATE hypothesis_events SET reason = 'edited reason' WHERE hypothesis_id = $1", [h])).rejects.toThrow(/append-only/);
       await expect(fx.pool.query("DELETE FROM hypothesis_events WHERE hypothesis_id = $1", [h])).rejects.toThrow(/append-only/);
     });

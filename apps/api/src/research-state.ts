@@ -55,12 +55,72 @@ export function claimFingerprint(input: {
   generator: Pick<GeneratorIdentity, "kind" | "id" | "version">;
   spans: ReadonlyArray<{ spanId: string; role: string }>;
 }): string {
-  const spans = [...input.spans].sort((a, b) => a.spanId.localeCompare(b.spanId));
+  // Identity: what is claimed, by whom, about which cited lines. Everything else (rationale, checks, alternatives,
+  // evidence roles, supersession, reservation) is compared in full on a retry and a difference is rejected.
+  const spanIds = input.spans.map((span) => span.spanId).sort();
   return sha256Hex(JSON.stringify({
     snapshotId: input.snapshotId, family: input.family, claim: input.claim,
     generator: { kind: input.generator.kind, id: input.generator.id, version: input.generator.version },
-    spans,
+    spanIds,
   }));
+}
+
+/** A retry that repeats an identity but not its content. Retries must be identical; this is never resolved silently. */
+export class ResearchConflictError extends Error {
+  constructor(readonly entity: string, readonly identity: string, readonly differing: readonly string[], message?: string) {
+    super(message ?? `${entity} ${identity} already exists with different ${differing.join(", ")}; an identical retry is allowed, a changed one is not`);
+    this.name = "ResearchConflictError";
+  }
+
+  static duplicateInRequest(path: string): ResearchConflictError {
+    return new ResearchConflictError("manifest row", path, ["content"], `manifest path ${path} is listed twice with different content in one request`);
+  }
+}
+
+const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+export type ManifestRowFields = {
+  blob_sha256: string | null; git_blob_sha: string | null; size_bytes: number | string; classification: string; skip_reason: string | null;
+};
+
+/** Names of the manifest-row fields that differ between the stored row and the requested one. */
+export function diffManifestRow(existing: ManifestRowFields, requested: {
+  blobSha256: string | null; gitBlobSha: string | null; sizeBytes: number; classification: string; skipReason: string | null;
+}): string[] {
+  const differing: string[] = [];
+  if (existing.blob_sha256 !== requested.blobSha256) differing.push("blob");
+  if (existing.git_blob_sha !== requested.gitBlobSha) differing.push("git blob id");
+  if (Number(existing.size_bytes) !== requested.sizeBytes) differing.push("size");
+  if (existing.classification !== requested.classification) differing.push("classification");
+  if (existing.skip_reason !== requested.skipReason) differing.push("skip reason");
+  return differing;
+}
+
+export type HypothesisRecordFields = {
+  family: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown;
+  generator_kind: string; generator_id: string; generator_version: string; generator_reservation_id: string | null;
+  supersedes_id: string | null; spans: ReadonlyArray<{ span_id: string; role: string }>;
+};
+
+/** Names of the immutable fields that differ between the stored hypothesis and the one a retry asks for. */
+export function diffHypothesis(existing: HypothesisRecordFields, requested: {
+  family: string; claim: string; rationale: string; requiredChecks: readonly string[]; alternativeExplanations: readonly string[];
+  generator: GeneratorIdentity; supersedesId: string | null; spans: ReadonlyArray<{ spanId: string; role: string }>;
+}): string[] {
+  const differing: string[] = [];
+  if (existing.family !== requested.family) differing.push("family");
+  if (existing.claim !== requested.claim) differing.push("claim");
+  if (existing.rationale !== requested.rationale) differing.push("rationale");
+  if (!sameJson(existing.required_checks, requested.requiredChecks)) differing.push("required checks");
+  if (!sameJson(existing.alternative_explanations, requested.alternativeExplanations)) differing.push("alternative explanations");
+  if (existing.generator_kind !== requested.generator.kind || existing.generator_id !== requested.generator.id
+      || existing.generator_version !== requested.generator.version) differing.push("generator");
+  if ((existing.generator_reservation_id ?? null) !== (requested.generator.reservationId ?? null)) differing.push("generator reservation");
+  if ((existing.supersedes_id ?? null) !== requested.supersedesId) differing.push("supersedes");
+  const key = (spans: ReadonlyArray<{ span_id?: string; spanId?: string; role: string }>) =>
+    spans.map((span) => `${span.span_id ?? span.spanId}:${span.role}`).sort().join(",");
+  if (key(existing.spans) !== key(requested.spans)) differing.push("evidence");
+  return differing;
 }
 
 /** A worker's claim on a running step. Research writes made for a step happen only while it holds the lease. */
@@ -140,45 +200,73 @@ export class ResearchStore {
     repository: string; commitSha: string; refName?: string; acquisitionReport?: Record<string, unknown>;
   }): Promise<string> {
     return this.leased(lease, async (client, runId) => {
+      const report = JSON.stringify(input.acquisitionReport ?? {});
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO repo_snapshots (workflow_run_id, produced_by_step_id, source_host, repository, commit_sha, ref_name, acquisition_report)
          VALUES ($1, $2, 'github.com', $3, $4, $5, $6::jsonb)
          ON CONFLICT (workflow_run_id, repository, commit_sha) DO NOTHING RETURNING id`,
-        [runId, lease.stepId, input.repository, input.commitSha, input.refName ?? null, JSON.stringify(input.acquisitionReport ?? {})],
+        [runId, lease.stepId, input.repository, input.commitSha, input.refName ?? null, report],
       );
       if (inserted.rows[0]) return inserted.rows[0].id;
-      const existing = await client.query<{ id: string }>(
-        "SELECT id FROM repo_snapshots WHERE workflow_run_id = $1 AND repository = $2 AND commit_sha = $3",
-        [runId, input.repository, input.commitSha],
-      );
-      return existing.rows[0]!.id;
+      const existing = await client.query<{ id: string; ref_name: string | null; acquisition_report: unknown }>(
+        "SELECT id, ref_name, acquisition_report FROM repo_snapshots WHERE workflow_run_id = $1 AND repository = $2 AND commit_sha = $3",
+        [runId, input.repository, input.commitSha]);
+      const row = existing.rows[0]!;
+      const differing: string[] = [];
+      if (row.ref_name !== (input.refName ?? null)) differing.push("ref name");
+      if (!sameJson(row.acquisition_report, input.acquisitionReport ?? {})) differing.push("acquisition report");
+      if (differing.length) throw new ResearchConflictError("snapshot", `${input.repository}@${input.commitSha}`, differing);
+      return row.id;
     });
   }
 
-  /** Adds manifest rows to a building snapshot, in one transaction. Re-adding an identical row is a no-op. */
+  /**
+   * Adds manifest rows to a building snapshot, in one transaction. A row that already exists must match the requested
+   * row exactly (an identical retry is a no-op, even after sealing); a conflicting retry is rejected, never merged.
+   */
   addSnapshotFiles(lease: StepLease, snapshotId: string, files: readonly SnapshotFileInput[]): Promise<void> {
-    return this.leased(lease, async (client) => {
-      for (const file of files) {
+    const seen = new Map<string, SnapshotFileInput>();
+    for (const file of files) {
+      const earlier = seen.get(file.path);
+      if (earlier && JSON.stringify(earlier) !== JSON.stringify(file)) return Promise.reject(ResearchConflictError.duplicateInRequest(file.path));
+      seen.set(file.path, file);
+    }
+    return this.leased(lease, async (client, runId) => {
+      const existing = await client.query<ManifestRowFields & { path: string }>(
+        `SELECT path, blob_sha256, git_blob_sha, size_bytes, classification, skip_reason
+         FROM repo_snapshot_files WHERE snapshot_id = $1 AND path = ANY($2::text[])`,
+        [snapshotId, [...seen.keys()]]);
+      const byPath = new Map(existing.rows.map((row) => [row.path, row]));
+      for (const file of seen.values()) {
+        const requested = {
+          blobSha256: "blobSha256" in file ? file.blobSha256 : null, gitBlobSha: file.gitBlobSha ?? null, sizeBytes: file.sizeBytes,
+          classification: file.classification, skipReason: "skipReason" in file ? file.skipReason : null,
+        };
+        const stored = byPath.get(file.path);
+        if (stored) {
+          const differing = diffManifestRow(stored, requested);
+          if (differing.length) throw new ResearchConflictError("manifest row", file.path, differing);
+          continue;
+        }
         await client.query(
-          `INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, git_blob_sha, size_bytes, classification, skip_reason)
-           VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (snapshot_id, path) DO NOTHING`,
-          [snapshotId, file.path, "blobSha256" in file ? file.blobSha256 : null, file.gitBlobSha ?? null,
-            file.sizeBytes, file.classification, "skipReason" in file ? file.skipReason : null],
-        );
+          `INSERT INTO repo_snapshot_files (snapshot_id, workflow_run_id, produced_by_step_id, path, blob_sha256, git_blob_sha, size_bytes, classification, skip_reason)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [snapshotId, runId, lease.stepId, file.path, requested.blobSha256, requested.gitBlobSha, requested.sizeBytes, requested.classification, requested.skipReason]);
       }
     });
   }
 
   /** The database seals and computes; the application recomputes the manifest hash and refuses any difference. */
   sealSnapshot(lease: StepLease, snapshotId: string): Promise<{ manifestSha256: string; fileCount: number; totalBytes: number }> {
-    return this.leased(lease, async (client) => {
+    return this.leased(lease, async (client, runId) => {
       const rows = await client.query<{ path: string; blob_sha256: string | null; skip_reason: string | null }>(
         "SELECT path, blob_sha256, skip_reason FROM repo_snapshot_files WHERE snapshot_id = $1", [snapshotId]);
       const local = manifestSha256(rows.rows.map((row) => ({ path: row.path, blobSha256: row.blob_sha256, skipReason: row.skip_reason })));
       const sealed = await client.query<{ manifest_sha256: string; file_count: number; total_bytes: string }>(
-        "UPDATE repo_snapshots SET sealed_at = now() WHERE id = $1 RETURNING manifest_sha256, file_count, total_bytes", [snapshotId]);
+        `UPDATE repo_snapshots SET sealed_at = now(), sealed_by_step_id = $2
+         WHERE id = $1 AND workflow_run_id = $3 RETURNING manifest_sha256, file_count, total_bytes`, [snapshotId, lease.stepId, runId]);
       const row = sealed.rows[0];
-      if (!row) throw new Error(`snapshot ${snapshotId} does not exist`);
+      if (!row) throw new Error(`snapshot ${snapshotId} does not exist in this step's run`);
       if (row.manifest_sha256 !== local) throw new Error("manifest hash computed by the database differs from the application's");
       return { manifestSha256: row.manifest_sha256, fileCount: row.file_count, totalBytes: Number(row.total_bytes) };
     });
@@ -186,7 +274,7 @@ export class ResearchStore {
 
   /** Cites lines of a stored file. The excerpt hash is computed here and re-verified by the database. */
   createEvidenceSpan(lease: StepLease, input: { snapshotId: string; path: string; lineStart: number; lineEnd: number }): Promise<string> {
-    return this.leased(lease, async (client) => {
+    return this.leased(lease, async (client, runId) => {
       const file = await client.query<{ blob_sha256: string | null }>(
         "SELECT blob_sha256 FROM repo_snapshot_files WHERE snapshot_id = $1 AND path = $2", [input.snapshotId, input.path]);
       const blobSha = file.rows[0]?.blob_sha256;
@@ -196,10 +284,10 @@ export class ResearchStore {
       const excerpt = extractSpan(decodeUtf8Strict(blob.rows[0].content), input.lineStart, input.lineEnd);
       if (excerpt === null) throw new Error(`lines ${input.lineStart}-${input.lineEnd} do not exist in ${input.path}`);
       const inserted = await client.query<{ id: string }>(
-        `INSERT INTO evidence_spans (snapshot_id, path, blob_sha256, line_start, line_end, excerpt_sha256)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO evidence_spans (workflow_run_id, produced_by_step_id, snapshot_id, path, blob_sha256, line_start, line_end, excerpt_sha256)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT (snapshot_id, path, line_start, line_end) DO NOTHING RETURNING id`,
-        [input.snapshotId, input.path, blobSha, input.lineStart, input.lineEnd, sha256Hex(Buffer.from(excerpt, "utf8"))],
+        [runId, lease.stepId, input.snapshotId, input.path, blobSha, input.lineStart, input.lineEnd, sha256Hex(Buffer.from(excerpt, "utf8"))],
       );
       if (inserted.rows[0]) return inserted.rows[0].id;
       const existing = await client.query<{ id: string }>(
@@ -209,7 +297,12 @@ export class ResearchStore {
     });
   }
 
-  /** One transaction: the hypothesis and its evidence links. A retry with the same content returns the existing record. */
+  /**
+   * One transaction: the hypothesis and its evidence links. The identity of a claim is its snapshot, family, claim text,
+   * generator and cited spans. A retry of that identity must repeat the stored record exactly (rationale, checks,
+   * alternatives, supersession, reservation and evidence): identical returns the existing hypothesis, anything else is
+   * rejected with a ResearchConflictError. To change content, change the claim text or the generator version.
+   */
   createHypothesis(lease: StepLease, input: {
     snapshotId: string; family: string; claim: string; rationale: string;
     requiredChecks?: string[]; alternativeExplanations?: string[];
@@ -218,6 +311,8 @@ export class ResearchStore {
     const fingerprint = claimFingerprint({
       snapshotId: input.snapshotId, family: input.family, claim: input.claim, generator: input.generator, spans: input.spans,
     });
+    const requiredChecks = input.requiredChecks ?? [];
+    const alternativeExplanations = input.alternativeExplanations ?? [];
     return this.leased(lease, async (client, runId) => {
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO hypotheses (workflow_run_id, produced_by_step_id, snapshot_id, supersedes_id, family, claim, rationale,
@@ -225,17 +320,29 @@ export class ResearchStore {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,$14)
          ON CONFLICT (snapshot_id, claim_fingerprint) DO NOTHING RETURNING id`,
         [runId, lease.stepId, input.snapshotId, input.supersedesId ?? null, input.family, input.claim, input.rationale,
-          JSON.stringify(input.requiredChecks ?? []), JSON.stringify(input.alternativeExplanations ?? []),
+          JSON.stringify(requiredChecks), JSON.stringify(alternativeExplanations),
           input.generator.kind, input.generator.id, input.generator.version, input.generator.reservationId ?? null, fingerprint],
       );
       if (!inserted.rows[0]) {
-        const existing = await client.query<{ id: string }>(
-          "SELECT id FROM hypotheses WHERE snapshot_id = $1 AND claim_fingerprint = $2", [input.snapshotId, fingerprint]);
-        return { id: existing.rows[0]!.id, created: false };
+        const existing = await client.query<Omit<HypothesisRecordFields, "spans"> & { id: string }>(
+          `SELECT id, family, claim, rationale, required_checks, alternative_explanations, generator_kind, generator_id,
+                  generator_version, generator_reservation_id, supersedes_id
+           FROM hypotheses WHERE snapshot_id = $1 AND claim_fingerprint = $2`, [input.snapshotId, fingerprint]);
+        const row = existing.rows[0]!;
+        const spans = await client.query<{ span_id: string; role: string }>(
+          "SELECT span_id, role FROM hypothesis_evidence WHERE hypothesis_id = $1", [row.id]);
+        const differing = diffHypothesis({ ...row, spans: spans.rows }, {
+          family: input.family, claim: input.claim, rationale: input.rationale, requiredChecks, alternativeExplanations,
+          generator: input.generator, supersedesId: input.supersedesId ?? null, spans: input.spans,
+        });
+        if (differing.length) throw new ResearchConflictError("hypothesis", row.id, differing);
+        return { id: row.id, created: false };
       }
       const id = inserted.rows[0].id;
       for (const span of input.spans) {
-        await client.query("INSERT INTO hypothesis_evidence (hypothesis_id, span_id, role) VALUES ($1,$2,$3)", [id, span.spanId, span.role]);
+        await client.query(
+          "INSERT INTO hypothesis_evidence (hypothesis_id, span_id, workflow_run_id, produced_by_step_id, role) VALUES ($1,$2,$3,$4,$5)",
+          [id, span.spanId, runId, lease.stepId, span.role]);
       }
       return { id, created: true };
     });
@@ -246,14 +353,15 @@ export class ResearchStore {
     hypothesisId: string; evaluatorId: string; evaluatorVersion: string; outcome: EvaluationOutcome;
     rationale: string; spanIds: readonly string[]; inputSha256: string;
   }): Promise<string> {
-    return this.leased(lease, async (client) => {
+    return this.leased(lease, async (client, runId) => {
       const inserted = await client.query<{ id: string }>(
-        `INSERT INTO hypothesis_evaluations (hypothesis_id, produced_by_step_id, evaluator_id, evaluator_version, outcome, rationale, input_sha256)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [input.hypothesisId, lease.stepId, input.evaluatorId, input.evaluatorVersion, input.outcome, input.rationale, input.inputSha256]);
+        `INSERT INTO hypothesis_evaluations (workflow_run_id, hypothesis_id, produced_by_step_id, evaluator_id, evaluator_version, outcome, rationale, input_sha256)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [runId, input.hypothesisId, lease.stepId, input.evaluatorId, input.evaluatorVersion, input.outcome, input.rationale, input.inputSha256]);
       const id = inserted.rows[0]!.id;
       for (const spanId of input.spanIds) {
-        await client.query("INSERT INTO evaluation_evidence (evaluation_id, span_id) VALUES ($1,$2)", [id, spanId]);
+        await client.query(
+          "INSERT INTO evaluation_evidence (evaluation_id, span_id, workflow_run_id, produced_by_step_id) VALUES ($1,$2,$3,$4)", [id, spanId, runId, lease.stepId]);
       }
       return id;
     });
@@ -274,25 +382,31 @@ export class ResearchStore {
     if (actor.kind === "operator" && (input.reviewerKind !== "human" || input.reviewerId !== actor.operatorId)) {
       throw new Error("an operator can only record a human review under their own identity");
     }
-    const insert = async (client: PoolClient): Promise<string> => {
+    const insert = async (client: PoolClient, runId: string, stepId: string | null): Promise<string> => {
       const inserted = await client.query<{ id: string }>(
-        `INSERT INTO hypothesis_reviews (hypothesis_id, reviewer_kind, reviewer_id, review_mode, reviewer_saw, input_sha256, verdict, rationale,
-           model_provider, model_name, model_prompt_version, model_reservation_id)
-         VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-        [input.hypothesisId, input.reviewerKind, input.reviewerId, input.mode, JSON.stringify(input.reviewerSaw), input.inputSha256,
+        `INSERT INTO hypothesis_reviews (workflow_run_id, hypothesis_id, produced_by_step_id, reviewer_kind, reviewer_id, review_mode, reviewer_saw,
+           input_sha256, verdict, rationale, model_provider, model_name, model_prompt_version, model_reservation_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+        [runId, input.hypothesisId, stepId, input.reviewerKind, input.reviewerId, input.mode, JSON.stringify(input.reviewerSaw), input.inputSha256,
           input.verdict, input.rationale, input.model?.provider ?? null, input.model?.name ?? null,
           input.model?.promptVersion ?? null, input.model?.reservationId ?? null]);
       return inserted.rows[0]!.id;
     };
-    if (actor.kind === "step") return this.leased(actor.lease, (client) => insert(client));
-    return this.inTransaction(insert);
+    if (actor.kind === "step") return this.leased(actor.lease, (client, runId) => insert(client, runId, actor.lease.stepId));
+    return this.inTransaction(async (client) => {
+      const run = await client.query<{ workflow_run_id: string }>("SELECT workflow_run_id FROM hypotheses WHERE id = $1", [input.hypothesisId]);
+      if (!run.rows[0]) throw new Error(`hypothesis ${input.hypothesisId} does not exist`);
+      return insert(client, run.rows[0].workflow_run_id, null);
+    });
   }
 
-  /** Appends a withdrawal event. Human only; the hypothesis and its history are untouched. */
+  /** Appends a withdrawal event in the hypothesis's own run. Human only; the hypothesis and its history are untouched. */
   async withdraw(operatorId: string, hypothesisId: string, reason: string): Promise<void> {
-    await this.pool.query(
-      "INSERT INTO hypothesis_events (hypothesis_id, event_type, actor_kind, actor_id, reason) VALUES ($1,'withdrawn','human',$2,$3)",
+    const inserted = await this.pool.query(
+      `INSERT INTO hypothesis_events (workflow_run_id, hypothesis_id, event_type, actor_kind, actor_id, reason)
+       SELECT workflow_run_id, id, 'withdrawn', 'human', $2, $3 FROM hypotheses WHERE id = $1`,
       [hypothesisId, operatorId, reason]);
+    if (inserted.rowCount === 0) throw new Error(`hypothesis ${hypothesisId} does not exist`);
   }
 
   async getStatus(hypothesisId: string): Promise<Record<string, unknown> | null> {

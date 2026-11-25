@@ -8,7 +8,7 @@ Status: design for migration `0007_research_state.sql`. Everything here is appen
 3. **Provenance is typed.** Who generated a claim, who evaluated it, and who reviewed it (and what the reviewer saw) are columns with closed vocabularies, not free text.
 4. **Independence is not a boolean.** Reviews record their mode and exactly what the reviewer saw; reports state those facts.
 5. **Everything is bounded.** Size, count and length limits are enforced by the database, and cited evidence can never be evicted.
-6. **Research state belongs to a workflow run and its producing step**, so it ties into the existing lease, audit and retry machinery.
+6. **Research state belongs to one workflow run and its producing step, and the database enforces it.** Every record carries `workflow_run_id` (and `produced_by_step_id` where a step wrote it). Composite foreign keys `(parent_id, workflow_run_id)` force a record, its parents and its writing step into the same run, so a record cannot be attached to another run's data whatever the application does. A lease still proves the writer owns its step; the keys prove the row stays inside that step's run.
 
 ## 2. Entity relationships
 ```mermaid
@@ -39,12 +39,12 @@ erDiagram
 |---|---|---|
 | `research_blobs` | file bytes keyed by SHA-256, 1 MiB cap, hash checked by the database | never updated; deleted only by `evict_research_blob` |
 | `research_blob_evictions` | audit of every eviction (hash, size, reason, actor) | append-only |
-| `repo_snapshots` | one repository at one commit SHA for one run; `sealed_at`, `manifest_sha256`, counts | one transition: building to sealed |
+| `repo_snapshots` | one repository at one commit SHA for one run; producing step, `sealed_at`, `sealed_by_step_id`, `manifest_sha256`, counts | one transition: building to sealed, naming the sealing step (of the same run) |
 | `repo_snapshot_files` | the manifest: every path is either stored (blob hash) or skipped **with a reason**; classification | insert only, and only while the snapshot is building |
 | `evidence_spans` | `(snapshot, path, blob, line_start, line_end, excerpt_sha256)`, verified at insert | append-only |
 | `hypotheses` | the claim as generated: family, claim, rationale, checks, generator identity, snapshot | append-only; corrections are new rows (`supersedes_id`) |
 | `hypothesis_evidence` | which spans a hypothesis cites, with a role | append-only |
-| `hypothesis_evaluations` + `evaluation_evidence` | deterministic evaluator outcomes (`supports`, `weakens`, `contradicts`, `inconclusive`) and the spans they rely on | append-only |
+| `hypothesis_evaluations` + `evaluation_evidence` | deterministic evaluator outcomes (`supports`, `weakens`, `contradicts`, `inconclusive`) and the spans they rely on; each carries its own `workflow_run_id` and a mandatory `produced_by_step_id`, tied by composite keys to the hypothesis and step | append-only |
 | `hypothesis_reviews` | model or human review: mode, `reviewer_saw`, input hash, verdict | append-only |
 | `hypothesis_events` | the authoritative history, in order (`seq`) | append-only |
 | `hypothesis_status` (view) | current status, derived | not a table |
@@ -122,14 +122,26 @@ The view also exposes `static_outcome` (`contradicts` > `weakens` > `supports` >
 **Retention.** Manifests, spans, hypotheses, evaluations, reviews and events are never deleted. Blob bytes may be removed only by `evict_research_blob(hash, reason, actor)`, which refuses any blob cited by an evidence span, records the eviction in `research_blob_evictions`, and leaves the manifest intact so reports say "evicted" honestly. Time-based eviction policy (which blobs, how old) is an operational decision made in a later PR; this one supplies the mechanism and the limits. `research_storage_stats` reports blob counts and bytes so growth is visible. On a small hosted database (Fly's Developer plan allows 5 GB) these limits are what keep storage bounded.
 
 ## 9. How it connects to the existing workflow queue
-- Snapshots, hypotheses and evaluations carry `workflow_run_id` / `produced_by_step_id`, so every record is tied to a run and the step that wrote it, and appears next to the existing `audit_events` trail.
-- The TypeScript `ResearchStore` performs writes **under the step's lease**: it repeats the lease check used for `source_snapshots` (current owner, unexpired, `running`) in the same transaction, so a worker that lost its lease cannot write research state. Human reviews (API, later) are not lease-bound and are attributed to the operator identity.
-- Step outputs shrink to **pointers** (snapshot id, hypothesis ids, hashes). The new `repository_research` workflow type (PR 5.2) will use them; the existing `link_or_idea_intake` workflow and its `source_snapshots` are untouched and keep working.
-- `findings`, `finding_evidence` and `verification_reviews` stay for later: a finding will be promoted from reviewed hypotheses by a future migration that adds the link. They are not changed here.
+**Provenance rule.** Every record has `workflow_run_id`. Records written by a step also have `produced_by_step_id` (mandatory for snapshots, manifest rows, evaluations and evaluation evidence; optional for spans, hypotheses, links and reviews, which a human may create through the API later). Composite foreign keys tie each record to the same run as:
+- its writing step: `(produced_by_step_id, workflow_run_id)` to `workflow_steps(id, workflow_run_id)`;
+- its parents: manifest rows and spans to their snapshot; hypotheses to their snapshot and to the hypothesis they supersede; evidence links to their hypothesis and span; evaluations to their hypothesis; evaluation evidence to its evaluation and span; reviews and events to their hypothesis (events also to the evaluation or review they log);
+- the sealing step of a snapshot (`sealed_by_step_id`), which the seal trigger requires.
+A test reads these keys from the database catalog and pins them, because several constraints overlap at runtime (for example the event log would also reject an evaluation carrying the wrong run) and a single key could otherwise be removed unnoticed.
+
+**Leases.** `ResearchStore` repeats the existing lease check (current owner, unexpired, `running`) in the same transaction as each write, and takes the run from the step. Together with the keys, a worker holding a lease for run B cannot write evidence, hypotheses, evaluations, reviews or seals against run A's records. Human reviews and withdrawals are not lease-bound; they are recorded in the hypothesis's own run and attributed to the operator.
+
+**Step outputs shrink to pointers** (snapshot id, hypothesis ids, hashes). The new `repository_research` workflow type (PR 5.2) will use them; the existing `link_or_idea_intake` workflow and its `source_snapshots` are untouched and keep working. `findings`, `finding_evidence` and `verification_reviews` stay for later: a finding will be promoted from reviewed hypotheses by a future migration. They are not changed here.
+
+### Retries
+A step can be retried, so writes must be idempotent *and* must never turn a changed retry into a silent success.
+- **Manifest rows.** A row that already exists must match the requested row exactly (blob, git id, size, classification, skip reason). An identical retry is a no-op, even after sealing; any difference is a `ResearchConflictError`, and the request is applied atomically. A path listed twice with different content in one request is rejected.
+- **Snapshots.** A retry for the same run, repository and commit must carry the same ref name and acquisition report, or it is a conflict.
+- **Hypotheses.** Identity is the snapshot, family, claim text, generator (kind, id, version) and the set of cited spans. A retry of an identity must repeat the stored record in full: rationale, required checks, alternative explanations, supersession, generator reservation and evidence roles. Identical returns the existing hypothesis (`created: false`); anything else is a conflict, never a silent return of the old record. To state something different, change the claim text, family, generator version or evidence, which is a new identity and a new hypothesis.
 
 ## 10. As implemented in PR 5.1
 - Migration `db/migrations/0007_research_state.sql`; TypeScript access layer `apps/api/src/research-state.ts` (`ResearchStore`: hashing, line semantics, lease-checked writes, `resolveSpan`, `verifySpan`, `verifySnapshot`).
 - Verification: unit tests for hashing and line semantics, and real-Postgres tests (`npm run test:integration`) for the rules above, including table-driven status derivation and mutation checks of each rule. The same line definition is checked against the SQL one over awkward texts (CRLF, trailing newlines, empty text, non-ASCII).
+- Run provenance, retry comparison and the catalog contract test were added after review (`research-state-provenance.integration.test.ts`).
 - Nothing creates these records yet: acquisition (5.2), specialists (5.5), the review endpoint (5.6) and the dossier (5.7) are later PRs, and no existing stage was changed.
 - Eviction is a mechanism, not a policy: no age-based eviction runs.
 - `TRUNCATE` is not intercepted by the append-only triggers, as with the existing append-only tables.

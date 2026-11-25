@@ -74,10 +74,10 @@ describe.skipIf(skipIntegration)("research state: blobs, snapshots and evidence 
       const snap = await fx.rawSnapshot();
       const blob = await fx.rawBlob(Buffer.from("contract A {}"));
       await fx.rawFile(snap, "src/A.sol", blob, 13);
-      await fx.pool.query("INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, size_bytes, classification, skip_reason) VALUES ($1,'big.bin',NULL,9999999,'other','oversize')", [snap]);
-      await expect(fx.pool.query("INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, size_bytes, classification, skip_reason) VALUES ($1,'silent.bin',NULL,5,'other',NULL)", [snap])).rejects.toThrow(/check constraint/);
-      await expect(fx.pool.query("INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, size_bytes, classification, skip_reason) VALUES ($1,'both.sol',$2,13,'source','binary')", [snap, blob])).rejects.toThrow(/check constraint/);
-      await expect(fx.pool.query("INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, size_bytes, classification, skip_reason) VALUES ($1,'why.bin',NULL,5,'other','because')", [snap])).rejects.toThrow(/check constraint/);
+      await fx.rawInsertFile(snap, { path: "big.bin", size: 9_999_999, classification: "other", skipReason: "oversize" });
+      await expect(fx.rawInsertFile(snap, { path: "silent.bin", size: 5, classification: "other" })).rejects.toThrow(/check constraint/);
+      await expect(fx.rawInsertFile(snap, { path: "both.sol", blobSha: blob, size: 13, skipReason: "binary" })).rejects.toThrow(/check constraint/);
+      await expect(fx.rawInsertFile(snap, { path: "why.bin", size: 5, classification: "other", skipReason: "because" })).rejects.toThrow(/check constraint/);
     });
 
     it("rejects unsafe paths", async () => {
@@ -139,7 +139,7 @@ describe.skipIf(skipIntegration)("research state: blobs, snapshots and evidence 
       const snap = await fx.rawSnapshot();
       const blob = await fx.rawBlob(Buffer.from("real"));
       await fx.rawFile(snap, "a.sol", blob, 4);
-      await fx.pool.query("UPDATE repo_snapshots SET sealed_at = now(), manifest_sha256 = $2, file_count = 99, total_bytes = 12345 WHERE id = $1", [snap, "f".repeat(64)]);
+      await fx.rawSeal(snap, "manifest_sha256 = $3, file_count = 99, total_bytes = 12345", ["f".repeat(64)]);
       const row = (await fx.pool.query("SELECT manifest_sha256, file_count, total_bytes FROM repo_snapshots WHERE id = $1", [snap])).rows[0]!;
       expect(row.file_count).toBe(1);
       expect(Number(row.total_bytes)).toBe(4);
@@ -149,16 +149,18 @@ describe.skipIf(skipIntegration)("research state: blobs, snapshots and evidence 
     it("enforces the file-count and byte limits at seal time", async () => {
       const many = await fx.rawSnapshot();
       const blob = await fx.rawBlob(Buffer.from("tiny"));
+      const owner = fx.owner(many);
       await fx.pool.query(
-        "INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, size_bytes, classification) SELECT $1, 'f' || g || '.sol', $2, 4, 'source' FROM generate_series(1, 20001) g", [many, blob]);
-      await expect(fx.pool.query("UPDATE repo_snapshots SET sealed_at = now() WHERE id = $1", [many])).rejects.toThrow(/the limit is 20000/);
+        `INSERT INTO repo_snapshot_files (snapshot_id, workflow_run_id, produced_by_step_id, path, blob_sha256, size_bytes, classification)
+         SELECT $1, $3, $4, 'f' || g || '.sol', $2, 4, 'source' FROM generate_series(1, 20001) g`, [many, blob, owner.runId, owner.stepId]);
+      await expect(fx.rawSeal(many)).rejects.toThrow(/the limit is 20000/);
 
       const heavy = await fx.rawSnapshot();
       for (let i = 0; i < 65; i += 1) {
         const content = Buffer.alloc(MAX_BLOB_BYTES, i + 1);
         await fx.rawFile(heavy, `blob${i}.bin`, await fx.rawBlob(content), content.length);
       }
-      await expect(fx.pool.query("UPDATE repo_snapshots SET sealed_at = now() WHERE id = $1", [heavy])).rejects.toThrow(/the limit is 67108864/);
+      await expect(fx.rawSeal(heavy)).rejects.toThrow(/the limit is 67108864/);
     });
 
     it("detects a tampered manifest", async () => {
@@ -191,8 +193,9 @@ describe.skipIf(skipIntegration)("research state: blobs, snapshots and evidence 
     it("refuses a wrong excerpt hash, a missing range and a span on an unsealed snapshot", async () => {
       const ctx = await fx.sealedSnapshot();
       const blob = sha256Hex(VAULT);
-      const insert = (start: number, end: number, hash: string, snapshot = ctx.snapshotId) => fx.pool.query(
-        "INSERT INTO evidence_spans (snapshot_id, path, blob_sha256, line_start, line_end, excerpt_sha256) VALUES ($1,'contracts/Vault.sol',$2,$3,$4,$5)", [snapshot, blob, start, end, hash]);
+      fx.adopt(ctx);
+      const insert = (start: number, end: number, hash: string, snapshot = ctx.snapshotId) =>
+        fx.rawSpan(snapshot, "contracts/Vault.sol", blob, start, end, hash);
       await expect(insert(4, 6, "1".repeat(64))).rejects.toThrow(/does not resolve \(mismatch\)/);
       await expect(insert(4, 99, sha256Hex("x"))).rejects.toThrow(/does not resolve \(range_error\)/);
       await expect(insert(9, 9, sha256Hex(""))).rejects.toThrow(/does not resolve \(range_error\)/); // the trailing newline is not a ninth line
@@ -206,10 +209,9 @@ describe.skipIf(skipIntegration)("research state: blobs, snapshots and evidence 
       const snap = await fx.rawSnapshot();
       const blob = await fx.rawBlob(Buffer.from("line1\nline2\n"));
       await fx.rawFile(snap, "real.sol", blob, 12);
-      await fx.pool.query("INSERT INTO repo_snapshot_files (snapshot_id, path, blob_sha256, size_bytes, classification, skip_reason) VALUES ($1,'skipped.sol',NULL,50,'source','oversize')", [snap]);
-      await fx.pool.query("UPDATE repo_snapshots SET sealed_at = now() WHERE id = $1", [snap]);
-      const insert = (path: string, blobSha: string) => fx.pool.query(
-        "INSERT INTO evidence_spans (snapshot_id, path, blob_sha256, line_start, line_end, excerpt_sha256) VALUES ($1,$2,$3,1,1,$4)", [snap, path, blobSha, sha256Hex("line1")]);
+      await fx.rawInsertFile(snap, { path: "skipped.sol", size: 50, skipReason: "oversize" });
+      await fx.rawSeal(snap);
+      const insert = (path: string, blobSha: string) => fx.rawSpan(snap, path, blobSha, 1, 1, sha256Hex("line1"));
       await expect(insert("skipped.sol", blob)).rejects.toThrow(/foreign key/);
       await expect(insert("missing.sol", blob)).rejects.toThrow(/foreign key/);
       await expect(insert("real.sol", sha256Hex("other"))).rejects.toThrow(/does not resolve|foreign key/);
@@ -224,9 +226,8 @@ describe.skipIf(skipIntegration)("research state: blobs, snapshots and evidence 
       const snap = await fx.rawSnapshot();
       const bad = await fx.rawBlob(Buffer.from([0x66, 0xff, 0xfe, 0x0a]));
       await fx.rawFile(snap, "bad.bin", bad, 4);
-      await fx.pool.query("UPDATE repo_snapshots SET sealed_at = now() WHERE id = $1", [snap]);
-      await expect(fx.pool.query(
-        "INSERT INTO evidence_spans (snapshot_id, path, blob_sha256, line_start, line_end, excerpt_sha256) VALUES ($1,'bad.bin',$2,1,1,$3)", [snap, bad, sha256Hex("f")])).rejects.toThrow(/not_text/);
+      await fx.rawSeal(snap);
+      await expect(fx.rawSpan(snap, "bad.bin", bad, 1, 1, sha256Hex("f"))).rejects.toThrow(/not_text/);
     });
 
     it("agrees with the application on line semantics for awkward texts", async () => {
@@ -295,8 +296,10 @@ describe.skipIf(skipIntegration)("research state: blobs, snapshots and evidence 
     });
 
     it("rejects a snapshot for a run that does not exist", async () => {
+      const real = await fx.step();
       await expect(fx.pool.query(
-        "INSERT INTO repo_snapshots (workflow_run_id, source_host, repository, commit_sha) VALUES ($1,'github.com','a/b',$2)", ["00000000-0000-4000-8000-000000000999", fx.commit()])).rejects.toThrow(/foreign key/);
+        "INSERT INTO repo_snapshots (workflow_run_id, produced_by_step_id, source_host, repository, commit_sha) VALUES ($1,$2,'github.com','a/b',$3)",
+        ["00000000-0000-4000-8000-000000000999", real.lease.stepId, fx.commit()])).rejects.toThrow(/foreign key/);
     });
   });
 });
