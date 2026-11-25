@@ -179,7 +179,7 @@ export function registerResearchRoutes(app: FastifyInstance, pool: Pool | undefi
       ...shapeProject(run.rows[0]!, counts.get(id) ?? {}),
       correlation_id: meta.rows[0]!.correlation_id, created_by: meta.rows[0]!.created_by, notes: meta.rows[0]!.notes, source_reference: meta.rows[0]!.source_reference,
       steps: steps.rows,
-      snapshots: snapshots.rows,
+      snapshot_records: snapshots.rows,
       legacy: {
         note: "Output of the legacy passive pipeline (regex leads, template hypotheses, checklist). It is not research-state evidence and carries no independent review.",
         evidence_snapshots: legacyEvidence.rows,

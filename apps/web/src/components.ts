@@ -95,8 +95,33 @@ export function codeBlock(lines: Array<{ no: number; text: string; mark?: boolea
   return h("pre", { class: "code", tabindex: 0 }, ...lines.map((l) => h("span", { class: `code-line${l.mark ? " code-mark" : ""}` }, h("span", { class: "code-no" }, String(l.no)), h("span", { class: "code-text" }, l.text, "\n"))));
 }
 
-/** Attack-surface map: squarified treemap, area = file size, colour = classification, outline = cited by evidence. */
-export function surfaceMap(files: SurfaceFile[], onSelect: (path: string) => void, size = typeof window !== "undefined" && window.innerWidth <= 820 ? { w: 420, h: 520 } : { w: 960, h: 420 }): HTMLElement {
+export const TREEMAP_WIDE = { w: 960, h: 420 };
+export const TREEMAP_NARROW = { w: 420, h: 520 };
+/** A container narrower than this gets the tall layout so file labels stay legible on a phone. */
+export const TREEMAP_NARROW_BELOW = 600;
+export const treemapSizeFor = (containerWidth: number): { w: number; h: number } => (containerWidth > 0 && containerWidth < TREEMAP_NARROW_BELOW ? TREEMAP_NARROW : TREEMAP_WIDE);
+
+/**
+ * Attack-surface map: squarified treemap, area = file size, colour = classification, outline = cited by evidence.
+ * It follows its container: when the width crosses the narrow threshold (window resize, device rotation, split panes) the
+ * map is laid out again for the new shape. Without ResizeObserver it uses the window width once.
+ */
+export function surfaceMap(files: SurfaceFile[], onSelect: (path: string) => void): HTMLElement {
+  const wrap = h("div", { class: "treemap-wrap" });
+  let current: { w: number; h: number } | null = null;
+  const draw = (width: number) => {
+    const size = treemapSizeFor(width);
+    if (size === current) return;
+    current = size;
+    clear(wrap);
+    wrap.append(treemapSvg(files, onSelect, size));
+  };
+  draw(typeof window !== "undefined" ? window.innerWidth : TREEMAP_WIDE.w);
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver((entries) => { const width = entries[0]?.contentRect.width; if (width) draw(width); }).observe(wrap);
+  return wrap;
+}
+
+function treemapSvg(files: SurfaceFile[], onSelect: (path: string) => void, size: { w: number; h: number }): SVGElement {
   const stored = files.filter((f) => f.stored && f.size_bytes > 0);
   const rects = squarify(stored.map((f) => ({ weight: f.size_bytes, data: f })), size.w, size.h);
   const svg = s("svg", { viewBox: `0 0 ${size.w} ${size.h}`, class: "treemap", role: "group", "aria-label": "Attack-surface map: stored files by size and classification" });
@@ -107,11 +132,12 @@ export function surfaceMap(files: SurfaceFile[], onSelect: (path: string) => voi
       onclick: () => onSelect(f.path), onkeydown: (e: Event) => { if ((e as KeyboardEvent).key === "Enter") onSelect(f.path); } });
     g.append(s("title", {}, `${f.path}\n${f.size_bytes} B · ${f.classification} · ${f.spans} spans · ${hypCount} hypotheses`));
     g.append(s("rect", { x: r.x + 1, y: r.y + 1, width: Math.max(0, r.w - 2), height: Math.max(0, r.h - 2), class: `tm-rect tone-${FILE_CLASS_TONE[f.classification] ?? "grey"}${f.spans > 0 ? " tm-cited" : ""}` }));
-    if (r.w > 70 && r.h > 22) g.append(s("text", { x: r.x + 6, y: r.y + 16, class: "tm-text" }, (f.path.split("/").pop() ?? f.path).slice(0, Math.floor(r.w / 7))));
+    const badgeRoom = hypCount > 0 ? 28 : 0;
+    if (r.w > 70 + badgeRoom && r.h > 22) g.append(s("text", { x: r.x + 6, y: r.y + 16, class: "tm-text" }, (f.path.split("/").pop() ?? f.path).slice(0, Math.floor((r.w - badgeRoom) / 7))));
     if (hypCount > 0 && r.w > 28 && r.h > 28) g.append(s("circle", { cx: r.x + r.w - 12, cy: r.y + 12, r: 7, class: "tm-hyp" }), s("text", { x: r.x + r.w - 12, y: r.y + 15, "text-anchor": "middle", class: "tm-hyp-n" }, String(hypCount)));
     svg.append(g);
   }
-  return svg as unknown as HTMLElement;
+  return svg;
 }
 
 export function classLegend(): HTMLElement {

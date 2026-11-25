@@ -73,8 +73,7 @@ function homeBody(ctx: Ctx, o: Overview, projects: ProjectSummary[], activity: A
 export function projectPane(d: ProjectDetail): HTMLElement {
   const running = d.steps.find((s) => s.status === "running");
   const next = d.steps.find((s) => s.status === "queued");
-  const sealed = d.snapshots.filter((s) => s.sealed_at !== null).length;
-  const slots = stageStates({ snapshots: { sealed }, hypotheses: d.hypotheses, evaluations: d.evaluations, reviews: d.reviews });
+  const slots = stageStates(d);
   return h("div", {},
     h("div", { class: "pane-title" }, h("h3", {}, projectTitle(d)), badge(word(RUN_STATUS, d.status))),
     h("p", { class: "muted small" }, `${d.input.kind ?? "?"} · source ${d.input.source ?? "?"} · created ${relativeTime(d.created_at)}`),
@@ -83,5 +82,5 @@ export function projectPane(d: ProjectDetail): HTMLElement {
       h("div", {}, h("h4", {}, "Current activity"), running ? h("p", {}, stepLabel(running.step_key), " ", badge(word(STEP_STATUS, running.status)), running.lease_live ? "" : h("span", { class: "tone-amber small" }, " lease expired")) : h("p", { class: "muted" }, "No step is running.")),
       h("div", {}, h("h4", {}, "Next up"), next ? h("p", {}, stepLabel(next.step_key)) : h("p", { class: "muted" }, "No step is queued."))),
     h("p", {}, h("a", { class: "link", href: link("projects", d.id) }, `Open project (${plural(d.steps.length, "step")})`)),
-    d.snapshots[0] ? h("p", { class: "muted small" }, `Pinned snapshot ${d.snapshots[0].repository} @ `, mono(shortHash(d.snapshots[0].commit_sha, 12))) : null);
+    d.snapshot_records[0] ? h("p", { class: "muted small" }, `Pinned snapshot ${d.snapshot_records[0].repository} @ `, mono(shortHash(d.snapshot_records[0].commit_sha, 12))) : null);
 }

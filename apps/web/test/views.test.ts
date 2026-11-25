@@ -178,7 +178,7 @@ describe("projects", () => {
   });
   it("shows a stage stepper driven by records, with legacy output labelled", async () => {
     const detail = { id: "r", workflow_type: "x", status: "running", created_at: "2026-01-01T00:00:00Z", started_at: null, completed_at: null, input: { kind: "url", value: "https://github.com/example/x", source: "user" },
-      progress: { steps_total: 8, steps_succeeded: 3, steps_failed: 0, current_step: "map_attack_surface", current_step_status: "running" }, snapshots: [], hypotheses: { total: 0, by_status: {} }, evaluations: 0, reviews: 0,
+      progress: { steps_total: 8, steps_succeeded: 3, steps_failed: 0, current_step: "map_attack_surface", current_step_status: "running" }, snapshots: { total: 0, sealed: 0 }, snapshot_records: [], hypotheses: { total: 0, by_status: {} }, evaluations: 0, reviews: 0,
       correlation_id: null, created_by: "user", notes: null, steps: [{ id: "s", step_key: "map_attack_surface", role: "code_hunter", sequence: 5, status: "running", attempt: 1, error: null, started_at: null, completed_at: null, lease_owner: "w", lease_expires_at: null, lease_live: false }],
       legacy: { note: "Output of the legacy passive pipeline", evidence_snapshots: [], brief: null, leads: [] } };
     const el = renderProjects(fakeCtx(() => detail), "r", {});
@@ -225,5 +225,46 @@ describe("shell and unlock", () => {
   it("unlock screen keeps the token input a password field", () => {
     const el = unlockScreen(() => {});
     expect((el.querySelector("#token") as HTMLInputElement).type).toBe("password");
+  });
+});
+
+describe("attack-surface map follows its container", () => {
+  it("re-lays out when the width crosses the narrow threshold and not otherwise", async () => {
+    const { surfaceMap, TREEMAP_NARROW, TREEMAP_WIDE, treemapSizeFor } = await import("../src/components.js");
+    expect(treemapSizeFor(390)).toBe(TREEMAP_NARROW);
+    expect(treemapSizeFor(599)).toBe(TREEMAP_NARROW);
+    expect(treemapSizeFor(600)).toBe(TREEMAP_WIDE);
+    expect(treemapSizeFor(0)).toBe(TREEMAP_WIDE);
+    let notify: (entries: Array<{ contentRect: { width: number } }>) => void = () => {};
+    vi.stubGlobal("ResizeObserver", class { constructor(cb: typeof notify) { notify = cb; } observe() {} disconnect() {} });
+    const files = [{ path: "a.sol", classification: "source", size_bytes: 80, stored: true, skip_reason: null, spans: 0, hypotheses_by_status: {} }];
+    const el = surfaceMap(files, () => {});
+    const viewBox = () => el.querySelector("svg")!.getAttribute("viewBox");
+    const initial = el.querySelector("svg");
+    notify([{ contentRect: { width: 900 } }]);
+    expect(viewBox()).toBe(`0 0 ${TREEMAP_WIDE.w} ${TREEMAP_WIDE.h}`);
+    notify([{ contentRect: { width: 340 } }]);
+    expect(viewBox()).toBe(`0 0 ${TREEMAP_NARROW.w} ${TREEMAP_NARROW.h}`);
+    const narrow = el.querySelector("svg");
+    notify([{ contentRect: { width: 360 } }]);
+    expect(el.querySelector("svg")).toBe(narrow);
+    notify([{ contentRect: { width: 1000 } }]);
+    expect(viewBox()).toBe(`0 0 ${TREEMAP_WIDE.w} ${TREEMAP_WIDE.h}`);
+    expect(initial).not.toBeNull();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("layout contracts that jsdom can see", () => {
+  it("review and evaluation rows use the single-column static row, and the stylesheet defines it", async () => {
+    const el = renderHypotheses(fakeCtx(() => HYP), HYP.id, {});
+    await settled(el, /Blinded assessment/);
+    const rows = el.querySelectorAll("li.row-static.stack-sm");
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const css = readFileSync(join(process.cwd(), "apps", "web", "public", "styles.css"), "utf8");
+    expect(css).toMatch(/\.row-static\.stack-sm\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+    expect(css).toMatch(/\.tabbar\s*\{\s*position:\s*fixed/);
   });
 });

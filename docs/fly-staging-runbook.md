@@ -9,7 +9,7 @@ Staging has its own config files, generated from `fly.toml` by `npm run staging:
 
 Why two releases: Fly's documentation says `fly deploy` "creates and starts at least one Machine for each process group in `fly.toml`", and that a later deploy which adds a group "spins up at least one new Machine to run each new process". The worker exits immediately without a database, so scaling it to zero *after* the first deploy is too late. The first release therefore defines no worker group at all, and the worker arrives in a later release once the database is attached and migrated. (`--process-groups` is deliberately not relied on: the documentation does not say it stops other groups' Machines being created on a first deploy.)
 
-1. **Prepare (owner, Fly website).** Create the empty app and an app-scoped deploy token (48 h). Add the secret `API_BEARER_TOKEN` (32+ random characters). Do not create the database yet.
+1. **Prepare (owner, Fly website).** Create the empty app and an app-scoped deploy token (48 h). Add the secret `API_BEARER_TOKEN` (generate with `openssl rand -base64 48`; the app refuses short or repetitive tokens at startup). Do not create the database yet.
 2. **Builder check.** Test that Fly's remote builder is reachable from the session (build-only) (verify). If it is not, stop and report.
 3. **First release: app only, no database.** `fly deploy --config fly.staging-bootstrap.toml --app agentsmith-multihub-staging --ha=false` (verify). `--ha=false` avoids the default spare Machine (Fly's `--ha` defaults to true). Checkpoint, all required:
    - the release succeeded;

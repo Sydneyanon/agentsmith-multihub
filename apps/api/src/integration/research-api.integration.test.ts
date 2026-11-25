@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,7 @@ import { ResearchFixture, VAULT } from "./research-helpers.js";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
-const TOKEN = "t".repeat(40);
+const TOKEN = randomBytes(36).toString("base64url");
 const AUTH = { authorization: `Bearer ${TOKEN}` };
 const LEGACY_KEYS = ["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief"];
 
@@ -228,9 +229,11 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
       expect(body.legacy.brief).toMatchObject({ completeness: "all_stages_executed", research_completeness: "preliminary_unreviewed" });
       expect(body.legacy.leads).toHaveLength(1);
       expect(body.legacy.evidence_snapshots).toHaveLength(1);
-      expect(body.snapshots).toEqual([]);
+      expect(body.snapshots).toEqual({ total: 0, sealed: 0 });
+      expect(body.snapshot_records).toEqual([]);
       const research = (await get(`/v1/research/projects/${seeded.runId}`)).body;
-      expect(research.snapshots[0]).toMatchObject({ repository: "synthetic/fixture-vault", spans: 4, hypotheses: 4 });
+      expect(research.snapshots).toEqual({ total: 1, sealed: 1 });
+      expect(research.snapshot_records[0]).toMatchObject({ repository: "synthetic/fixture-vault", spans: 4, hypotheses: 4 });
       expect(research.legacy.brief).toBeNull();
     });
 

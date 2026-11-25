@@ -15,9 +15,9 @@ export interface StepRow {
   started_at: string | null; completed_at: string | null; lease_owner: string | null; lease_expires_at: string | null; lease_live: boolean;
 }
 export interface SnapshotBrief { id: string; repository: string; commit_sha: string; ref_name: string | null; sealed_at: string | null; file_count: number | null; total_bytes: number | string | null; manifest_sha256: string | null; spans: number; hypotheses: number }
-export interface ProjectDetail extends Omit<ProjectSummary, "snapshots"> {
+export interface ProjectDetail extends ProjectSummary {
   correlation_id: string | null; created_by: string | null; notes: string | null;
-  steps: StepRow[]; snapshots: SnapshotBrief[];
+  steps: StepRow[]; snapshot_records: SnapshotBrief[];
   legacy: { note: string; evidence_snapshots: Array<{ id: string; source_kind: string; source_uri: string; content_sha256: string; captured_at: string }>; brief: unknown; leads: unknown[] };
 }
 

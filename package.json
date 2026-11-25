@@ -18,7 +18,8 @@
     "worker:intake:dev": "tsx apps/api/src/worker-main.ts",
     "staging:configs": "tsx scripts/staging-config.ts",
     "verify": "node scripts/verify.mjs",
-    "hub:screenshots": "tsx scripts/hub-screenshots.ts"
+    "hub:screenshots": "tsx scripts/hub-screenshots.ts",
+    "hub:layout-check": "tsx scripts/hub-layout-check.ts"
   },
   "dependencies": {
     "fastify": "^5.2.1",

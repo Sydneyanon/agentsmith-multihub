@@ -28,7 +28,7 @@ Common rules: ids are UUIDs (400 `invalid_id` otherwise); 404 `not_found`; 503 `
 |---|---|
 | `/v1/research/overview` | counts of projects by status; snapshots (sealed/building); evidence spans; hypotheses total and by derived status; evaluations; reviews by mode; events in the last 24 h; pipeline health (queued, running, running with an **expired** lease, failed steps in 7 days, oldest queued age); storage statistics |
 | `/v1/research/projects?status=` | runs with input summary (kind, value, source; notes omitted), step progress, snapshot counts, hypothesis counts by status, evaluation and review counts (these drive the stage stepper) |
-| `/v1/research/projects/:id` | the above plus notes, step list with errors and lease state, snapshots, legacy evidence snapshots (id, kind, uri, hash) and the legacy brief |
+| `/v1/research/projects/:id` | the above plus notes, step list with errors and lease state, `snapshot_records` (the same `snapshots` summary object as the list is kept), legacy evidence snapshots (id, kind, uri, hash) and the legacy brief |
 | `/v1/research/snapshots?run=` , `/v1/research/snapshots/:id?verify=1` | snapshot header: repository, commit, ref, sealed state, counts, manifest hash, acquisition report; `verify=1` runs `verify_repo_snapshot` (re-hashes every blob) |
 | `/v1/research/snapshots/:id/files?prefix=` | manifest rows: path, classification, size, stored or skipped (with reason), span and hypothesis counts |
 | `/v1/research/snapshots/:id/file?path=` | one stored file's text (UTF-8 only, at most 1 MiB), with the spans and hypotheses that cite it; 409 `skipped`, 410 `evicted`, 415 `not_text` |
