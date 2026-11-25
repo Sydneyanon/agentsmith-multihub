@@ -43,7 +43,7 @@ const repoSchema = z.object({
 const commitSchema = z.object({ sha: sha40, commit: z.object({ tree: z.object({ sha: sha40 }) }) });
 const treeSchema = z.object({
   sha: sha40, truncated: z.boolean(),
-  tree: z.array(z.object({ path: z.string().min(1).max(4096), mode: z.string().regex(/^[0-7]{6}$/), type: z.enum(["blob", "tree", "commit"]), sha: sha40, size: z.number().int().nonnegative().optional() })),
+  tree: z.array(z.object({ path: z.string().min(1).max(65_536), mode: z.string().regex(/^[0-7]{6}$/), type: z.enum(["blob", "tree", "commit"]), sha: sha40, size: z.number().int().nonnegative().optional() })),
 });
 
 export type GitHubSourceOptions = {
@@ -59,15 +59,21 @@ export type GitHubSourceOptions = {
   testOrigins?: { api: string; archive: string[] };
 };
 
-/** Iterates a fetch body with a reader (no reliance on async-iterable streams) and always cancels it on early exit. */
-async function* readBody(body: ReadableStream<Uint8Array> | null): AsyncGenerator<Uint8Array> {
+/**
+ * Iterates a fetch body with a reader and always cancels it on early exit. A body that goes quiet for `idleMs` is a stall, reported
+ * as a retryable timeout; a slow but steady download is never cut short by it (the acquisition's wall-clock limit bounds the total).
+ */
+async function* readBody(body: ReadableStream<Uint8Array> | null, idleMs: number): AsyncGenerator<Uint8Array> {
   if (!body) return;
   const reader = body.getReader();
   try {
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) return;
-      if (value) yield value;
+      let timer: NodeJS.Timeout | undefined;
+      const stall = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new AcquisitionError("timeout", `the download went quiet for ${idleMs} ms`, true)), idleMs); });
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try { chunk = await Promise.race([reader.read(), stall]); } finally { clearTimeout(timer); }
+      if (chunk.done) return;
+      if (chunk.value) yield chunk.value;
     }
   } finally {
     await reader.cancel().catch(() => undefined);
@@ -117,12 +123,17 @@ export class GitHubSource implements RepositorySource {
     for (let hop = 0; hop <= this.limits.maxRedirects; hop += 1) {
       const headers: Record<string, string> = { accept, "user-agent": USER_AGENT, "x-github-api-version": "2022-11-28" };
       if (this.options.token && url.origin === this.apiOrigin) headers.authorization = `Bearer ${this.options.token}`;
-      const timeout = AbortSignal.timeout(this.timeoutMs);
+      // The timeout covers waiting for the response headers only. The body is bounded by the caller's signal (the acquisition's
+      // wall clock) and by the idle-stall check in readBody, so a large, slow download is not aborted by a per-request timer.
+      const headerTimeout = new AbortController();
+      const timer = setTimeout(() => headerTimeout.abort(new DOMException("timed out", "TimeoutError")), this.timeoutMs);
       let response: Response;
       try {
-        response = await this.fetcher(url, { method: "GET", headers, redirect: "manual", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+        response = await this.fetcher(url, { method: "GET", headers, redirect: "manual", signal: signal ? AbortSignal.any([signal, headerTimeout.signal]) : headerTimeout.signal });
       } catch (error) {
         throw this.networkError(error, signal);
+      } finally {
+        clearTimeout(timer);
       }
       if (response.status >= 300 && response.status < 400 && response.status !== 304) {
         const location = response.headers.get("location");
@@ -156,7 +167,7 @@ export class GitHubSource implements RepositorySource {
     const chunks: Buffer[] = [];
     let total = 0;
     try {
-      for await (const piece of readBody(response.body)) {
+      for await (const piece of readBody(response.body, this.timeoutMs)) {
         total += piece.byteLength;
         if (total > this.limits.maxApiResponseBytes) { await response.body?.cancel().catch(() => undefined); throw new AcquisitionError("limit_exceeded", `${label} is larger than ${this.limits.maxApiResponseBytes} bytes`, false, undefined, { limit: "api_response_bytes" }); }
         chunks.push(Buffer.from(piece.buffer, piece.byteOffset, piece.byteLength));
@@ -207,10 +218,11 @@ export class GitHubSource implements RepositorySource {
     const body = response.body;
     if (!body) throw new AcquisitionError("unexpected_response", "the archive response has no body");
     const wrap = this.networkError.bind(this);
+    const idleMs = this.timeoutMs;
     return {
       finalHost: new URL(response.url || this.apiOrigin).host,
       body: (async function* () {
-        try { for await (const chunk of readBody(body)) yield chunk; } catch (error) { throw wrap(error, signal); }
+        try { for await (const chunk of readBody(body, idleMs)) yield chunk; } catch (error) { throw wrap(error, signal); }
       })(),
     };
   }

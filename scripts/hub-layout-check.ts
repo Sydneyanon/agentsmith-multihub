@@ -49,6 +49,8 @@ async function main(): Promise<void> {
         await page.reload();
         await page.waitForSelector(".content .view, .content .home-grid", { timeout: 10_000 });
         await page.waitForFunction(() => !document.querySelector(".state-loading"), undefined, { timeout: 10_000 });
+        // Expanded sections are what a reader sees after tapping, so they are checked too.
+        await page.evaluate(() => document.querySelectorAll("details").forEach((d) => { d.open = true; }));
         const problems = (await page.evaluate(`(${probe})(${JSON.stringify({ touch })})`)) as Array<{ kind: string; detail: string }>;
         checks += 1;
         for (const p of problems.slice(0, 6)) fail(where, `${p.kind}: ${p.detail}`);

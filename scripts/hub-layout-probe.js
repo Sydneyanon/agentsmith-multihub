@@ -7,7 +7,17 @@
   const isScroller = (el) => /(auto|scroll)/.test(getComputedStyle(el).overflowX);
   const inScroller = (el) => { for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) if (isScroller(p)) return true; return false; };
   const clips = (el) => { const s = getComputedStyle(el); return /(hidden|clip)/.test(s.overflowX) || /(hidden|clip)/.test(s.overflowY); };
-  const hiddenEl = (el) => { for (let p = el; p; p = p.parentElement) { const s = getComputedStyle(p); if (s.display === "none" || s.visibility === "hidden") return true; } return false; };
+  // Content of a closed <details> (outside its <summary>) has layout boxes but is not painted, so it cannot overlap anything.
+  const hiddenEl = (el) => {
+    let inSummary = false;
+    for (let p = el; p; p = p.parentElement) {
+      const s = getComputedStyle(p);
+      if (s.display === "none" || s.visibility === "hidden") return true;
+      if (p.tagName === "SUMMARY") inSummary = true;
+      if (p.tagName === "DETAILS" && !p.open && !inSummary) return true;
+    }
+    return false;
+  };
   // vertical slack is a fraction of the line, because a font's content box can be a little taller than a tight line-height
   const within = (r, box, tol) => { const v = Math.max(tol, r.height * 0.15); return r.left >= box.left - tol && r.right <= box.right + tol && r.top >= box.top - v && r.bottom <= box.bottom + v; };
   const overlays = (el) => { for (let p = el; p; p = p.parentElement) { const pos = getComputedStyle(p).position; if (pos === "fixed" || pos === "sticky") return true; } return false; };

@@ -257,11 +257,14 @@ export async function* gunzipLimited(
       yield chunk;
     }
   } catch (error) {
-    readable.destroy(); gunzip.destroy();
     if (error instanceof AcquisitionError) throw error;
     const code = (error as { code?: string }).code ?? "";
     if (code.startsWith("Z_")) throw malformed(`the archive is not a valid gzip stream (${code})`);
     throw error;
+  } finally {
+    // Also runs when the consumer stops early (for example the tar parser rejects the archive): the source, and with it the network
+    // body, is released immediately rather than left open until garbage collection.
+    readable.destroy(); gunzip.destroy();
   }
 }
 

@@ -49,6 +49,10 @@ describe("GitHubSource over real HTTP (loopback fakes standing in for the API an
     expect(api.hits[0]!.headers["user-agent"]).toMatch(/agentsmith-multihub-acquisition/);
     expect(api.hits[0]!.headers["x-github-api-version"]).toBe("2022-11-28");
   });
+  it("accepts a very long path in a tree listing (the planner reports it as unrepresentable instead of the whole acquisition failing)", async () => {
+    apiHandler = (_q, res) => json(res, { sha: TREE, truncated: false, tree: [{ path: "x".repeat(5000), mode: "100644", type: "blob", sha: "c".repeat(40), size: 1 }] });
+    expect((await source().getTree("acme", "vault", TREE)).entries[0]!.path).toHaveLength(5000);
+  });
   it("encodes each ref segment and defaults to HEAD", async () => {
     apiHandler = (_q, res) => json(res, commitBody);
     await source().resolveCommit("acme", "vault", "feature/x y".replace(" ", "-"));
@@ -151,6 +155,31 @@ describe("GitHubSource over real HTTP (loopback fakes standing in for the API an
     it("a stalled response times out as retryable", async () => {
       apiHandler = () => undefined;
       const e = await code(source({ requestTimeoutMs: 150 }).openArchive("acme", "vault", SHA));
+      expect(e).toMatchObject({ code: "timeout", retryable: true });
+    });
+    it("a body that goes quiet part-way is a retryable stall, not an endless wait", async () => {
+      apiHandler = (_req, res) => { res.writeHead(200, { "content-length": "100000" }); res.write(Buffer.alloc(1000)); /* then silence */ };
+      const opened = await source({ requestTimeoutMs: 200 }).openArchive("acme", "vault", SHA);
+      const started = Date.now();
+      const e = await code(drain(opened.body));
+      expect(e).toMatchObject({ code: "timeout", retryable: true });
+      expect(Date.now() - started).toBeLessThan(2000);
+    });
+    it("a slow but steady download is NOT cut short by the per-request timeout", async () => {
+      const total = 8 * 4096;
+      apiHandler = (_req, res) => {
+        res.writeHead(200, { "content-length": String(total) });
+        let sent = 0;
+        const timer = setInterval(() => { res.write(Buffer.alloc(4096, 1)); sent += 4096; if (sent >= total) { clearInterval(timer); res.end(); } }, 60);
+      };
+      const opened = await source({ requestTimeoutMs: 200 }).openArchive("acme", "vault", SHA); // 8 chunks x 60 ms = ~480 ms, longer than the 200 ms timeout
+      expect((await drain(opened.body)).length).toBe(total);
+    });
+    it("still honours the caller's overall deadline while the body is streaming", async () => {
+      apiHandler = (_req, res) => { res.writeHead(200); const t = setInterval(() => res.write("x"), 20); res.on("close", () => clearInterval(t)); };
+      const controller = new AbortController(); setTimeout(() => controller.abort(), 120);
+      const opened = await source({ requestTimeoutMs: 5000 }).openArchive("acme", "vault", SHA, controller.signal);
+      const e = await code(drain(opened.body));
       expect(e).toMatchObject({ code: "timeout", retryable: true });
     });
     it("a connection that drops mid-download is a retryable network error, not a short archive", async () => {

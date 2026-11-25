@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { gzipSync } from "node:zlib";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { AcquisitionError } from "./errors.js";
 import { gunzipLimited, readTar, type CompressedStats, type TarEntry } from "./tar-reader.js";
 import { END, dir, file, gz, header, paxHeader, symlink, tar } from "./testing/tar-writer.js";
@@ -180,6 +180,17 @@ describe("bounded gunzip", () => {
   it("an empty body is not a valid archive once the tar layer sees it", async () => {
     const empty = await inflate(Buffer.alloc(0), big).catch(() => ({ out: Buffer.alloc(0) }));
     expect(await code(parse(empty.out))).toBe("archive_malformed");
+  });
+  it("releases the network body at once when the consumer rejects the archive early", async () => {
+    let closed = false; let produced = 0;
+    const bad = gz(tar(file("top/a", "x", { checksum: "bad" }), END, randomBytes(2_000_000))); // incompressible, so the stream is long
+    async function* source() {
+      try { for (let i = 0; i < bad.length; i += 512) { produced += 1; yield bad.subarray(i, i + 512); await new Promise((r) => setImmediate(r)); } } finally { closed = true; }
+    }
+    const s = stats();
+    await expect(readTar(gunzipLimited(source(), big, s), { maxUncompressedBytes: 1 << 30, maxEntries: 100 }, { onGlobalComment() {}, onEntry: () => null })).rejects.toMatchObject({ code: "archive_malformed" });
+    await vi.waitFor(() => expect(closed).toBe(true), { timeout: 2000 });
+    expect(produced).toBeLessThan(Math.ceil(bad.length / 512));           // the producer was stopped, not drained
   });
   it("a tar inside gzip that ends mid-entry is truncation", async () => {
     const full = tar(file("top/a", "x".repeat(5000)), END);
