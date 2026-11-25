@@ -422,7 +422,7 @@ export async function processAuthorizationGate(pool: Pool, worker: WorkflowWorke
 }
 
 type SnapshotFile = { path: string; blob_sha: string; size: number; content: string; truncated: boolean };
-const SURFACE_RULES: Array<{ id: string; family: string; description: string; expression: RegExp; extensions: RegExp }> = [
+export const SURFACE_RULES: Array<{ id: string; family: string; description: string; expression: RegExp; extensions: RegExp }> = [
   { id: "SOL-EXT-ENTRY", family: "solidity-entrypoint", description: "Externally callable or public Solidity function", expression: /\bfunction\s+[A-Za-z_$][\w$]*\s*\([^)]*\)[^{;]*(?:external|public)\b/g, extensions: /\.sol$/ },
   { id: "SOL-LOWLEVEL-CALL", family: "solidity-low-level-call", description: "Low-level call, delegatecall or staticcall site", expression: /\.(?:call|delegatecall|staticcall)\s*(?:\{|\()/g, extensions: /\.sol$/ },
   { id: "SOL-TX-ORIGIN", family: "solidity-authentication", description: "tx.origin reference; review authentication context", expression: /\btx\s*\.\s*origin\b/g, extensions: /\.sol$/ },
@@ -527,7 +527,7 @@ export async function processAttackSurfaceMapping(pool: Pool, worker: WorkflowWo
 }
 
 
-const HYPOTHESIS_TEMPLATES: Record<string, { question: string; checks: string[]; alternatives: string[] }> = {
+export const HYPOTHESIS_TEMPLATES: Record<string, { question: string; checks: string[]; alternatives: string[] }> = {
   "solidity-entrypoint": {
     question: "Does this externally callable entry point enforce the intended caller, state and value invariants?",
     checks: ["Trace all state writes and external calls reachable from the entry point", "Identify authorization modifiers and any alternate call paths", "Check preconditions and postconditions across repeated calls"],
@@ -659,7 +659,7 @@ export async function processHypothesisGeneration(pool: Pool, worker: WorkflowWo
 }
 
 
-const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvidence: string[] }> = {
+export const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvidence: string[] }> = {
   "solidity-authentication": {
     counterquestions: [
       "Is the tx.origin occurrence actually part of an authorization decision, or is it telemetry, a test, or unrelated logic?",
@@ -668,7 +668,7 @@ const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvide
     ],
     minimumEvidence: ["Containing function and complete modifier chain", "All authorization conditions and inherited guards", "Reachability and caller-controlled path analysis"],
   },
-  "solidity-lowlevel-call": {
+  "solidity-low-level-call": {
     counterquestions: [
       "Is the call target fixed and trusted, or can an untrusted party influence it?",
       "Are return values checked and state changes ordered safely?",
@@ -734,6 +734,17 @@ const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvide
   },
 };
 
+/**
+ * What the independent_challenge step actually is. A succeeded step means the
+ * deterministic checklist ran; it never means a reviewer examined the work.
+ */
+const DETERMINISTIC_CHECKLIST_REVIEW = {
+  review_kind: "deterministic_checklist",
+  reviewer: null,
+  independent_review_completed: false,
+  requires_human_or_separate_model_review: true,
+} as const;
+
 export async function processIndependentChallenge(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<ProcessResult> {
   if (step.step_key !== "independent_challenge") {
     throw new Error(`Unsupported step for independent challenge: ${step.step_key}`);
@@ -763,6 +774,17 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     isRecord(item) && typeof item.rule_id === "string" && typeof item.family === "string" &&
     typeof item.path === "string" && typeof item.id === "string"
   );
+  if (hypotheses.length === 0) {
+    await worker.complete(step.id, {
+      status: "not_applicable",
+      reason: "No hypotheses were generated, so there is nothing to challenge",
+      challenge_count: 0,
+      ...DETERMINISTIC_CHECKLIST_REVIEW,
+      execution_mode: "passive_only",
+      authorization_status: "unverified",
+    });
+    return { status: "completed", stepId: step.id };
+  }
   const mapLeads = Array.isArray(mapped.leads) ? mapped.leads.filter(isRecord) : [];
   const hypothesisSnapshotId = isRecord(generated.evidence) && typeof generated.evidence.snapshot_id === "string"
     ? generated.evidence.snapshot_id : null;
@@ -832,15 +854,14 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     content,
   });
   await worker.complete(step.id, {
-    status: "challenged",
+    status: "checklist_applied",
     challenge_count: challenges.length,
     challenges,
     evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
+    ...DETERMINISTIC_CHECKLIST_REVIEW,
     execution_mode: "passive_only",
     authorization_status: "unverified",
     active_testing_allowed: false,
-    independent_review_completed: false,
-    requires_human_or_separate_model_review: true,
   });
   return { status: "completed", stepId: step.id };
 }
@@ -873,16 +894,54 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
     "independent_challenge",
   ] as const;
   const missingStepKeys = requiredStepKeys.filter((key) => !outputs.has(key));
+  // A stage can succeed (the handler ran) while doing nothing for this input.
+  const notApplicableStepKeys = requiredStepKeys.filter((key) => {
+    const out = outputs.get(key);
+    return isRecord(out) && (out.status === "not_applicable" || out.status === "not_found");
+  });
+  const syntheticSeededStepKeys = requiredStepKeys.filter((key) => {
+    const out = outputs.get(key);
+    return isRecord(out) && out.seeded_synthetic === true;
+  });
+  const stageExecution = missingStepKeys.length > 0 ? "partial"
+    : notApplicableStepKeys.length > 0 ? "not_applicable_stages" : "all_stages_executed";
   const hypotheses = isRecord(hypothesesOutput) && Array.isArray(hypothesesOutput.hypotheses)
     ? hypothesesOutput.hypotheses.filter(isRecord) : [];
   const challenges = isRecord(challengeOutput) && Array.isArray(challengeOutput.challenges)
     ? challengeOutput.challenges.filter(isRecord) : [];
   const leads = isRecord(mapOutput) && Array.isArray(mapOutput.leads) ? mapOutput.leads.filter(isRecord) : [];
+  // Research completeness is separate from stage execution: a stage that ran
+  // over zero leads, or a bounded sample, is not a completed assessment.
+  const sourceSampled = isRecord(sourceOutput) && sourceOutput.status === "source_sampled";
+  const surfaceMapped = isRecord(mapOutput) && mapOutput.status === "mapped";
+  const researchCompleteness = !sourceSampled || !surfaceMapped ? "not_assessable"
+    : leads.length === 0 ? "no_leads_in_bounded_sample" : "preliminary_unreviewed";
+  const challengeClaimsReview = isRecord(challengeOutput) &&
+    challengeOutput.independent_review_completed !== false;
   const brief = {
     brief_version: "passive-research-brief-v1",
     research_status: "preliminary_passive_review",
-    completeness: missingStepKeys.length === 0 ? "all_pipeline_stages_present" : "partial_pipeline",
+    completeness: stageExecution === "partial" ? "partial_pipeline" : stageExecution,
+    stage_execution_note: "completeness describes which pipeline stages produced output, not whether the research is complete",
+    research_completeness: researchCompleteness,
+    research_completeness_note: researchCompleteness === "no_leads_in_bounded_sample"
+      ? "No pattern leads were found in a bounded sample; this is not evidence that the project is free of vulnerabilities"
+      : researchCompleteness === "not_assessable"
+        ? "No bounded source sample and attack-surface map were available to assess"
+        : "Leads exist but none has been reviewed or verified",
+    verification: {
+      independent_review_completed: false,
+      independent_review_status: "not_performed",
+      checklist_kind_applied: "deterministic_checklist",
+      verified_findings: 0,
+      ...(challengeClaimsReview ? { warning: "challenge_output_claimed_review_without_reviewer_evidence_ignored" } : {}),
+    },
+    provenance: {
+      synthetic_marker_present: syntheticSeededStepKeys.length > 0,
+      synthetic_seeded_step_keys: syntheticSeededStepKeys,
+    },
     missing_step_keys: missingStepKeys,
+    not_applicable_step_keys: notApplicableStepKeys,
     repository: isRecord(repositoryOutput) && isRecord(repositoryOutput.repository)
       ? repositoryOutput.repository : null,
     source_sample: isRecord(sourceOutput) ? {
@@ -928,8 +987,11 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   });
   await worker.complete(step.id, {
     status: "brief_prepared",
-    pipeline_completeness: missingStepKeys.length === 0 ? "complete" : "partial",
+    pipeline_completeness: stageExecution,
+    research_completeness: researchCompleteness,
+    independent_review_completed: false,
     missing_step_keys: missingStepKeys,
+    not_applicable_step_keys: notApplicableStepKeys,
     brief,
     evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
     execution_mode: "passive_only",
