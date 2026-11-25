@@ -52,7 +52,7 @@ export type BudgetSnapshot = {
 
 export type BudgetDecision =
   | { allowed: true; tier: ModelTier; maximumSpendUsd: number; reason: string }
-  | { allowed: false; tier: ModelTier; reason: string };
+  | { allowed: false; tier: ModelTier | "tier0"; reason: string };
 
 const EPSILON = 1e-9;
 

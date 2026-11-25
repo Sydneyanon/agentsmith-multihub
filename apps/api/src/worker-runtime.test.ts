@@ -15,6 +15,10 @@ function step(input: Record<string, unknown>): ClaimedStep {
   };
 }
 
+function identifyStep(input: Record<string, unknown>): ClaimedStep {
+  return { ...step(input), step_key: "identify_project", role: "researcher" };
+}
+
 function fakeWorker() {
   const complete = vi.fn().mockResolvedValue(undefined);
   const persistSourceSnapshot = vi.fn().mockResolvedValue({ id: "snapshot-1", contentSha256: "a".repeat(64) });
@@ -101,7 +105,7 @@ describe("passive intake resolution worker", () => {
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     try {
-      const result = await processProjectIdentification(worker, step({
+      const result = await processProjectIdentification(worker, identifyStep({
         intake_kind: "url",
         value: "https://github.com/example/project",
         source_reference: {
@@ -135,7 +139,7 @@ describe("passive intake resolution worker", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     try {
-      await processProjectIdentification(worker, step({
+      await processProjectIdentification(worker, identifyStep({
         intake_kind: "idea",
         value: "Review authorization logic",
         execution_mode: "passive_only",
@@ -155,7 +159,7 @@ describe("passive intake resolution worker", () => {
       headers: { location: "http://127.0.0.1/" },
     })));
     try {
-      await expect(processProjectIdentification(worker, step({
+      await expect(processProjectIdentification(worker, identifyStep({
         intake_kind: "url",
         value: "https://github.com/example/project",
         source_reference: { repository: { owner: "example", name: "project" } },
@@ -304,13 +308,14 @@ describe("passive intake resolution worker", () => {
   it("turns surface leads into evidence-linked unverified research questions", async () => {
     const { complete, persistSourceSnapshot, worker } = fakeWorker();
     const pool = {
-      query: vi.fn().mockResolvedValue({ rows: [{
-        output: {
-          status: "mapped",
-          leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
-          evidence: { snapshot_id: "00000000-0000-4000-8000-000000000003", content_sha256: "c".repeat(64) },
-        },
-      }] })
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [{
+          output: {
+            status: "mapped",
+            leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
+            evidence: { snapshot_id: "00000000-0000-4000-8000-000000000003", content_sha256: "c".repeat(64) },
+          },
+        }] })
         .mockResolvedValueOnce({ rows: [{ id: "00000000-0000-4000-8000-000000000003", content_sha256: "c".repeat(64) }] }),
     } as unknown as import("pg").Pool;
     await processHypothesisGeneration(pool, worker, { ...step({}), step_key: "generate_hypotheses" });

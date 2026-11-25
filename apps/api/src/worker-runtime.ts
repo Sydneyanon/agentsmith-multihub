@@ -738,7 +738,7 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
   if (step.step_key !== "independent_challenge") {
     throw new Error(`Unsupported step for independent challenge: ${step.step_key}`);
   }
-  const result = await pool.query<{ output: unknown }>(
+  const result = await pool.query<{ step_key: string; output: unknown }>(
     `SELECT step_key, output FROM workflow_steps
      WHERE workflow_run_id = $1 AND step_key IN ('generate_hypotheses', 'map_attack_surface')
        AND status = 'succeeded'`,
@@ -772,7 +772,7 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     ? generated.evidence.content_sha256 : null;
   const mapHash = isRecord(mapped.evidence) && typeof mapped.evidence.content_sha256 === "string"
     ? mapped.evidence.content_sha256 : null;
-  const validSnapshotId = (id: string | null) =>
+  const validSnapshotId = (id: string | null): id is string =>
     id !== null && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const snapshotIds = [hypothesisSnapshotId, mapSnapshotId].filter(validSnapshotId);
   const persistedSnapshots = snapshotIds.length
