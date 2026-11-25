@@ -3,7 +3,7 @@
 Status: proposal and audit only. No code, resource, credential, deployment or migration is changed by this document. Every statement in section 1 was checked against the code at `3a8a185` (the tip of the stack) or against test and demo runs; anything not run is marked **unverified**.
 
 ## 0. The one-paragraph answer
-The stack is a sound **durable execution skeleton** with honest labelling: a leased work queue, immutable hash-linked snapshots, a failure/retry policy, a budget gateway, a guarded migration runner and real-Postgres tests. It contains **no security-research intelligence yet**. The "attack-surface map" is ten regular expressions over at most 20 files (about 50 KB) of a repository; "hypotheses" are one fixed template per rule family; "independent challenge" is a static checklist. On a real intake of this very repository the pipeline reported success with **0 leads and 0 hypotheses**. The next milestone must therefore build the missing layers (discovery, whole-repository acquisition pinned to a commit, structural understanding, evidence-cited hypotheses, evaluators that can genuinely weaken a claim, a recorded review model), and prove them against a frozen baseline, before any model is paid for.
+The stack is a sound **durable execution skeleton** with honest labelling: a leased work queue, immutable hash-linked snapshots, a failure/retry policy, a budget gateway, a guarded migration runner and real-Postgres tests. It contains **no security-research intelligence yet**. The "attack-surface map" is ten regular expressions over at most 20 files of a repository (48 KB per file, 512 KB in total; the real run fetched 53 KB); "hypotheses" are one fixed template per rule family; "independent challenge" is a static checklist. On a real intake of this very repository the pipeline reported success with **0 leads and 0 hypotheses**. The next milestone must therefore build the missing layers (discovery, whole-repository acquisition pinned to a commit, structural understanding, evidence-cited hypotheses, evaluators that can genuinely weaken a claim, a recorded review model), and prove them against a frozen baseline, before any model is paid for.
 
 ## 1. Factual audit
 
@@ -70,7 +70,7 @@ flowchart LR
   U[POST /v1/intake URL or idea] --> R[workflow_run + 8 fixed steps]
   R --> S0[resolve_source: parse URL]
   S0 --> S1[identify_project: GitHub metadata]
-  S1 --> S2[sample: 20 files, 50KB, branch not SHA]
+  S1 --> S2["sample: max 20 files, branch not SHA"]
   S2 --> S3[authorization: always unverified]
   S3 --> S4[map: 10 regexes]
   S4 --> S5[hypotheses: 1 template per rule family]
@@ -87,22 +87,22 @@ flowchart LR
   F[findings, reviews, knowledge, gates]:::idle
 ```
 
-### 2.2 Intended (new work in bold)
+### 2.2 Intended (nodes marked NEW are the work of Task 5)
 ```mermaid
 flowchart TD
-  A[Intake: URL, repo, idea] --> D[**Discovery**: candidate repos with stated reasons]
-  D --> H1{{**Human confirms which repo is in scope for research**}}
-  H1 --> Q[**Acquire**: resolve ref to commit SHA, bounded archive, content-addressed blobs, manifest]
-  Q --> U2[**Understand**: parse contracts/functions/modifiers/calls into an index]
-  U2 --> M[**Attack-surface map** with exact spans]
-  M --> SP[**Specialists**: deterministic first, model later via budget gateway]
-  SP --> HY[(**hypotheses** + evidence spans)]
-  HY --> CH[**Challenge**: evaluators that can weaken a claim; blinded model review later]
-  CH --> H2{{**Human review queue**}}
-  H2 --> DOS[**Dossier**: reviewable result, every claim cites spans]
-  DOS --> LRN[(Learning: outcomes, checklist versions, frozen baseline)]
-  SC2[scope + approval] -. required before any active test .-> TEST[Safe testing: NOT in this milestone]
-  EV[(**Frozen baseline eval**)] -. gates every change .-> SP
+  A["Intake: URL, repo, idea"] --> D["NEW Discovery: candidate repos with stated reasons"]
+  D --> H1{{"NEW Human confirms which repo to research"}}
+  H1 --> Q["NEW Acquire: resolve ref to commit SHA, bounded archive, content-addressed blobs, manifest"]
+  Q --> U2["NEW Understand: parse contracts, functions, modifiers, calls into an index"]
+  U2 --> M["NEW Attack-surface map with exact spans"]
+  M --> SP["NEW Specialists: deterministic first, model later via budget gateway"]
+  SP --> HY[("NEW hypotheses + evidence spans")]
+  HY --> CH["NEW Challenge: evaluators that can weaken a claim; blinded model review later"]
+  CH --> H2{{"NEW Human review queue"}}
+  H2 --> DOS["NEW Dossier: reviewable result, every claim cites spans"]
+  DOS --> LRN[("Later: outcomes, checklist versions, frozen baseline")]
+  SC2["scope + approval"] -. "required before any active test" .-> TEST["Safe testing: NOT in this milestone"]
+  EV[("NEW Frozen baseline eval")] -. "gates every change" .-> SP
   EV -.-> CH
 ```
 
