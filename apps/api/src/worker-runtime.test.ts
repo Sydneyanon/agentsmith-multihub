@@ -254,7 +254,7 @@ describe("passive intake resolution worker", () => {
     const pool = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [{
-          output: { status: "source_sampled", evidence: { snapshot_id: "source-snapshot-1" } },
+          output: { status: "source_sampled", evidence: { snapshot_id: "source-snapshot-1", content_sha256: "b".repeat(64) } },
         }] })
         .mockResolvedValueOnce({ rows: [{
           id: "source-snapshot-1",
@@ -284,9 +284,10 @@ describe("passive intake resolution worker", () => {
         output: {
           status: "mapped",
           leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
-          evidence: { snapshot_id: "map-snapshot" },
+          evidence: { snapshot_id: "00000000-0000-4000-8000-000000000003", content_sha256: "c".repeat(64) },
         },
-      }] }),
+      }] })
+        .mockResolvedValueOnce({ rows: [{ id: "00000000-0000-4000-8000-000000000003", content_sha256: "c".repeat(64) }] }),
     } as unknown as import("pg").Pool;
     await processHypothesisGeneration(pool, worker, { ...step({}), step_key: "generate_hypotheses" });
     expect(complete.mock.calls[0]?.[1]).toMatchObject({
