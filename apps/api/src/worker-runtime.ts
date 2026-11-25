@@ -305,6 +305,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   }
   const [owner, name] = fullName.split("/");
   const treeUrl = `https://api.github.com/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(name!)}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+  if (!await worker.heartbeat(step.id)) throw new Error("Repository acquisition lost its worker lease before tree retrieval");
   const treeResult = await githubGet(treeUrl, 2_000_000);
   const treeParsed: unknown = JSON.parse(treeResult.body);
   if (!isRecord(treeParsed) || !Array.isArray(treeParsed.tree)) {
@@ -335,6 +336,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   const files: Array<{ path: string; blob_sha: string; size: number; content: string; truncated: boolean }> = [];
   let totalBytes = 0;
   for (const entry of candidates) {
+    if (!await worker.heartbeat(step.id)) throw new Error("Repository acquisition lost its worker lease during source retrieval");
     const remaining = 512_000 - totalBytes;
     if (remaining <= 0) break;
     const encodedBranch = branch.split("/").map(encodeURIComponent).join("/");
