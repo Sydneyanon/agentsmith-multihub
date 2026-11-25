@@ -110,7 +110,9 @@ export function registerResearchRoutes(app: FastifyInstance, pool: Pool | undefi
     SELECT r.id, r.workflow_type, r.status, r.created_at, r.started_at, r.completed_at,
            r.input->>'kind' AS input_kind, r.input->>'value' AS input_value, r.input->>'source' AS input_source,
            st.total AS steps_total, st.succeeded AS steps_succeeded, st.failed AS steps_failed, cur.step_key AS current_step, cur.status AS current_step_status,
-           COALESCE(sn.total, 0) AS snapshots_total, COALESCE(sn.sealed, 0) AS snapshots_sealed, COALESCE(hy.total, 0) AS hypotheses_total
+           COALESCE(sn.total, 0) AS snapshots_total, COALESCE(sn.sealed, 0) AS snapshots_sealed, COALESCE(hy.total, 0) AS hypotheses_total,
+           (SELECT count(*)::int FROM hypothesis_evaluations ev WHERE ev.workflow_run_id = r.id) AS evaluations_total,
+           (SELECT count(*)::int FROM hypothesis_reviews rv WHERE rv.workflow_run_id = r.id) AS reviews_total
     FROM workflow_runs r
     LEFT JOIN LATERAL (SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
                               count(*) FILTER (WHERE status = 'failed')::int AS failed FROM workflow_steps WHERE workflow_run_id = r.id) st ON true
@@ -124,6 +126,7 @@ export function registerResearchRoutes(app: FastifyInstance, pool: Pool | undefi
     progress: { steps_total: row.steps_total, steps_succeeded: row.steps_succeeded, steps_failed: row.steps_failed, current_step: row.current_step, current_step_status: row.current_step_status },
     snapshots: { total: row.snapshots_total, sealed: row.snapshots_sealed },
     hypotheses: { total: row.hypotheses_total, by_status: byStatus },
+    evaluations: row.evaluations_total, reviews: row.reviews_total,
   });
 
   const hypothesisCounts = async (db: Pool, runIds: string[]) => {

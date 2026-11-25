@@ -27,7 +27,7 @@ Common rules: ids are UUIDs (400 `invalid_id` otherwise); 404 `not_found`; 503 `
 | Endpoint | Returns |
 |---|---|
 | `/v1/research/overview` | counts of projects by status; snapshots (sealed/building); evidence spans; hypotheses total and by derived status; evaluations; reviews by mode; events in the last 24 h; pipeline health (queued, running, running with an **expired** lease, failed steps in 7 days, oldest queued age); storage statistics |
-| `/v1/research/projects?status=` | runs with input summary (kind, value, source; notes omitted), step progress, snapshot counts, hypothesis counts by status |
+| `/v1/research/projects?status=` | runs with input summary (kind, value, source; notes omitted), step progress, snapshot counts, hypothesis counts by status, evaluation and review counts (these drive the stage stepper) |
 | `/v1/research/projects/:id` | the above plus notes, step list with errors and lease state, snapshots, legacy evidence snapshots (id, kind, uri, hash) and the legacy brief |
 | `/v1/research/snapshots?run=` , `/v1/research/snapshots/:id?verify=1` | snapshot header: repository, commit, ref, sealed state, counts, manifest hash, acquisition report; `verify=1` runs `verify_repo_snapshot` (re-hashes every blob) |
 | `/v1/research/snapshots/:id/files?prefix=` | manifest rows: path, classification, size, stored or skipped (with reason), span and hypothesis counts |
@@ -70,3 +70,13 @@ The reference mock supplies layout and look: dark navy and near-black panels, cy
 
 ## 6. Not in this alpha
 Recording reviews or withdrawals (Task 5.6), repository acquisition and discovery (5.2, 5.3), parsing and specialists (5.4, 5.5), the dossier (5.7), the frozen baseline (5.8), multi-user identity, any deployment or DNS, any change to the Hunt site, any model call.
+
+## 7. Alpha status (what works, what waits)
+Screenshots in `docs/hub-screenshots/` are produced by `npm run hub:screenshots` from SYNTHETIC records written through the real `ResearchStore` into a throwaway local database. They show what the screens look like with data; no real repository, finding or sample number ships in the app.
+
+| Works now against the real backend | Waits for a later task |
+|---|---|
+| Unlock, Research Home, Projects (list, detail, create via intake), Activity (automated / model / human, paging), system health | Repository content: acquisition (5.2), so no snapshot exists in a real run yet |
+| Repository, Hypotheses, Evidence screens, fully tested against records written through the store | Hypotheses and evidence in real runs: analysis (5.5) |
+| Review display: blinded vs disclosed, what the reviewer saw | Recording reviews and withdrawals: review endpoint (5.6) |
+| | Reviews, Findings, Knowledge, System sections; multi-user identity; hosting at a separate address |

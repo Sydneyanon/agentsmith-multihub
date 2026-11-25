@@ -203,6 +203,8 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
       const research = body.items.find((p: any) => p.id === seeded.runId);
       expect(research.hypotheses).toEqual({ total: 4, by_status: { unreviewed: 1, weakened_by_static_check: 1, supported_by_review: 1, withdrawn: 1 } });
       expect(research.snapshots).toEqual({ total: 1, sealed: 1 });
+      expect([research.evaluations, research.reviews]).toEqual([2, 2]);
+      expect([active.evaluations, active.reviews]).toEqual([0, 0]);
     });
 
     it("filters by status and pages with has_more", async () => {
