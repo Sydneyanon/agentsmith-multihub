@@ -16,4 +16,4 @@ The runner refuses any non-loopback `DIRECT_DATABASE_URL` before connecting unle
 
 Never edit an applied migration. Add a new, forward-only migration with the next sequence number. Review SQL and take a recoverable database backup before production migrations. The runner does not automatically roll back earlier migrations if a later migration fails.
 
-For a Fly deployment, run the migration command as a controlled release step before starting code that depends on the new schema. Do not run migrations independently from every application machine.
+For a Fly deployment, run the migration command manually, once, as an explicitly approved one-off task inside a single staging machine, before starting code that depends on the new schema (keep the worker scaled to zero until it has finished). It is deliberately **not** a Fly `release_command` and never runs automatically on deploy; `fly.toml` contains none, and a test enforces that. Do not run migrations from every application machine. See `docs/fly-staging-runbook.md`.

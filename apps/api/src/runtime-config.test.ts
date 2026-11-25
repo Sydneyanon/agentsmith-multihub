@@ -73,6 +73,14 @@ describe("runtime and Fly configuration", () => {
     }
   });
 
+  it("documents migrations as a manual, approved one-off task and never as a release step", () => {
+    const docs = read("docs/database-migrations.md");
+    expect(docs).not.toMatch(/controlled release step/i);
+    expect(docs).toContain("explicitly approved one-off task");
+    expect(docs).toContain("not** a Fly `release_command`");
+    expect(fly).not.toContain("release_command");
+  });
+
   it("makes the app-name hazard explicit", () => {
     expect(fly).toContain("Never deploy with this file without an explicit");
   });
