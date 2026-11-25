@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { registerBearerAuth } from "../auth.js";
+import { AuthFailureLimiter, registerBearerAuth } from "../auth.js";
 import { HUB_CSP, registerHubStatic } from "../hub-static.js";
 import { AUTOMATION_BASIS, HYPOTHESIS_STATUSES, registerResearchRoutes } from "../research-api.js";
 import { sha256Hex } from "../research-state.js";
@@ -58,7 +58,7 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
     writeFileSync(join(assetsDir, "assets", "app.js"), "export {};");
     writeFileSync(join(assetsDir, "assets", "styles.css"), "body{}");
     app = Fastify({ logger: false });
-    registerBearerAuth(app, TOKEN);
+    registerBearerAuth(app, TOKEN, new AuthFailureLimiter({ perClientMax: 1000, globalMax: 100000, windowMs: 60_000 })); // roomy: this suite makes many deliberate unauthenticated probes
     registerResearchRoutes(app, db.pool);
     registerHubStatic(app, { assetsDir });
     await app.ready();
@@ -436,7 +436,10 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
       expect(js.statusCode).toBe(200);
       expect(js.headers["content-type"]).toContain("text/javascript");
       for (const url of ["/hub/assets/..%2F..%2Fetc%2Fpasswd", "/hub/assets/secret.txt", "/hub/assets/.env", "/hub/assets/APP.JS", "/hub/assets/index.html", "/hub/assets/missing.js"]) {
-        expect((await app.inject({ method: "GET", url })).statusCode, url).toBe(404);
+        // Names the public allow-list does not even match (traversal, dotfiles) are refused by default-deny auth (401); other
+        // off-list names reach the handler and are 404. Nothing off the allow-list is ever served.
+        const unauth = (await app.inject({ method: "GET", url })).statusCode;
+        expect(unauth, url).toBe(/\.\.|\/\.env$/.test(url) ? 401 : 404);
       }
       expect((await app.inject({ method: "GET", url: "/hub" })).headers.location).toBe("/hub/");
     });

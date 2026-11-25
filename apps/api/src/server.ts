@@ -1,37 +1,12 @@
-import Fastify from "fastify";
 import { Pool } from "pg";
 import { config } from "./config.js";
-import { registerBearerAuth } from "./auth.js";
-import { registerIntakeRoutes } from "./intake.js";
-import { registerWorkflowRoutes } from "./workflows.js";
-import { registerResearchRoutes } from "./research-api.js";
-import { registerHubStatic } from "./hub-static.js";
-import { registerHostGuard } from "./host-guard.js";
+import { buildApp } from "./app.js";
 import { buildPoolConfig, stderrWarning } from "./db-config.js";
 
 const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning })) : undefined;
 
 export function buildServer() {
-  const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
-  registerHostGuard(app, config.hubAllowedHosts);
-  registerBearerAuth(app, config.apiBearerToken);
-  app.get("/health/live", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
-  app.get("/health/ready", async (_request, reply) => {
-    if (!pool) return reply.code(503).send({ status: "not_ready", reason: "database_not_configured" });
-    try {
-      await pool.query("select 1");
-      return { status: "ready", dependencies: { postgres: "ok" } };
-    } catch (error) {
-      app.log.error({ err: error }, "Readiness check failed");
-      return reply.code(503).send({ status: "not_ready", dependencies: { postgres: "error" } });
-    }
-  });
-  registerIntakeRoutes(app, pool);
-  registerWorkflowRoutes(app, pool);
-  registerResearchRoutes(app, pool);
-  registerHubStatic(app);
-  app.addHook("onClose", async () => { await pool?.end(); });
-  return app;
+  return buildApp({ pool, apiBearerToken: config.apiBearerToken, hubAllowedHosts: config.hubAllowedHosts, logLevel: config.logLevel });
 }
 
 const app = buildServer();

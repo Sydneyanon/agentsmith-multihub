@@ -22,3 +22,11 @@ Status: the alpha is a **single-operator bootstrap**, not a finished private-acc
 
 ## Proposed access model for multi-user (not built)
 Put identity in front of the hub rather than growing a password system inside it: either an identity-aware proxy / OIDC login (single sign-on with the owner's identity provider, an allow-list of named operators), or passkey login handled by the API. In both cases the API would issue a short-lived server-side session in an `HttpOnly; Secure; SameSite=Strict` cookie, record the operator's identity on every write (reviews, withdrawals: Task 5.6 needs this, because review provenance must name a person), enforce CSRF protection on writes, and keep the bearer token only as a break-glass credential for scripts. This is a design note for the owner to accept or change; it needs its own reviewed task.
+
+## Authentication order and default-deny (review finding 2)
+
+Authentication runs at Fastify's `onRequest` stage, before content-type parsing, body reading and validation. An unauthenticated client therefore gets `401` for malformed JSON, oversized bodies and unsupported content types, and the server never buffers or parses what they send. (Previously the check ran at `preHandler`, so unauthenticated bodies were parsed first: malformed JSON answered `400`, a 2 MB body `413`.)
+
+The guard is default-deny. Only this list is reachable without a token, `GET`/`HEAD` only, matched on the raw path with exact equality: `/health/live`, `/health/ready`, `/`, `/hub`, `/hub/`, `/hub/assets/<file>`. Everything else — all `/v1/*`, unknown paths, other methods, and odd spellings (`//v1`, `/V1`, encoded slashes, trailing slashes) — needs the bearer token; an unknown path with a valid token is an ordinary 404. `route-coverage.test.ts` builds the real application, enumerates every registered route and fails if a route is public without being on the list or protected routes answer anything but 401. Adding a public route is a deliberate edit to `PUBLIC_EXACT` and that test.
+
+Evidence: `scripts/mutations/auth-order.json` (run with `scripts/mutation-check.py`) — 7 reintroduced weaknesses, all killed. Lockout and proxy-trust behaviour are handled separately (review finding 3).
