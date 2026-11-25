@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { config } from "./config.js";
-import { runIntakeWorker } from "./worker-runtime.js";
+import { attachPoolErrorHandler, runIntakeWorker } from "./worker-runtime.js";
 
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required for the worker process");
 
@@ -11,6 +11,8 @@ const pool = new Pool({
   idleTimeoutMillis: 30_000,
   ...(config.environment === "production" ? { ssl: { rejectUnauthorized: true } } : {}),
 });
+
+attachPoolErrorHandler(pool);
 
 const workerId = `intake-${process.env.FLY_MACHINE_ID ?? process.env.HOSTNAME ?? "local"}`;
 const controller = new AbortController();
