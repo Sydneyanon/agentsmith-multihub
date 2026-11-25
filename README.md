@@ -26,9 +26,15 @@ Scout → Intake → Investigator → PoC Builder → Independent Judge → Fix 
 5. Secrets and sensitive vulnerability evidence never belong in source control.
 6. Learning is versioned and evaluated against frozen baselines.
 
-## Initial milestone
+## Current implementation status
 
-Establish a deployable API scaffold, validated configuration, health checks and architecture contracts. Authentication, persistence, UI and job orchestration follow in reviewed increments.
+The API, database schema/migration runner, budget gateway, workflow queue and separate intake worker are scaffolded. The passive intake path currently supports deterministic source normalization, public GitHub metadata capture, bounded source sampling, an explicit authorization gate, deterministic attack-surface leads and structured unverified research hypotheses. Captured evidence is stored as immutable, SHA-256-addressed source snapshots.
+
+The current worker does not execute repository code, install dependencies, run tests, scan hosts, perform transactions or submit reports. Active testing remains blocked until a current verified program scope and explicit approval are available. Pattern matches and generated hypotheses are not verified vulnerabilities.
+
+All `/v1/*` API routes require a configured bearer token. Set `API_BEARER_TOKEN` to a randomly generated secret of at least 32 characters before using the API. Never commit the secret. The public status projection and existing Hunt dashboard remain separate and unchanged.
+
+The workflow is intentionally incomplete after hypothesis generation: independent challenge, report preparation, learning and UI integration remain to be implemented. CI currently reports failures before exposing any job steps or downloadable logs, so build and test success has not yet been independently confirmed.
 
 ## Deployment
 
