@@ -1,0 +1,77 @@
+{
+ "command": "npx vitest run apps/api/src/ci-workflow",
+ "mutations": [
+  {
+   "name": "pull_request limited to main again",
+   "file": ".github/workflows/ci.yml",
+   "old": "on:\n  pull_request:\n  push:",
+   "new": "on:\n  pull_request:\n    branches: [main]\n  push:"
+  },
+  {
+   "name": "integration job dropped",
+   "file": ".github/workflows/ci.yml",
+   "old": "      - run: npm run test:integration\n",
+   "new": ""
+  },
+  {
+   "name": "restricted-role suite dropped",
+   "file": ".github/workflows/ci.yml",
+   "old": "      - run: npm run test:integration:restricted\n",
+   "new": ""
+  },
+  {
+   "name": "integration may skip silently",
+   "file": ".github/workflows/ci.yml",
+   "old": "      REQUIRE_INTEGRATION: \"1\"\n",
+   "new": ""
+  },
+  {
+   "name": "integration points at a non-loopback database",
+   "file": ".github/workflows/ci.yml",
+   "old": "@127.0.0.1:5432/postgres\n      REQUIRE",
+   "new": "@db.example.org:5432/postgres\n      REQUIRE"
+  },
+  {
+   "name": "workflow gets write permission",
+   "file": ".github/workflows/ci.yml",
+   "old": "permissions:\n  contents: read",
+   "new": "permissions:\n  contents: write"
+  },
+  {
+   "name": "a secret is referenced",
+   "file": ".github/workflows/ci.yml",
+   "old": "      - run: npm run build\n\n  integration:",
+   "new": "      - run: npm run build\n        env:\n          X: ${{ secrets.FLY_API_TOKEN }}\n\n  integration:"
+  },
+  {
+   "name": "action pinned to a moving branch",
+   "file": ".github/workflows/ci.yml",
+   "old": "actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: npm\n      - run: npm ci\n      - run: npm run typecheck",
+   "new": "actions/setup-node@main\n        with:\n          node-version: 22\n          cache: npm\n      - run: npm ci\n      - run: npm run typecheck"
+  },
+  {
+   "name": "image job no longer builds with docker",
+   "file": ".github/workflows/ci.yml",
+   "old": "run: docker build --tag agentsmith-hub:ci .",
+   "new": "run: echo skipped"
+  },
+  {
+   "name": "image job stops checking for test files",
+   "file": ".github/workflows/ci.yml",
+   "old": "-o -name \"*.map\" -o -path \"*/integration/*\" -o -path \"*/testing/*\"",
+   "new": "-o -name \"*.map\""
+  },
+  {
+   "name": "image job pushes the image",
+   "file": ".github/workflows/ci.yml",
+   "old": "        run: docker build --tag agentsmith-hub:ci .",
+   "new": "        run: docker build --tag agentsmith-hub:ci . && docker push agentsmith-hub:ci"
+  },
+  {
+   "name": "image job drops the 401-before-body probe",
+   "file": ".github/workflows/ci.yml",
+   "old": "= 401\n          test \"$(code -H 'Host: other.example'",
+   "new": "= 400\n          test \"$(code -H 'Host: other.example'"
+  }
+ ]
+}
