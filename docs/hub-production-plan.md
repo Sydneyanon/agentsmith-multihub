@@ -1,11 +1,13 @@
 # Production plan: private hub at https://hub.agentsmithdesk.xyz (PREPARED, NOT DEPLOYED)
 
+**Decision recorded:** the owner has confirmed `https://hub.agentsmithdesk.xyz` as the permanent production address. The root domain `agentsmithdesk.xyz` does not serve the hub and nothing here depends on it (so not being able to fetch the root page blocks nothing). Only the `hub` name is used.
+
 Nothing in this document has been executed. No app, machine, volume, database, certificate, secret or DNS record has been created or changed. Every step below that touches the outside world needs the owner's explicit approval first.
 
 Evidence gathered on 2026-11-25 from this session (egress was limited to GitHub, `fly.io` documentation and, later, `api.linode.com`): current PR heads, the repository, Fly's public pricing and DNS documentation, and local runs. **Not** inspected, because credentials or network access were missing: any live Fly account, any Linode account (the injected token was rejected with `Invalid Token`), the live DNS zone, the live Hunt or hub hosts. See `docs/hub-retirement-audit.md`.
 
 ## 1. Target and boundaries
-- One private, authenticated dashboard plus its protected research API on one hostname: `hub.agentsmithdesk.xyz`.
+- One private, authenticated dashboard plus its protected research API on one hostname: `hub.agentsmithdesk.xyz` (fixed). The app enforces this: with `HUB_ALLOWED_HOSTS` set, any other `Host` (the platform's default hostname, a spoofed header, another domain pointed at the same address) gets `421` before any route runs; only `/health/live` and `/health/ready` are exempt because the platform calls them with its own host.
 - The public Hunt site (`hunt.agentsmithdesk.xyz`, separate repository) stays independent: no shared hostname, cookie, deployment, database or DNS record. The hub sets HSTS **without** `includeSubDomains`, so the hub's policy cannot reach Hunt or the root domain.
 - No model calls and no AI gateway are enabled by deploying the hub. No active security testing is authorised or possible from it.
 
@@ -33,6 +35,22 @@ Public plan list prices from `api.linode.com/v4/linode/types`: Nanode 1 GB $5/mo
 ### Recommendation
 Fly (Option A) is the shortest safe path because the configuration, process groups, runbook, connection-safety code and release order already exist and were reviewed. It is gated only on the owner's billing decision. If the owner would rather not use Fly at all, Option B needs a new, reviewed hardening and backup plan first, so it is longer.
 
+## 2a. Can the existing hosting be reused, or is something new needed?
+| Existing thing | Reuse? | Why |
+|---|---|---|
+| The Fly **provider and organisation** | Yes, if the owner resolves billing | Same account, no new vendor. |
+| The repository's Fly **configuration, Dockerfile, process-group design, runbook, connection-safety code** | Yes | Already reviewed and tested; `fly.hub.toml` is derived from the same pattern. |
+| The Fly **app `agentsmith-multihub`** named in `fly.toml` | **No, not without proof** | Its contents are unknown (not inspectable from this session). Reusing it risks colliding with whatever it holds, and a separate app gives an independent release history and an instant, harmless rollback (`scale to 0`). It becomes a retirement candidate only after the owner's read-only inventory (see the audit). |
+| The staging app `agentsmith-multihub-staging` | No | Staging stays staging; it was probably never created. |
+| Hunt's hosting (the `hunt` host) | **No** | Independence is a requirement; sharing a host, cookie scope or database would couple them. |
+| Any existing database | No | The hub gets its own database; reusing an old one would mix old data with the new schema. |
+
+**Conclusion:** the existing hosting *arrangement* (Fly, the repo's configs and procedure) is reusable; the existing *resources* are not, and a new, separate Fly app plus a new Managed Postgres cluster is needed. Fly app names are global, so `agentsmith-hub` is a proposal that must be confirmed available at creation time; the hostname is not negotiable.
+
+**Hosting requirements for `hub.agentsmithdesk.xyz`:** HTTPS with a certificate for exactly this hostname (Fly issues Let's Encrypt certificates automatically); a way to receive HTTP/1.1 and HTTP/2 over the public internet on a stable name; a Postgres 16-compatible database; a secret store for two secrets; per-app deploy and rollback; no shared state with Hunt.
+
+**DNS requirements:** the ability to add (and, if one exists, remove) records named `hub` in the `agentsmithdesk.xyz` zone, at the zone's DNS provider (**unknown to this session**: the owner must say who it is and grant access when we reach that step). Specifically one routing record for `hub` plus one ownership or challenge record for `hub` (section 8). **CAA caveat:** if the zone has a CAA record at the apex that does not permit Let's Encrypt, certificate issuance will fail; the owner should check for CAA records in the zone export. This cannot be checked from here.
+
 ## 3. Required configuration
 Committed file: `fly.hub.toml` (app group only, HTTPS forced, liveness check `/health/live`, no secrets; guarded by `apps/api/src/hub-deploy.test.ts`). The app name `agentsmith-hub` is a **proposal**: Fly app names are global and availability is unknown.
 
@@ -45,6 +63,7 @@ Committed file: `fly.hub.toml` (app group only, HTTPS forced, liveness check `/h
 | `API_BEARER_TOKEN` | **secret** | generated with `openssl rand -base64 48`; the server refuses short, header-unsafe or repetitive tokens at startup |
 | `DATABASE_URL` | **secret** | the Postgres connection string for the app; TLS verification stays on |
 | `DIRECT_DATABASE_URL` | **not an app secret** | used only by the migration command, from the operator's machine, never stored on the app |
+| `HUB_ALLOWED_HOSTS` | env (in toml) | `hub.agentsmithdesk.xyz` (exact hostnames only, no wildcard, port or scheme; the server refuses to start on an invalid value) |
 | `HUB_ASSETS_DIR` | optional | unset: the image serves `dist/web` |
 | `AI_BUDGET_EMERGENCY_STOP` | optional | leave `false`; no model calls exist in this build |
 
@@ -67,7 +86,7 @@ PostgreSQL 16-compatible, migrations `0001`-`0007` (`npm run db:migrate`, `DIREC
 
 ## 7. Build and release steps (each needs approval; verify flyctl syntax against current docs before running)
 1. Owner: resolve billing, create the empty app `agentsmith-hub`, an app-scoped deploy token, and the secret `API_BEARER_TOKEN`. Create the Managed Postgres cluster only after approving its cost.
-2. Release 1, app only, no database yet: `fly deploy --config fly.hub.toml --app agentsmith-hub --ha=false`. Expect one `app` Machine, healthy, no worker. Check `/health/live`, `/hub/`, 401 on `/v1/*`.
+2. Release 1, app only, no database yet: `fly deploy --config fly.hub.toml --app agentsmith-hub --ha=false`. Expect one `app` Machine, healthy, no worker. Because the app only answers its own hostname, smoke-test before DNS exists through a tunnel with the right header: `fly proxy 8080:8080 --app agentsmith-hub` then `curl -H 'Host: hub.agentsmithdesk.xyz' http://127.0.0.1:8080/hub/` (verify syntax). Expect `/health/live` 200, `/hub/` 200, `/v1/*` 401 without the token, and 421 for any other `Host`.
 3. Attach the database: set `DATABASE_URL` as a secret. From the operator's machine run the migration with `DIRECT_DATABASE_URL` through a Fly proxy (see `docs/fly-staging-runbook.md` steps 5 to 8 for the exact, reviewed procedure). Then `/health/ready` must report postgres ok.
 4. Certificate and DNS: `fly certs add hub.agentsmithdesk.xyz --app agentsmith-hub`, add the DNS records it prints (section 8), then `fly certs show` until issued.
 5. Run the iPhone acceptance checklist (section 9) and the Hunt independence check.
@@ -80,7 +99,7 @@ Current state of `hub.agentsmithdesk.xyz`: **unknown**. This session's resolver 
 
 | Record | Proposed value | Known now? |
 |---|---|---|
-| `hub` CNAME (recommended, a subdomain) | the app's unique `.fly.dev` hostname, printed by `fly certs add` and shown in the dashboard (it would be `agentsmith-hub.fly.dev` only if that exact app name is created: unconfirmed) | **No**, until the app and certificate exist |
+| `hub` CNAME (recommended, a subdomain; Fly's documentation recommends CNAME for subdomains) | the app's unique `.fly.dev` hostname, printed by `fly certs add` and shown in the dashboard (it would be `agentsmith-hub.fly.dev` only if that exact app name is created: unconfirmed) | **No**, until the app and certificate exist |
 | `hub` A and AAAA (alternative) | the addresses printed by `fly certs add` after `fly ips allocate` (a dedicated IPv4 costs $2/month) | **No** |
 | Certificate proof | `_acme-challenge.hub` CNAME **or** `_fly-ownership.hub` TXT, whichever `fly certs add` prints | **No**, never invented |
 | Anything already named `hub` | a CNAME cannot coexist with other record types at the same name, so an existing `hub` A, AAAA, TXT or CNAME record would have to be listed and retired first, by owner approval | **Unknown** |

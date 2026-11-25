@@ -14,6 +14,9 @@ primary_region = "syd"
   LOG_LEVEL = "info"
   # Fly Managed Postgres (Developer plan) auto-pauses and takes up to ~25s to wake.
   DATABASE_CONNECT_TIMEOUT_MS = "30000"
+  # The hub is served only under its permanent hostname; any other Host (including the app's default *.fly.dev name) gets 421.
+  # Health checks are exempt. Smoke-test before DNS exists with `fly proxy` and a Host header (docs/hub-production-plan.md).
+  HUB_ALLOWED_HOSTS = "hub.agentsmithdesk.xyz"
   # Secrets are never listed here. Set with `fly secrets set` (names only in docs/hub-production-plan.md):
   #   API_BEARER_TOKEN, DATABASE_URL
 

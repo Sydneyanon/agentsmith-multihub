@@ -10,6 +10,7 @@ Date: 2026-11-25. Rule applied: a resource is listed for retirement only after i
 | Linode account | **Not inspected.** The proxy-injected token was rejected (`{"errors":[{"reason":"Invalid Token"}]}`), so nothing was listed. Please re-issue or reconnect the credential if the old hub may live there. |
 | DNS zone for `agentsmithdesk.xyz` | **Not inspected.** The DNS provider is unknown to this session and its resolver is filtered (control names such as `example.com` return "no such domain"), so its answers cannot be used as evidence. The single answer it gave, `hunt.agentsmithdesk.xyz` = `194.195.254.216`, is therefore unverified, and it does not match GitHub Pages addresses even though `docs/existing-hunt-board-integration.md` says the Hunt dashboard is served from GitHub Pages: a discrepancy to resolve with the real zone. |
 | Live hosts `hub.` and `hunt.agentsmithdesk.xyz` | Not reachable from this session's network policy; not requested. |
+| Root page `https://agentsmithdesk.xyz` | Host allowed at the owner's request; the fetch still failed (TLS handshake refused from this session; the page-fetch tool reported the name not found). Not needed: the hub uses only the `hub` subdomain, which the owner has confirmed as permanent. |
 
 ## Known candidates (none confirmed obsolete)
 | Resource or record | Exact identifier | What it does (known) | New hub depends on it? | Could removal affect Hunt or another service? | Status |

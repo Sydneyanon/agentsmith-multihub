@@ -6,12 +6,14 @@ import { registerIntakeRoutes } from "./intake.js";
 import { registerWorkflowRoutes } from "./workflows.js";
 import { registerResearchRoutes } from "./research-api.js";
 import { registerHubStatic } from "./hub-static.js";
+import { registerHostGuard } from "./host-guard.js";
 import { buildPoolConfig, stderrWarning } from "./db-config.js";
 
 const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning })) : undefined;
 
 export function buildServer() {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
+  registerHostGuard(app, config.hubAllowedHosts);
   registerBearerAuth(app, config.apiBearerToken);
   app.get("/", async () => ({ service: "agentsmith-multihub-api", version: "0.1.0", status: "scaffolded" }));
   app.get("/health/live", async () => ({ status: "ok", timestamp: new Date().toISOString() }));

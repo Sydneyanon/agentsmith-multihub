@@ -122,3 +122,15 @@ describe("startup configuration refuses a weak operator token", () => {
     await expect(load("short")).rejects.toThrow(/API_BEARER_TOKEN must be at least 32/);
   });
 });
+
+describe("startup configuration validates the hub host list", () => {
+  afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
+  const load = async (hosts: string) => { vi.resetModules(); vi.stubEnv("NODE_ENV", "test"); vi.stubEnv("API_BEARER_TOKEN", ""); vi.stubEnv("HUB_ALLOWED_HOSTS", hosts); return import("./config.js"); };
+  it("accepts the permanent hostname and exposes it as a list", async () => {
+    expect((await load("hub.agentsmithdesk.xyz")).config.hubAllowedHosts).toEqual(["hub.agentsmithdesk.xyz"]);
+  });
+  it("refuses wildcards and malformed entries", async () => {
+    await expect(load("*.agentsmithdesk.xyz")).rejects.toThrow(/HUB_ALLOWED_HOSTS/);
+    await expect(load("https://hub.agentsmithdesk.xyz")).rejects.toThrow(/HUB_ALLOWED_HOSTS/);
+  });
+});
