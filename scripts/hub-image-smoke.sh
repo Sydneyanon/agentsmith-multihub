@@ -2,9 +2,13 @@
 # Production smoke test of the real image filesystem: chroot into <rootfs> (Alpine + musl Node + the app layer) as the `node` user and
 # start it exactly as the image does (ENTRYPOINT docker-entrypoint.sh, CMD npm start, WORKDIR /app, NODE_ENV=production).
 # Uses a disposable database on the LOOPBACK Postgres in TEST_DATABASE_URL and drops it afterwards. Exits non-zero on any failure.
+# Production mode connects to Postgres with TLS and certificate verification ON, and this test keeps it on: the loopback Postgres must have
+# TLS enabled with a throw-away CA (certificate for IP 127.0.0.1), and HUB_SMOKE_DB_CA must point at that CA certificate. The CA is made
+# known to the image's Node through NODE_EXTRA_CA_CERTS only, never by disabling verification.
 set -uo pipefail
 ROOTFS="$1"; REPO="$2"
 : "${TEST_DATABASE_URL:?TEST_DATABASE_URL (loopback Postgres) is required}"
+: "${HUB_SMOKE_DB_CA:?HUB_SMOKE_DB_CA (CA certificate of the loopback Postgres TLS) is required: production mode verifies database TLS}"
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "FAIL  $1"; }
@@ -24,6 +28,9 @@ run_in() { # run in the image as the node user with a clean environment, WORKDIR
   chroot --userspec="$UID_NODE" "$ROOTFS" /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/node NODE_ENV=production "$@"
 }
 
+mkdir -p "$ROOTFS/tmp" && cp "$HUB_SMOKE_DB_CA" "$ROOTFS/tmp/hub-smoke-ca.crt" && chmod 644 "$ROOTFS/tmp/hub-smoke-ca.crt"
+CA_ENV="NODE_EXTRA_CA_CERTS=/tmp/hub-smoke-ca.crt"
+
 echo "== image filesystem"
 check "node user exists and is not root (uid:gid $UID_NODE)" '[ -n "$UID_NODE" ] && [ "${UID_NODE%%:*}" != 0 ]'
 check "musl dynamic loader present (Alpine runtime)" '[ -e "$ROOTFS/lib/ld-musl-x86_64.so.1" ]'
@@ -41,15 +48,20 @@ echo "== weak token is refused at startup"
 OUT="$(run_in sh -c 'cd /app && API_BEARER_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa PORT=18084 timeout 8 docker-entrypoint.sh npm start' 2>&1)"; RC=$?
 check "server exits non-zero on a repetitive token (rc=$RC)" '[ "$RC" != 0 ] && echo "$OUT" | grep -q "API_BEARER_TOKEN"'
 
-echo "== migration inside the image, against a disposable loopback database"
+echo "== database TLS verification stays ON in production mode"
 OUT="$(run_in sh -c "cd /app && DIRECT_DATABASE_URL='$DBURL' node dist/scripts/migrate.js" 2>&1)"; RC=$?
+check "a database certificate from an unknown CA is refused (rc=$RC)" '[ "$RC" != 0 ] && echo "$OUT" | grep -qiE "self-signed|unable to verify|certificate"'
+check "nothing was migrated by the refused connection" '[ -z "$(psql "$DBURL" -Atc "select 1 from information_schema.tables where table_name='"'"'schema_migrations'"'"'")" ]'
+
+echo "== migration inside the image, against a disposable loopback database (TLS verified with the throw-away CA)"
+OUT="$(run_in sh -c "cd /app && $CA_ENV DIRECT_DATABASE_URL='$DBURL' node dist/scripts/migrate.js" 2>&1)"; RC=$?
 check "migrate.js exits 0 (rc=$RC)" '[ "$RC" = 0 ]'
 check "seven migrations recorded in schema_migrations" '[ "$(psql "$DBURL" -Atc "select count(*) from schema_migrations")" = 7 ]'
 check "research-state tables exist" '[ -n "$(psql "$DBURL" -Atc "select 1 from information_schema.tables where table_name='"'"'repo_snapshots'"'"'")" ]'
 echo "$OUT" | tail -3 | sed 's/^/     /'
 
 echo "== start exactly as the image does"
-( run_in sh -c "cd /app && HOST=127.0.0.1 PORT=$PORT LOG_LEVEL=info DATABASE_CONNECT_TIMEOUT_MS=30000 DATABASE_URL='$DBURL' HUB_ALLOWED_HOSTS=$HOSTN API_BEARER_TOKEN='$TOKEN' exec docker-entrypoint.sh npm start" >/tmp/hubimg.log 2>&1 & )
+( run_in sh -c "cd /app && HOST=127.0.0.1 PORT=$PORT LOG_LEVEL=info DATABASE_CONNECT_TIMEOUT_MS=30000 $CA_ENV DATABASE_URL='$DBURL' HUB_ALLOWED_HOSTS=$HOSTN API_BEARER_TOKEN='$TOKEN' exec docker-entrypoint.sh npm start" >/tmp/hubimg.log 2>&1 & )
 for i in $(seq 1 30); do curl -s -o /dev/null "http://127.0.0.1:$PORT/health/live" && break; sleep 1; done
 PID="$(pgrep -f 'dist/apps/api/src/server.js' | head -1)"
 check "server process runs as the node user, not root (uid $(ps -o uid= -p "${PID:-0}" 2>/dev/null | tr -d ' '))" '[ -n "$PID" ] && [ "$(ps -o uid= -p "$PID" | tr -d " ")" = "${UID_NODE%%:*}" ]'
