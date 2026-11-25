@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
 import { resolveSourceReference } from "./source-resolver.js";
+import { outboundFetch } from "./net/outbound.js";
 import { LeaseLostError, httpStatusError } from "./step-errors.js";
 import { defaultLog, runWorkerLoop, type LogFn, type WorkerLoopOptions } from "./worker-loop.js";
 
@@ -116,7 +117,7 @@ export async function processProjectIdentification(worker: WorkflowWorker, step:
   }
 
   const endpoint = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
-  const response = await fetch(endpoint, {
+  const response = await outboundFetch(endpoint, {
     method: "GET",
     redirect: "manual",
     headers: {
@@ -255,7 +256,7 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
 }
 
 async function githubGet(url: string, maxBytes: number): Promise<{ response: Response; body: string }> {
-  const response = await fetch(url, {
+  const response = await outboundFetch(url, {
     method: "GET",
     redirect: "manual",
     headers: {
@@ -345,7 +346,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
     if (remaining <= 0) break;
     const encodedBranch = branch.split("/").map(encodeURIComponent).join("/");
     const url = `https://raw.githubusercontent.com/${owner}/${name}/${encodedBranch}/${entry.path.split("/").map(encodeURIComponent).join("/")}`;
-    const response = await fetch(url, {
+    const response = await outboundFetch(url, {
       method: "GET",
       redirect: "manual",
       headers: { "user-agent": "AgentSmith-MultiHub/0.1", accept: "text/plain" },

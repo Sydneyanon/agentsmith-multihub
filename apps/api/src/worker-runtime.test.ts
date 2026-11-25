@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setOutboundFetchForTests } from "./net/outbound.js";
 import { CHALLENGE_RULES, HYPOTHESIS_TEMPLATES, SURFACE_RULES, processAttackSurfaceMapping, processAuthorizationGate, processHypothesisGeneration, processIndependentChallenge, processResearchBrief, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
 import { classifyStepError } from "./step-errors.js";
@@ -28,6 +29,9 @@ function fakeWorker() {
 }
 
 describe("passive intake resolution worker", () => {
+  // The production client is SSRF-pinned; tests keep stubbing the global fetch through this seam.
+  beforeEach(() => setOutboundFetchForTests((...a) => globalThis.fetch(...a)));
+  afterEach(() => setOutboundFetchForTests(null));
   it("normalizes a GitHub URL without making a network request", async () => {
     const { complete, worker } = fakeWorker();
     const result = await processIntakeResolution(worker, step({

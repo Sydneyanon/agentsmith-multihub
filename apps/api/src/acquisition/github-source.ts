@@ -1,3 +1,4 @@
+import { outboundFetch, unguardedFetchForLoopbackFixtures } from "../net/outbound.js";
 import { z } from "zod";
 import { httpStatusError } from "../step-errors.js";
 import { AcquisitionError } from "./errors.js";
@@ -93,7 +94,7 @@ export class GitHubSource implements RepositorySource {
 
   constructor(private readonly options: GitHubSourceOptions = {}) {
     this.limits = resolveLimits(options.limits);
-    this.fetcher = options.fetcher ?? fetch;
+    this.fetcher = options.fetcher ?? (options.testOrigins ? unguardedFetchForLoopbackFixtures : outboundFetch); // testOrigins (refused in production) point at loopback fixtures, which the SSRF guard correctly refuses
     this.timeoutMs = options.requestTimeoutMs ?? 60_000;
     if (options.testOrigins) {
       if (process.env.NODE_ENV === "production") throw new Error("testOrigins is for tests and is refused in production");
