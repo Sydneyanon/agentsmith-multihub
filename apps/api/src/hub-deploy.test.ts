@@ -56,6 +56,14 @@ describe("hub static HSTS", () => {
     expect(HUB_HSTS).not.toMatch(/includeSubDomains|preload/i);
     await app.close(); cleanup();
   });
+  it("redirects the bare hostname to the dashboard and reveals nothing about the service", async () => {
+    const { app, cleanup } = await build(true);
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/hub/");
+    expect(res.body).not.toMatch(/service|version|scaffold|agentsmith/i);
+    await app.close(); cleanup();
+  });
   it("sends nothing when disabled (local http)", async () => {
     const { app, cleanup } = await build(false);
     expect((await app.inject({ method: "GET", url: "/hub/" })).headers["strict-transport-security"]).toBeUndefined();

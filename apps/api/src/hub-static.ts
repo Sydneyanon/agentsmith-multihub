@@ -35,6 +35,8 @@ export function registerHubStatic(app: FastifyInstance, options: { assetsDir?: s
     }
   };
 
+  // The bare hostname is the hub: send people to the dashboard and reveal nothing about the service (no name, no version).
+  app.get("/", async (_request, reply) => reply.header("cache-control", "no-store").redirect("/hub/", 302));
   app.get("/hub", async (_request, reply) => reply.redirect("/hub/", 302));
   app.get("/hub/", async (_request, reply) => {
     try { await readFile(join(dir, "index.html")); } catch { return reply.code(503).send({ error: "hub_assets_not_built", hint: "run npm run build" }); }

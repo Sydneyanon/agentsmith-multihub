@@ -69,6 +69,7 @@ H() { curl -s -o /dev/null -w "%{http_code}" -H "Host: $1" "http://127.0.0.1:$PO
 check "GET /health/live -> 200" '[ "$(H 10.0.0.9:8080 /health/live)" = 200 ]'
 check "GET /health/ready -> 200 (database reachable)" '[ "$(H 10.0.0.9:8080 /health/ready)" = 200 ]'
 check "GET /hub/ on the hub hostname -> 200" '[ "$(H $HOSTN /hub/)" = 200 ]'
+check "GET / on the hub hostname redirects to /hub/ and reveals no service name or version" '[ "$(H $HOSTN /)" = 302 ] && curl -s -D - -o /tmp/hubimg.root -H "Host: $HOSTN" "http://127.0.0.1:$PORT/" | grep -qi "^location: /hub/" && ! grep -qiE "service|version|scaffold" /tmp/hubimg.root'
 check "GET /hub/assets/main.js and styles.css -> 200" '[ "$(H $HOSTN /hub/assets/main.js)" = 200 ] && [ "$(H $HOSTN /hub/assets/styles.css)" = 200 ]'
 HDRS="$(curl -s -D - -o /dev/null -H "Host: $HOSTN" "http://127.0.0.1:$PORT/hub/")"
 check "CSP is the strict policy (no unsafe-inline / unsafe-eval)" 'echo "$HDRS" | grep -i "^content-security-policy:" | grep -q "default-src .none." && ! echo "$HDRS" | grep -i "^content-security-policy:" | grep -qiE "unsafe-(inline|eval)"'
