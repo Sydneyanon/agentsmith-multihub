@@ -6,6 +6,7 @@ const configSchema = z.object({
   HOST: z.string().min(1).default("0.0.0.0"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   DATABASE_URL: z.string().url().optional().or(z.literal("")),
+  API_BEARER_TOKEN: z.string().min(32).optional().or(z.literal("")),
   AI_BUDGET_EMERGENCY_STOP: z.enum(["true", "false"]).default("false"),
 });
 
@@ -18,5 +19,6 @@ export const config = {
   host: parsed.data.HOST,
   logLevel: parsed.data.LOG_LEVEL,
   databaseUrl: parsed.data.DATABASE_URL || undefined,
+  apiBearerToken: parsed.data.API_BEARER_TOKEN || undefined,
   aiBudgetEmergencyStop: parsed.data.AI_BUDGET_EMERGENCY_STOP === "true",
 } as const;
