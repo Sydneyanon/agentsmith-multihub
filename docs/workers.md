@@ -26,6 +26,22 @@ The GitHub handlers reject redirects, use bounded timeouts, enforce streaming re
 
 All intake handlers preserve `execution_mode: passive_only` and `authorization_status: unverified`. Public repository metadata is not evidence of bounty authorization. Idea inputs and non-GitHub URLs are marked not applicable for GitHub-specific acquisition; their authorization state is still explicitly recorded, and the mapper reports not applicable if no source sample exists.
 
+## Failure handling and retries
+
+The loop (`worker-loop.ts`) never crashes on a database error in reap, claim or failure recording; it backs off (1 s doubling to 30 s, reset on success) and polls again. Idle pooled-connection errors are logged, not fatal.
+
+Step failures are classified (`step-errors.ts`) and unknown errors fail closed as permanent:
+
+| Class | Examples | Behaviour |
+|---|---|---|
+| retryable | HTTP 5xx/408/429, rate-limited 403 (`Retry-After` or `x-ratelimit-remaining: 0`), network or timeout errors, transient database errors | re-queued via `fail(retryable=true)` until `maxAttempts` (3); the loop then waits 5 s doubling to 120 s, or the server's `Retry-After` hint (max 300 s) |
+| permanent | other HTTP statuses (incl. plain 403/404), redirects, size limits, malformed data, evidence-hash mismatch, anything unclassified | step and run marked failed |
+| lease lost | the worker no longer owns the step | nothing is recorded; lease expiry returns the step to the queue |
+
+At the attempt ceiling the stored reason says `retry limit reached: attempt N of M` and the SQL marks the step and run failed. Original error messages are preserved. If a failure cannot be recorded because the database is down, the worker retries the write three times and then leaves the lease to expire; the step is reclaimed and the attempt count still advances. On SIGINT/SIGTERM the in-flight step finishes, no further step is claimed and the pool is closed.
+
+Limits: retry backoff is per worker process (another worker may claim a re-queued step sooner), and queue SQL behaviour is covered by mocked tests only until database integration tests exist.
+
 ## Running locally
 
 Set `DATABASE_URL` to a database with the reviewed migrations applied, then run:

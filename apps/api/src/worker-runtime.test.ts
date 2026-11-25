@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CHALLENGE_RULES, HYPOTHESIS_TEMPLATES, SURFACE_RULES, processAttackSurfaceMapping, processAuthorizationGate, processHypothesisGeneration, processIndependentChallenge, processResearchBrief, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
+import { classifyStepError } from "./step-errors.js";
 
 function step(input: Record<string, unknown>): ClaimedStep {
   return {
@@ -639,6 +640,67 @@ describe("passive intake resolution worker", () => {
       });
       const real = await runBrief({});
       expect(real.brief.provenance).toEqual({ synthetic_marker_present: false, synthetic_seeded_step_keys: [] });
+    });
+  });
+
+  describe("failure classification at the GitHub fetch boundary", () => {
+    const urlInput = {
+      intake_kind: "url",
+      value: "https://github.com/example/project",
+      source_reference: { repository: { owner: "example", name: "project" } },
+      execution_mode: "passive_only",
+      authorization_status: "unverified",
+    };
+    async function identifyWith(response: Response | Error) {
+      const { worker } = fakeWorker();
+      vi.stubGlobal("fetch", vi.fn()[response instanceof Error ? "mockRejectedValue" : "mockResolvedValue"](response));
+      try {
+        return await processProjectIdentification(worker, identifyStep(urlInput)).then(() => null, (error: unknown) => error);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+
+    it("classifies a GitHub 503 as retryable and a plain 403 as permanent", async () => {
+      expect(classifyStepError(await identifyWith(new Response(null, { status: 503 })))).toMatchObject({ kind: "retryable" });
+      expect(classifyStepError(await identifyWith(new Response(null, { status: 403 })))).toMatchObject({ kind: "permanent" });
+    });
+
+    it("classifies a rate-limited 403 as retryable with the server's wait hint", async () => {
+      const error = await identifyWith(new Response(null, { status: 403, headers: { "retry-after": "45", "x-ratelimit-remaining": "0" } }));
+      expect(classifyStepError(error)).toEqual({ kind: "retryable", category: "upstream_http", retryAfterSeconds: 45 });
+    });
+
+    it("classifies a network failure as retryable and a redirect as permanent", async () => {
+      expect(classifyStepError(await identifyWith(new TypeError("fetch failed")))).toMatchObject({ kind: "retryable", category: "network" });
+      const redirect = await identifyWith(new Response(null, { status: 302, headers: { location: "http://127.0.0.1/" } }));
+      expect(classifyStepError(redirect)).toMatchObject({ kind: "permanent" });
+    });
+
+    it("classifies a tree-retrieval 502 during repository acquisition as retryable", async () => {
+      const { worker } = fakeWorker();
+      const pool = { query: vi.fn().mockResolvedValue({ rows: [{ output: {
+        status: "identified", repository: { full_name: "example/project", default_branch: "main" },
+      } }] }) } as unknown as import("pg").Pool;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 502 })));
+      try {
+        const error = await processRepositoryAcquisition(pool, worker, { ...step({}), step_key: "locate_official_repositories" })
+          .then(() => null, (e: unknown) => e);
+        expect(classifyStepError(error)).toMatchObject({ kind: "retryable", category: "upstream_http" });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("treats a lost lease during acquisition as lease loss, not a failure to record", async () => {
+      const { worker, heartbeat } = fakeWorker();
+      heartbeat.mockResolvedValue(false);
+      const pool = { query: vi.fn().mockResolvedValue({ rows: [{ output: {
+        status: "identified", repository: { full_name: "example/project", default_branch: "main" },
+      } }] }) } as unknown as import("pg").Pool;
+      const error = await processRepositoryAcquisition(pool, worker, { ...step({}), step_key: "locate_official_repositories" })
+        .then(() => null, (e: unknown) => e);
+      expect(classifyStepError(error)).toEqual({ kind: "lease_lost" });
     });
   });
 });

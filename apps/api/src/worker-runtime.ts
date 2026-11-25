@@ -3,6 +3,8 @@ import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
 import { resolveSourceReference } from "./source-resolver.js";
+import { LeaseLostError, httpStatusError } from "./step-errors.js";
+import { defaultLog, runWorkerLoop, type LogFn, type WorkerLoopOptions } from "./worker-loop.js";
 
 type IntakeStepInput = {
   intake_kind?: unknown;
@@ -136,7 +138,7 @@ export async function processProjectIdentification(worker: WorkflowWorker, step:
     });
     return { status: "completed", stepId: step.id };
   }
-  if (!response.ok) throw new Error(`GitHub API returned HTTP ${response.status}`);
+  if (!response.ok) throw httpStatusError("GitHub API", response);
 
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
   if (Number.isFinite(declaredLength) && declaredLength > 128_000) {
@@ -264,7 +266,7 @@ async function githubGet(url: string, maxBytes: number): Promise<{ response: Res
   if (response.status >= 300 && response.status < 400) {
     throw new Error("GitHub API redirect rejected by source-fetch policy");
   }
-  if (!response.ok) throw new Error(`GitHub API returned HTTP ${response.status}`);
+  if (!response.ok) throw httpStatusError("GitHub API", response);
   return { response, body: await readBoundedResponse(response, maxBytes) };
 }
 
@@ -305,7 +307,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   }
   const [owner, name] = fullName.split("/");
   const treeUrl = `https://api.github.com/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(name!)}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
-  if (!await worker.heartbeat(step.id)) throw new Error("Repository acquisition lost its worker lease before tree retrieval");
+  if (!await worker.heartbeat(step.id)) throw new LeaseLostError("Repository acquisition lost its worker lease before tree retrieval");
   const treeResult = await githubGet(treeUrl, 2_000_000);
   const treeParsed: unknown = JSON.parse(treeResult.body);
   if (!isRecord(treeParsed) || !Array.isArray(treeParsed.tree)) {
@@ -336,7 +338,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   const files: Array<{ path: string; blob_sha: string; size: number; content: string; truncated: boolean }> = [];
   let totalBytes = 0;
   for (const entry of candidates) {
-    if (!await worker.heartbeat(step.id)) throw new Error("Repository acquisition lost its worker lease during source retrieval");
+    if (!await worker.heartbeat(step.id)) throw new LeaseLostError("Repository acquisition lost its worker lease during source retrieval");
     const remaining = 512_000 - totalBytes;
     if (remaining <= 0) break;
     const encodedBranch = branch.split("/").map(encodeURIComponent).join("/");
@@ -349,7 +351,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
     });
     if (response.status >= 300 && response.status < 400) throw new Error("Raw GitHub redirect rejected");
     if (response.status === 404) continue;
-    if (!response.ok) throw new Error(`Raw GitHub returned HTTP ${response.status} for ${entry.path}`);
+    if (!response.ok) throw httpStatusError("Raw GitHub", response, ` for ${entry.path}`);
     const content = await readBoundedResponse(response, Math.min(48_000, remaining));
     const bytes = new TextEncoder().encode(content).byteLength;
     totalBytes += bytes;
@@ -1004,37 +1006,47 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   return { status: "completed", stepId: step.id };
 }
 
-export async function runIntakeWorker(pool: Pool, workerId: string, signal: AbortSignal, pollMs = 2_000): Promise<void> {
-  const worker = new WorkflowWorker(pool, workerId);
-  while (!signal.aborted) {
-    await worker.reapExhaustedLeases();
-    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief"]);
-    if (!step) {
-      await new Promise<void>((resolve) => {
-        let timer: ReturnType<typeof setTimeout>;
-        const finish = () => {
-          clearTimeout(timer);
-          signal.removeEventListener("abort", finish);
-          resolve();
-        };
-        timer = setTimeout(finish, pollMs);
-        signal.addEventListener("abort", finish, { once: true });
-        if (signal.aborted) finish();
-      });
-      continue;
-    }
-    try {
-      if (step.step_key === "resolve_source") await processIntakeResolution(worker, step);
-      else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
-      else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
-      else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
-      else if (step.step_key === "map_attack_surface") await processAttackSurfaceMapping(pool, worker, step);
-      else if (step.step_key === "generate_hypotheses") await processHypothesisGeneration(pool, worker, step);
-      else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
-      else await processResearchBrief(pool, worker, step);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Unknown intake resolution error";
-      await worker.fail(step.id, reason, false);
-    }
-  }
+const INTAKE_STEP_KEYS = [
+  "resolve_source", "identify_project", "locate_official_repositories", "establish_authorization",
+  "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief",
+] as const;
+
+async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<void> {
+  if (step.step_key === "resolve_source") await processIntakeResolution(worker, step);
+  else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
+  else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
+  else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
+  else if (step.step_key === "map_attack_surface") await processAttackSurfaceMapping(pool, worker, step);
+  else if (step.step_key === "generate_hypotheses") await processHypothesisGeneration(pool, worker, step);
+  else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
+  else if (step.step_key === "prepare_research_brief") await processResearchBrief(pool, worker, step);
+  else throw new Error(`No handler registered for step: ${step.step_key}`);
 }
+
+/**
+ * An idle pooled connection can emit 'error' (database restart, network drop).
+ * Without a listener Node treats that as an uncaught exception and kills the worker.
+ */
+export function attachPoolErrorHandler(pool: Pick<Pool, "on">, log: LogFn = defaultLog): void {
+  pool.on("error", (error: Error) => {
+    log("error", "idle_database_connection_error", { error: error.message });
+  });
+}
+
+export async function runIntakeWorker(
+  pool: Pool,
+  workerId: string,
+  signal: AbortSignal,
+  options: WorkerLoopOptions | number = {},
+): Promise<void> {
+  const worker = new WorkflowWorker(pool, workerId);
+  const loopOptions = typeof options === "number" ? { pollMs: options } : options;
+  await runWorkerLoop({
+    reapExhaustedLeases: () => worker.reapExhaustedLeases(),
+    claimNext: () => worker.claimNext(INTAKE_STEP_KEYS),
+    fail: (stepId, reason, retryable) => worker.fail(stepId, reason, retryable),
+    execute: (step) => dispatchIntakeStep(pool, worker, step),
+    maxAttempts: worker.maxAttempts,
+  }, signal, loopOptions);
+}
+
