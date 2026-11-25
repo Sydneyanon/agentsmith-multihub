@@ -83,9 +83,10 @@ push() {
   echo "pushed $ref"
   crane digest "$ref"
   # Check what was pushed against what was tested.
-  crane config "$ref" | python3 - "$WORK/layer.diffid" "$digest" <<'PY'
+  crane config "$ref" > "$WORK/pushed-config.json"
+  python3 - "$WORK/pushed-config.json" "$WORK/layer.diffid" <<'PY'
 import json, sys
-c = json.load(sys.stdin); want = open(sys.argv[1]).read().strip()
+c = json.load(open(sys.argv[1])); want = open(sys.argv[2]).read().strip()
 ids = c["rootfs"]["diff_ids"]; cfg = c["config"]
 checks = {
   "architecture is amd64": c["architecture"] == "amd64", "os is linux": c["os"] == "linux",
