@@ -1,24 +1,18 @@
 import Fastify from "fastify";
 import { Pool } from "pg";
 import { config } from "./config.js";
-import { isValidBearerToken } from "./auth.js";
+import { registerBearerAuth } from "./auth.js";
 import { registerIntakeRoutes } from "./intake.js";
 import { registerWorkflowRoutes } from "./workflows.js";
+import { registerResearchRoutes } from "./research-api.js";
+import { registerHubStatic } from "./hub-static.js";
 import { buildPoolConfig, stderrWarning } from "./db-config.js";
 
 const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning })) : undefined;
 
 export function buildServer() {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
-  app.addHook("preHandler", async (request, reply) => {
-    if (!request.url.startsWith("/v1/")) return;
-    if (!config.apiBearerToken) {
-      return reply.code(503).send({ error: "api_auth_not_configured" });
-    }
-    if (!isValidBearerToken(request.headers.authorization, config.apiBearerToken)) {
-      return reply.code(401).send({ error: "unauthorized" });
-    }
-  });
+  registerBearerAuth(app, config.apiBearerToken);
   app.get("/", async () => ({ service: "agentsmith-multihub-api", version: "0.1.0", status: "scaffolded" }));
   app.get("/health/live", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
   app.get("/health/ready", async (_request, reply) => {
@@ -33,6 +27,8 @@ export function buildServer() {
   });
   registerIntakeRoutes(app, pool);
   registerWorkflowRoutes(app, pool);
+  registerResearchRoutes(app, pool);
+  registerHubStatic(app);
   app.addHook("onClose", async () => { await pool?.end(); });
   return app;
 }
