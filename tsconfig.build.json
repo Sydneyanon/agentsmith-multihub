@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "apps/api/src/**/*.ts",
+    "scripts/migrate.ts",
+    "scripts/apply-runtime-grants.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "apps/web",
+    "**/*.test.ts",
+    "apps/api/src/integration/**",
+    "apps/api/src/**/testing/**"
+  ]
+}
