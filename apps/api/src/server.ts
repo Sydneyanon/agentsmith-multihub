@@ -4,16 +4,9 @@ import { config } from "./config.js";
 import { isValidBearerToken } from "./auth.js";
 import { registerIntakeRoutes } from "./intake.js";
 import { registerWorkflowRoutes } from "./workflows.js";
+import { buildPoolConfig, stderrWarning } from "./db-config.js";
 
-const pool = config.databaseUrl
-  ? new Pool({
-      connectionString: config.databaseUrl,
-      max: 5,
-      connectionTimeoutMillis: 3_000,
-      idleTimeoutMillis: 30_000,
-      ...(config.environment === "production" ? { ssl: { rejectUnauthorized: true } } : {}),
-    })
-  : undefined;
+const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning })) : undefined;
 
 export function buildServer() {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });

@@ -1,16 +1,11 @@
 import { Pool } from "pg";
 import { config } from "./config.js";
+import { buildPoolConfig, stderrWarning } from "./db-config.js";
 import { attachPoolErrorHandler, runIntakeWorker } from "./worker-runtime.js";
 
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required for the worker process");
 
-const pool = new Pool({
-  connectionString: config.databaseUrl,
-  max: 3,
-  connectionTimeoutMillis: 3_000,
-  idleTimeoutMillis: 30_000,
-  ...(config.environment === "production" ? { ssl: { rejectUnauthorized: true } } : {}),
-});
+const pool = new Pool(buildPoolConfig(process.env, { max: 3, onWarning: stderrWarning }));
 
 attachPoolErrorHandler(pool);
 

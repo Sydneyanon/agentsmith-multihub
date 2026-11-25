@@ -40,7 +40,7 @@ describe.skipIf(skipIntegration)("migration runner protections against real Post
 
   it("applies every repository migration once, recording a SHA-256 checksum for each", async () => {
     const db = await fresh();
-    const result = await runMigrate({ databaseUrl: db.url });
+    const result = await runMigrate({ directUrl: db.url });
     expect(result.code, result.stderr).toBe(0);
     expect(result.stdout.match(/^Applied /gm)).toHaveLength(realMigrations.length);
     const rows = await ledger(db);
@@ -53,9 +53,9 @@ describe.skipIf(skipIntegration)("migration runner protections against real Post
 
   it("is idempotent: a second run applies nothing and leaves the ledger untouched", async () => {
     const db = await fresh();
-    await runMigrate({ databaseUrl: db.url });
+    await runMigrate({ directUrl: db.url });
     const before = await ledger(db);
-    const again = await runMigrate({ databaseUrl: db.url });
+    const again = await runMigrate({ directUrl: db.url });
     expect(again.code, again.stderr).toBe(0);
     expect(again.stdout).not.toMatch(/Applied /);
     expect(await ledger(db)).toEqual(before);
@@ -64,12 +64,12 @@ describe.skipIf(skipIntegration)("migration runner protections against real Post
   it("refuses to run when an applied migration file has changed, and applies nothing after it", async () => {
     const db = await fresh();
     const cwd = scratchDir("copy-real");
-    expect((await runMigrate({ databaseUrl: db.url, cwd })).code).toBe(0);
+    expect((await runMigrate({ directUrl: db.url, cwd })).code).toBe(0);
     const before = await ledger(db);
     const tampered = join(cwd, "db", "migrations", realMigrations[2]!);
     writeFileSync(tampered, `${readFileSync(tampered, "utf8")}\n-- edited after being applied\n`);
     writeFileSync(join(cwd, "db", "migrations", "0099_must_not_run.sql"), "CREATE TABLE must_not_run (id int);");
-    const result = await runMigrate({ databaseUrl: db.url, cwd });
+    const result = await runMigrate({ directUrl: db.url, cwd });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain(`Applied migration ${realMigrations[2]} has changed`);
     expect(await ledger(db)).toEqual(before);
@@ -78,7 +78,7 @@ describe.skipIf(skipIntegration)("migration runner protections against real Post
 
   it("serializes concurrent runners with the advisory lock: each migration applies exactly once", async () => {
     const db = await fresh();
-    const results = await Promise.all([1, 2, 3, 4].map(() => runMigrate({ databaseUrl: db.url })));
+    const results = await Promise.all([1, 2, 3, 4].map(() => runMigrate({ directUrl: db.url })));
     for (const result of results) expect(result.code, result.stderr).toBe(0);
     const applied = results.flatMap((result) => result.stdout.match(/^Applied \S+/gm) ?? []);
     expect(applied.sort()).toEqual(realMigrations.map((name) => `Applied ${name}`).sort());
@@ -91,7 +91,7 @@ describe.skipIf(skipIntegration)("migration runner protections against real Post
       "0001_ok.sql": "CREATE TABLE t_ok (id int);",
       "0002_bad.sql": "CREATE TABLE t_partial (id int); SELECT 1/0;",
     });
-    const failed = await runMigrate({ databaseUrl: db.url, cwd });
+    const failed = await runMigrate({ directUrl: db.url, cwd });
     expect(failed.code).not.toBe(0);
     expect(failed.stderr).toMatch(/division by zero/);
     expect((await ledger(db)).map((row) => row.name)).toEqual(["0001_ok.sql"]);
@@ -99,43 +99,80 @@ describe.skipIf(skipIntegration)("migration runner protections against real Post
     expect(await tableExists(db, "t_partial")).toBe(false);
 
     writeFileSync(join(cwd, "db", "migrations", "0002_bad.sql"), "CREATE TABLE t_partial (id int);");
-    const fixed = await runMigrate({ databaseUrl: db.url, cwd });
+    const fixed = await runMigrate({ directUrl: db.url, cwd });
     expect(fixed.code, fixed.stderr).toBe(0);
     expect((await ledger(db)).map((row) => row.name)).toEqual(["0001_ok.sql", "0002_bad.sql"]);
     expect(await tableExists(db, "t_partial")).toBe(true);
   });
 
-  describe("connection safety at the migration entry point", () => {
-    it("refuses a non-loopback host before connecting, without echoing credentials", async () => {
-      const result = await runMigrate({ databaseUrl: "postgres://admin:topsecretpw@db.example.invalid:5432/prod" });
+  describe("URL selection and connection safety at the migration entry point", () => {
+    it("migrates the DIRECT_DATABASE_URL database and never touches DATABASE_URL", async () => {
+      const target = await fresh();
+      const decoy = await fresh(); // a valid, reachable database in DATABASE_URL that must stay untouched
+      const result = await runMigrate({ directUrl: target.url, extraEnv: { DATABASE_URL: decoy.url } });
+      expect(result.code, result.stderr).toBe(0);
+      expect((await ledger(target)).map((row) => row.name)).toEqual(realMigrations);
+      expect((await decoy.pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'")).rows[0]!.n).toBe(0);
+    });
+
+    it("fails closed without DIRECT_DATABASE_URL, even when a valid DATABASE_URL is present", async () => {
+      const app = await fresh();
+      const result = await runMigrate({ extraEnv: { DATABASE_URL: app.url } });
       expect(result.code).not.toBe(0);
-      expect(result.stderr).toContain('Refusing to migrate non-loopback host "db.example.invalid"');
+      expect(result.stderr).toContain("DIRECT_DATABASE_URL is required");
+      expect((await app.pool.query("SELECT 1 FROM information_schema.tables WHERE table_name = 'schema_migrations'")).rowCount).toBe(0);
+    });
+
+    it("treats a blank DIRECT_DATABASE_URL as missing", async () => {
+      const app = await fresh();
+      for (const blank of ["", "   "]) {
+        const result = await runMigrate({ directUrl: blank, extraEnv: { DATABASE_URL: app.url } });
+        expect(result.code).not.toBe(0);
+        expect(result.stderr).toContain("DIRECT_DATABASE_URL is required");
+      }
+      expect((await app.pool.query("SELECT 1 FROM information_schema.tables WHERE table_name = 'schema_migrations'")).rowCount).toBe(0);
+    });
+
+    it("refuses a non-loopback direct host before connecting, without echoing credentials", async () => {
+      const result = await runMigrate({ directUrl: "postgres://admin:topsecretpw@direct.mycluster.invalid:5432/prod" });
+      expect(result.code).not.toBe(0);
+      expect(result.stderr).toContain('Refusing to migrate non-loopback host "direct.mycluster.invalid"');
       expect(result.stderr).not.toContain("topsecretpw");
       expect(result.stderr).not.toMatch(/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|getaddrinfo/); // it never tried to connect
     });
 
     it("refuses when the confirmation names a different host", async () => {
       const result = await runMigrate({
-        databaseUrl: "postgres://u@db.example.invalid/prod", extraEnv: { MIGRATE_CONFIRM_REMOTE_HOST: "other.example.invalid" },
+        directUrl: "postgres://u@direct.mycluster.invalid/prod", extraEnv: { MIGRATE_CONFIRM_REMOTE_HOST: "other.mycluster.invalid" },
       });
       expect(result.code).not.toBe(0);
       expect(result.stderr).toContain("Refusing to migrate");
+      expect(result.stderr).not.toMatch(/ENOTFOUND|EAI_AGAIN|getaddrinfo/);
     });
 
-    it("lets an exactly confirmed remote host through the guard (it then fails only because the host does not exist)", async () => {
+    it("checks the confirmation against the DIRECT host, not the application URL's host", async () => {
       const result = await runMigrate({
-        databaseUrl: "postgres://u@db.example.invalid/prod", extraEnv: { MIGRATE_CONFIRM_REMOTE_HOST: "db.example.invalid" },
+        directUrl: "postgres://u@direct.mycluster.invalid/prod",
+        extraEnv: { DATABASE_URL: "postgres://u@pooled.mycluster.invalid/prod", MIGRATE_CONFIRM_REMOTE_HOST: "pooled.mycluster.invalid" },
+      });
+      expect(result.code).not.toBe(0);
+      expect(result.stderr).toContain('Refusing to migrate non-loopback host "direct.mycluster.invalid"');
+    });
+
+    it("lets an exactly confirmed direct host through the guard (it then fails only because the host does not exist)", async () => {
+      const result = await runMigrate({
+        directUrl: "postgres://u@direct.mycluster.invalid/prod", extraEnv: { MIGRATE_CONFIRM_REMOTE_HOST: "direct.mycluster.invalid" },
       });
       expect(result.code).not.toBe(0);
       expect(result.stderr).not.toContain("Refusing to migrate");
       expect(result.stderr).toMatch(/ENOTFOUND|EAI_AGAIN|getaddrinfo|ETIMEDOUT|ECONNREFUSED/);
     });
 
-    it("never falls back to ambient PG* settings when the URL has no host", async () => {
+    it("never falls back to ambient PG* settings when the direct URL has no host", async () => {
       const db = await fresh();
       const url = new URL(db.url);
       const result = await runMigrate({
-        databaseUrl: `postgres:///${db.name}`,
+        directUrl: `postgres:///${db.name}`,
         extraEnv: { PGHOST: url.hostname, PGPORT: url.port, PGUSER: url.username },
       });
       expect(result.code).not.toBe(0);
@@ -143,10 +180,13 @@ describe.skipIf(skipIntegration)("migration runner protections against real Post
       expect((await db.pool.query("SELECT 1 FROM information_schema.tables WHERE table_name = 'schema_migrations'")).rowCount).toBe(0);
     });
 
-    it("refuses a missing DATABASE_URL", async () => {
-      const result = await runMigrate({ databaseUrl: "" });
-      expect(result.code).not.toBe(0);
-      expect(result.stderr).toContain("DATABASE_URL is required");
+    it("warns visibly when TLS verification has been explicitly disabled for a remote direct host", async () => {
+      const result = await runMigrate({
+        directUrl: "postgres://u@direct.mycluster.invalid/prod",
+        extraEnv: { MIGRATE_CONFIRM_REMOTE_HOST: "direct.mycluster.invalid", DATABASE_SSL_VERIFY: "false" },
+      });
+      expect(result.stderr).toContain("TLS certificate verification is DISABLED");
+      expect(result.stderr).toContain("DIRECT_DATABASE_URL");
     });
   });
 });

@@ -10,13 +10,21 @@ One image runs two process groups (`fly.toml` `[processes]`):
 
 `npm run worker:intake:dev` runs the worker through `tsx` for local development only. `tsx` is a dev dependency and is not in the runtime image (`npm ci --omit=dev`). Machine counts per group are set at deploy time, not in `fly.toml`.
 
-`fly.toml` names the existing app. **Always pass an explicit `--app <name>`** and use a separate staging app; never deploy this file without it. No `release_command` is configured on purpose: migrations are a separate, explicitly approved step (`docs/database-migrations.md`), not something every deploy runs automatically.
+`fly.toml` names the existing app. **Always pass an explicit `--app <name>`** and use a separate staging app; never deploy this file without it. Staging uses its own generated configs (`fly.staging-bootstrap.toml`, `fly.staging.toml`), see `docs/fly-staging-runbook.md`. No `release_command` is configured on purpose: migrations are a separate, explicitly approved step (`docs/database-migrations.md`), not something every deploy runs automatically.
 
 ## `npm run verify`
 Runs, locally and without GitHub Actions: lockfile consistency (`npm ci --dry-run`), typecheck, tests and build, then prints PASS / FAIL / SKIPPED per check and exits non-zero on any failure.
 
 - `npm run verify -- --docker` also attempts a real `docker build`. With no reachable Docker daemon it reports SKIPPED, never PASS.
 - It is a local run. It does not replace independent CI, and it says nothing about a deployment.
+
+## Database client settings
+All pools (API, worker, migration runner) are built by `buildPoolConfig` (`apps/api/src/db-config.ts`):
+- `DATABASE_CONNECT_TIMEOUT_MS` (default 3000, allowed 1000-60000). `fly.toml` sets 30000 because a Fly Managed Postgres **Developer** cluster auto-pauses after 15 minutes idle and takes about 15-25 s to wake.
+- TLS is used in production and for any non-loopback host, **with certificate verification on**. Fly's documentation says SSL is enabled for Managed Postgres but not which CA signs it, so verification is untested until the first staging connection. `DATABASE_SSL_VERIFY=false` exists only as a last-resort, security-reducing override: it is never set automatically, a loud warning is logged whenever it is in effect, and it must not be used during setup without the owner's explicit approval. A failed verification is reported, not worked around.
+- Connections are recycled after 10 minutes and idle ones after 30 s, per Fly's guidance to stay under the proxy's drain timeout.
+- Developer-plan limits to plan around: up to 20 connections shared by all clients (API pool 5, worker pool 3, migration 1), 1 GB growing to 5 GB, one backup a day kept for one day (take your own `pg_dump` of anything that matters).
+- The API and worker use `DATABASE_URL`. Migrations use **only** `DIRECT_DATABASE_URL` (no fallback to `DATABASE_URL`), and because the host is not loopback they need `MIGRATE_CONFIRM_REMOTE_HOST=<that exact host>`; they are still a separate, explicitly approved step. See `docs/fly-staging-runbook.md` for the order of operations.
 
 ## Tests: unit versus real Postgres
 - `npm test` runs the unit tests. They use a mocked database and say nothing about SQL behaviour.
