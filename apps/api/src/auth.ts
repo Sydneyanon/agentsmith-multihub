@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 
 /** Constant-time comparison for the configured single-operator API bearer token. */
 export function isValidBearerToken(header: string | undefined, configuredToken: string | undefined): boolean {
@@ -87,19 +87,23 @@ export function isPublicRequest(method: string, rawUrl: string): boolean {
 /**
  * Single-operator bearer protection, DEFAULT-DENY. It runs at `onRequest`, i.e. before routing-specific hooks, content-type
  * parsing, body reading and validation, so an unauthenticated client cannot make the server buffer or parse a body. Without a
- * configured token the API refuses (503) instead of running open; a missing or wrong token is 401. Repeated failures lock the
- * client out with 429 (checked before the token is compared, so a lockout also hides whether a guess was right). The limiter is
- * in memory and per process. Shared by the server and the tests so they cannot drift apart.
+ * configured token the API refuses (503) instead of running open; a missing or wrong token is 401. Repeated INVALID attempts from a
+ * client are throttled with 429; a valid token is never throttled. The limiter is in memory and per process.
  */
-export function registerBearerAuth(app: FastifyInstance, configuredToken: string | undefined, limiter: AuthFailureLimiter = new AuthFailureLimiter()): void {
+export function registerBearerAuth(
+  app: FastifyInstance, configuredToken: string | undefined, limiter: AuthFailureLimiter = new AuthFailureLimiter(),
+  clientIdentity: (request: FastifyRequest) => string = (request) => `peer:${request.socket.remoteAddress ?? "unknown"}`,
+): void {
   app.addHook("onRequest", async (request, reply) => {
     if (isPublicRequest(request.method, request.url)) return;
     if (!configuredToken) return reply.code(503).send({ error: "api_auth_not_configured" });
-    const wait = limiter.retryAfterSeconds(request.ip);
+    // A valid token is always accepted: only INVALID attempts are throttled, so no amount of failed guessing — from any address,
+    // including the operator's own — can lock the legitimate operator out.
+    if (isValidBearerToken(request.headers.authorization, configuredToken)) return;
+    const client = clientIdentity(request);
+    const wait = limiter.retryAfterSeconds(client);
     if (wait > 0) return reply.code(429).header("retry-after", String(wait)).send({ error: "too_many_attempts", retry_after_seconds: wait });
-    if (!isValidBearerToken(request.headers.authorization, configuredToken)) {
-      limiter.recordFailure(request.ip);
-      return reply.code(401).send({ error: "unauthorized" });
-    }
+    limiter.recordFailure(client);
+    return reply.code(401).send({ error: "unauthorized" });
   });
 }

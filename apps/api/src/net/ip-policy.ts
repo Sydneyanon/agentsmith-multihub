@@ -103,6 +103,19 @@ export function classifyAddress(text: string): AddressClass {
   return { kind: "ipv4", public: true, reason: "global-unicast" };
 }
 
+/** Strict address parse for CIDR matching. IPv4-mapped IPv6 (::ffff:a.b.c.d, what dual-stack sockets report) is folded to IPv4. */
+export function parseAddress(text: string): { family: 4 | 6; value: bigint } | null {
+  const bare = text.includes("%") ? text.slice(0, text.indexOf("%")) : text;
+  if (bare.includes(":")) {
+    const g = parseV6(bare);
+    if (!g) return null;
+    if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return { family: 4, value: BigInt(g[6]! * 65536 + g[7]!) };
+    return { family: 6, value: g.reduce((acc, x) => (acc << 16n) | BigInt(x), 0n) };
+  }
+  const v4 = parseV4(bare);
+  return v4 === null ? null : { family: 4, value: BigInt(v4) };
+}
+
 export const isPublicAddress = (text: string): boolean => classifyAddress(text).public;
 
 /** Loopback only (127.0.0.0/8 and ::1) — used solely by the explicit test-only policy. */

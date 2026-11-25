@@ -77,14 +77,15 @@ describe("bearer hook with lockout", () => {
   };
   const get = (app: ReturnType<typeof build>, authorization?: string) => app.inject({ method: "GET", url: "/v1/x", ...(authorization ? { headers: { authorization } } : {}) });
 
-  it("answers 429 with Retry-After after repeated failures, even for the correct token, then recovers", async () => {
+  it("answers 429 with Retry-After to repeated INVALID attempts, never to the correct token, then recovers", async () => {
     let t = 5_000_000;
     const app = build(() => t);
     for (let i = 0; i < 3; i += 1) expect((await get(app, "Bearer wrong")).statusCode).toBe(401);
-    const locked = await get(app, `Bearer ${token}`);
+    const locked = await get(app, "Bearer wrong");
     expect(locked.statusCode).toBe(429);
     expect(Number(locked.headers["retry-after"])).toBeGreaterThan(0);
     expect(locked.body).not.toContain(token);
+    expect((await get(app, `Bearer ${token}`)).statusCode).toBe(200); // the operator is never locked out
     expect((await app.inject({ method: "GET", url: "/health/live" })).statusCode).toBe(200);
     t += 61_000;
     expect((await get(app, `Bearer ${token}`)).statusCode).toBe(200);

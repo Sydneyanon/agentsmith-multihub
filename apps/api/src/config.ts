@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assessTokenStrength } from "./auth.js";
+import { parseCidrList } from "./client-identity.js";
 import { parseAllowedHosts } from "./host-guard.js";
 
 const configSchema = z.object({
@@ -17,6 +18,10 @@ const configSchema = z.object({
     const parsed = parseAllowedHosts(raw);
     if ("error" in parsed) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `HUB_ALLOWED_HOSTS ${parsed.error}` });
   }).optional(),
+  HUB_TRUSTED_PROXY_CIDRS: z.string().superRefine((raw, ctx) => {
+    const parsed = parseCidrList(raw);
+    if ("error" in parsed) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `HUB_TRUSTED_PROXY_CIDRS ${parsed.error}` });
+  }).optional(),
   AI_BUDGET_EMERGENCY_STOP: z.enum(["true", "false"]).default("false"),
 });
 
@@ -31,5 +36,6 @@ export const config = {
   databaseUrl: parsed.data.DATABASE_URL || undefined,
   apiBearerToken: parsed.data.API_BEARER_TOKEN || undefined,
   hubAllowedHosts: ((): string[] => { const result = parseAllowedHosts(parsed.data.HUB_ALLOWED_HOSTS); return "hosts" in result ? result.hosts : []; })(),
+  trustedProxyCidrs: (parsed.data.HUB_TRUSTED_PROXY_CIDRS ?? "").split(",").map((c) => c.trim()).filter(Boolean),
   aiBudgetEmergencyStop: parsed.data.AI_BUDGET_EMERGENCY_STOP === "true",
 } as const;
