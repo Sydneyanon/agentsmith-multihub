@@ -519,11 +519,129 @@ export async function processAttackSurfaceMapping(pool: Pool, worker: WorkflowWo
   return { status: "completed", stepId: step.id };
 }
 
+
+const HYPOTHESIS_TEMPLATES: Record<string, { question: string; checks: string[]; alternatives: string[] }> = {
+  "solidity-entrypoint": {
+    question: "Does this externally callable entry point enforce the intended caller, state and value invariants?",
+    checks: ["Trace all state writes and external calls reachable from the entry point", "Identify authorization modifiers and any alternate call paths", "Check preconditions and postconditions across repeated calls"],
+    alternatives: ["The function may be intentionally permissionless", "A shared modifier or inherited guard may enforce the invariant"],
+  },
+  "solidity-low-level-call": {
+    question: "Can the low-level call fail, re-enter, or target an unintended contract without safe handling?",
+    checks: ["Inspect return-value handling and revert behavior", "Trace target address provenance and user control", "Review state-update ordering and reentrancy protections"],
+    alternatives: ["The call may target a trusted fixed contract", "The surrounding function may use checks-effects-interactions or a guard"],
+  },
+  "solidity-authentication": {
+    question: "Is tx.origin used in a security decision where contract-wallet or intermediary calls change the trust boundary?",
+    checks: ["Locate the exact authorization condition", "Trace expected caller types and intermediary call paths", "Compare with msg.sender-based ownership or role checks"],
+    alternatives: ["The reference may be informational only", "The protocol may deliberately restrict EOAs with a documented rationale"],
+  },
+  "solidity-destructive-op": {
+    question: "Can an untrusted or insufficiently authorized caller reach a destructive lifecycle operation?",
+    checks: ["Trace access control and all callers", "Check compiler version and intended lifecycle semantics", "Review asset custody and recovery assumptions"],
+    alternatives: ["The operation may be unreachable or protected by a multisig role", "The code may be legacy or test-only"],
+  },
+  "solidity-proxy": {
+    question: "Can a caller influence the delegatecall target or cause storage-layout or authorization confusion?",
+    checks: ["Trace target selection and upgrade authority", "Compare storage layouts and initialization paths", "Inspect calldata construction and return/revert handling"],
+    alternatives: ["The target may be immutable and audited", "A standard proxy pattern may correctly constrain upgrades"],
+  },
+  "dynamic-code": {
+    question: "Can untrusted input influence dynamically evaluated code?",
+    checks: ["Trace input provenance into the dynamic execution sink", "Check sanitization and isolation boundaries", "Identify whether the code path is reachable in production"],
+    alternatives: ["The expression may evaluate a fixed trusted expression", "The file may be tooling or test code outside production paths"],
+  },
+  "process-execution": {
+    question: "Can untrusted input influence a process command, arguments, working directory or environment?",
+    checks: ["Trace values passed to process APIs", "Check argument-array usage and shell mode", "Review allowlists, escaping and privilege context"],
+    alternatives: ["The call may use fixed commands and fixed arguments", "The file may be a development-only script"],
+  },
+  "sql-construction": {
+    question: "Can untrusted input alter SQL structure rather than being passed as a bound parameter?",
+    checks: ["Trace input to query construction", "Inspect driver parameter binding and identifier handling", "Check all call sites and query-builder guarantees"],
+    alternatives: ["The apparent concatenation may be limited to a trusted identifier", "A wrapper may parameterize the query safely"],
+  },
+  "unsafe-memory": {
+    question: "Does the unsafe Rust block uphold pointer, aliasing, lifetime and bounds invariants?",
+    checks: ["Document each unsafe precondition", "Trace pointer origins and lifetimes", "Check slice lengths, aliasing and concurrent access"],
+    alternatives: ["The block may be a small audited FFI boundary", "A safe wrapper may enforce all invariants"],
+  },
+};
+
+export async function processHypothesisGeneration(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<ProcessResult> {
+  if (step.step_key !== "generate_hypotheses") {
+    throw new Error(`Unsupported step for hypothesis generation: ${step.step_key}`);
+  }
+  const prior = await pool.query<{ output: unknown }>(
+    `SELECT output FROM workflow_steps
+     WHERE workflow_run_id = $1 AND step_key = 'map_attack_surface' AND status = 'succeeded'`,
+    [step.workflow_run_id],
+  );
+  const mapped = prior.rows[0]?.output;
+  if (!isRecord(mapped) || mapped.status !== "mapped" || !Array.isArray(mapped.leads)) {
+    await worker.complete(step.id, {
+      status: "not_applicable",
+      reason: "No passive attack-surface leads are available",
+      hypotheses: [],
+      execution_mode: "passive_only",
+      authorization_status: "unverified",
+    });
+    return { status: "completed", stepId: step.id };
+  }
+  const hypotheses: Array<{
+    id: string; rule_id: string; family: string; path: string; candidate_question: string;
+    verification_checks: string[]; alternative_explanations: string[]; status: "unverified_hypothesis";
+  }> = [];
+  for (const lead of mapped.leads) {
+    if (!isRecord(lead) || typeof lead.rule_id !== "string" || typeof lead.family !== "string" ||
+        typeof lead.path !== "string" || typeof lead.count !== "number") continue;
+    const template = HYPOTHESIS_TEMPLATES[lead.family];
+    if (!template) continue;
+    hypotheses.push({
+      id: `H-${hypotheses.length + 1}`,
+      rule_id: lead.rule_id,
+      family: lead.family,
+      path: lead.path,
+      candidate_question: template.question,
+      verification_checks: template.checks,
+      alternative_explanations: template.alternatives,
+      status: "unverified_hypothesis",
+    });
+  }
+  const content = {
+    source_map_evidence: isRecord(mapped.evidence) ? mapped.evidence : null,
+    template_set: "passive-hypotheses-v1",
+    hypothesis_count: hypotheses.length,
+    hypotheses,
+    limitations: [
+      "Templates generate investigation questions, not claims that a vulnerability exists",
+      "No semantic execution, exploit construction, active testing or independent verification occurred",
+      "Each candidate requires source-context review and counterevidence before promotion",
+    ],
+  };
+  const evidence = await worker.persistSourceSnapshot(step.id, {
+    sourceUri: `internal://workflow-runs/${step.workflow_run_id}/passive-hypotheses-v1`,
+    sourceKind: "deterministic_passive_hypothesis_set",
+    content,
+  });
+  await worker.complete(step.id, {
+    status: "hypotheses_generated",
+    hypothesis_count: hypotheses.length,
+    hypotheses,
+    evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
+    execution_mode: "passive_only",
+    authorization_status: "unverified",
+    active_testing_allowed: false,
+    independent_review_completed: false,
+  });
+  return { status: "completed", stepId: step.id };
+}
+
 export async function runIntakeWorker(pool: Pool, workerId: string, signal: AbortSignal, pollMs = 2_000): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
   while (!signal.aborted) {
     await worker.reapExhaustedLeases();
-    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface"]);
+    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses"]);
     if (!step) {
       await new Promise<void>((resolve) => {
         let timer: ReturnType<typeof setTimeout>;
@@ -543,7 +661,8 @@ export async function runIntakeWorker(pool: Pool, workerId: string, signal: Abor
       else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
       else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
       else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
-      else await processAttackSurfaceMapping(pool, worker, step);
+      else if (step.step_key === "map_attack_surface") await processAttackSurfaceMapping(pool, worker, step);
+      else await processHypothesisGeneration(pool, worker, step);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown intake resolution error";
       await worker.fail(step.id, reason, false);
