@@ -143,3 +143,29 @@ Run on a real iPhone in Safari, on cellular as well as Wi-Fi. Record pass, fail 
 
 ## 11. Shortest safe path to live
 1. Owner decides the host (Fly or not) and resolves billing. 2. Owner runs the read-only inventory in the audit and approves the exact retirement list. 3. Owner accepts or changes the single-token access decision. 4. Approved release 1, database, migration, certificate, DNS, in that order (section 7). 5. Acceptance checklist. 6. Only then consider retiring old resources, each by explicit approval.
+
+## 12. Deployment record (2026-11-25, owner-approved creation; no secret values here)
+| Item | State |
+|---|---|
+| Fly account | personal organization `tsk-985` (slug `personal`); empty before this work (no apps, no Postgres clusters), so the app named in `fly.toml`, `agentsmith-multihub`, does not exist there. Billing status reported by Fly: `TRIAL_ACTIVE`, paid plan; no billing refusal was met. |
+| App | `agentsmith-hub` created, region `syd`, **no Machine yet**, no IP addresses yet (Fly allocates them on first deploy). |
+| Database | Managed Postgres `agentsmith-hub-db`, id `vmkq609zgdqr35ln`, region `syd`, plan `dev-256` (shared x1, 256 MB, 1 GB, **$4/month** as reported by Fly), Postgres 16, status ready, attached to the app. Empty: **migrations not yet run**. |
+| Secrets on the app (names only) | `API_BEARER_TOKEN` (generated locally, never printed or committed), `DATABASE_URL` (set by the attach). Both staged, **not yet deployed to a Machine**. |
+| Certificate | `hub.agentsmithdesk.xyz` added to the app; status `Not verified` until DNS is added. |
+| Release | **Not deployed.** The remote image build could not complete from the build session (see below). |
+
+### Blocker: remote image build from the sandbox session
+`fly deploy` uses Fly's Depot builder. From the cloud session the builder machine connection fails with `x509: certificate signed by unknown authority` over gRPC. The session's egress proxy re-terminates TLS and documents gRPC, client-mTLS and certificate-pinned clients as unsupported, so pointing the client at the proxy CA bundle did not help, and widening the host allow-list would not either. `api.machines.dev` and `api.depot.dev` were allowed at the owner's request. This is a limit of the session's network, not of the Fly account. No workaround was attempted.
+
+Ways forward: (A) run the deploy from a normal machine: `fly deploy --config fly.hub.toml --app agentsmith-hub --ha=false` from a checkout of this branch (everything else is already in place); (B) a GitHub Actions deploy, blocked by Actions billing; (C) build the image without Docker and push it to Fly's registry for `fly deploy --image`: possible, but it would not be built from the Dockerfile and needs its own approval.
+
+### DNS records Fly requires (values printed by `fly certs setup`; none invented)
+| Type | Name | Value | Purpose |
+|---|---|---|---|
+| CNAME | `hub.agentsmithdesk.xyz` | `mwjp3my.agentsmith-hub.fly.dev` | routes traffic to the app |
+| CNAME | `_acme-challenge.hub.agentsmithdesk.xyz` | `hub.agentsmithdesk.xyz.mwjp3my.flydns.net.` | lets the certificate be issued before traffic is directed |
+| TXT | `_fly-ownership.hub.agentsmithdesk.xyz` | `app-mwjp3my` | proves ownership (the app has no IPv6 address yet) |
+Nothing else in the zone is touched; the apex, `www`, `hunt`, MX and all other records stay as they are. A CNAME cannot coexist with another record at the name `hub`, so any existing `hub` record must be removed first (unknown: the zone has not been seen).
+
+### After the image exists
+`fly secrets deploy` is not needed if the deploy follows (secrets apply on deploy). Then: `/health/live`, `/health/ready`, the migration, HTTPS, authentication, navigation and the Hunt check, in that order (sections 7a and 9). Migration plan: `fly mpg proxy` is raw TCP and is not supported through the session proxy, so run it inside the app Machine with `fly machine exec` (Machines API over HTTPS) and `MIGRATE_CONFIRM_REMOTE_HOST` as in `docs/fly-staging-runbook.md` step 8.
