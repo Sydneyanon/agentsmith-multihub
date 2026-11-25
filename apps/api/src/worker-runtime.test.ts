@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { processAttackSurfaceMapping, processAuthorizationGate, processHypothesisGeneration, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
+import { processAttackSurfaceMapping, processAuthorizationGate, processHypothesisGeneration, processIndependentChallenge, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
 
 function step(input: Record<string, unknown>): ClaimedStep {
@@ -297,6 +297,35 @@ describe("passive intake resolution worker", () => {
       active_testing_allowed: false,
       independent_review_completed: false,
     });
+    expect(persistSourceSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("challenges hypotheses with counterquestions and refuses to claim independent verification", async () => {
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [
+        { step_key: "generate_hypotheses", output: {
+          status: "hypotheses_generated",
+          evidence: { snapshot_id: "hypothesis-snapshot" },
+          hypotheses: [{ id: "H-1", rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol" }],
+        } },
+        { step_key: "map_attack_surface", output: {
+          status: "mapped",
+          evidence: { snapshot_id: "map-snapshot" },
+          leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
+        } },
+      ] }),
+    } as unknown as import("pg").Pool;
+    await processIndependentChallenge(pool, worker, { ...step({}), step_key: "independent_challenge" });
+    const output = complete.mock.calls[0]?.[1] as {
+      status: string; challenges: Array<{ challenge_status: string; counterquestions: string[]; verdict: string }>;
+      independent_review_completed: boolean;
+    };
+    expect(output.status).toBe("challenged");
+    expect(output.challenges[0]?.challenge_status).toBe("counter_review_required");
+    expect(output.challenges[0]?.counterquestions.length).toBeGreaterThan(1);
+    expect(output.challenges[0]?.verdict).toBe("unverified");
+    expect(output.independent_review_completed).toBe(false);
     expect(persistSourceSnapshot).toHaveBeenCalledOnce();
   });
 
