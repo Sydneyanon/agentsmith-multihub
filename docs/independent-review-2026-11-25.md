@@ -23,3 +23,9 @@
 
 ## What I did not do
 Re-review of PRs #7-#10 beyond lineage/diff/route checks; any independent execution on Fly, a real Docker build, or live GitHub; an independent re-check of the #19 fixes.
+
+## Test-reliability notes from this pass (honest record)
+- `integration/worker-loop` "keeps working after the database terminates every connection mid-run" (pre-existing, timing-based: it kills every backend and sleeps 200 ms) failed **once** in a full restricted-role run on the final commit and passed in 10 of 10 isolated plain runs, 10 of 10 isolated restricted runs and 4 of 4 further full restricted runs. The failure message was not captured, so the cause is not isolated; treat the test as intermittently sensitive to load. It is not counted as a pass for that run: the figures quoted in PR #19 come from clean runs.
+- `hub-image-smoke.sh` "server process runs as the node user" failed once (uid 0) and passed on every rerun; the PID was chosen with a loose `pgrep -f`, now `pgrep -u <node uid> -f '^node dist/apps/api/src/server.js'`.
+- A first full run on `4fe6b06` had one genuine failure (my loosening of the host guard broke `hub-deploy.test.ts`); fixed by reverting that change.
+
