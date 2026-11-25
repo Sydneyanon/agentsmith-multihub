@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
+import { processAttackSurfaceMapping, processAuthorizationGate, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
 
 function step(input: Record<string, unknown>): ClaimedStep {
@@ -233,6 +233,47 @@ describe("passive intake resolution worker", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("keeps active testing blocked when no verified scope and approval exist", async () => {
+    const { complete, worker } = fakeWorker();
+    const pool = { query: vi.fn().mockResolvedValue({ rows: [{ input: { kind: "url" } }] }) } as unknown as import("pg").Pool;
+    await processAuthorizationGate(pool, worker, { ...step({}), step_key: "establish_authorization" });
+    expect(complete.mock.calls[0]?.[1]).toMatchObject({
+      status: "unverified",
+      authorization_status: "unverified",
+      execution_mode: "passive_only",
+      active_testing_allowed: false,
+      network_active_testing_performed: false,
+    });
+  });
+
+  it("maps source patterns into review leads without claiming verified vulnerabilities", async () => {
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
+    const pool = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [{
+          output: { status: "source_sampled", evidence: { snapshot_id: "source-snapshot-1" } },
+        }] })
+        .mockResolvedValueOnce({ rows: [{
+          id: "source-snapshot-1",
+          source_uri: "https://api.github.com/tree",
+          content_sha256: "b".repeat(64),
+          content: { files: [
+            { path: "contracts/Vault.sol", blob_sha: "blob-1", size: 80, content: "function withdraw() external { tx.origin; target.delegatecall(data); }" },
+            { path: "src/app.ts", blob_sha: "blob-2", size: 30, content: "eval(input);" },
+          ] },
+        }] }),
+    } as unknown as import("pg").Pool;
+    await processAttackSurfaceMapping(pool, worker, { ...step({}), step_key: "map_attack_surface" });
+    const output = complete.mock.calls[0]?.[1] as { status: string; lead_count: number; leads: Array<{ rule_id: string }> };
+    expect(output.status).toBe("mapped");
+    expect(output.lead_count).toBeGreaterThanOrEqual(3);
+    expect(output.leads.map((lead) => lead.rule_id)).toContain("SOL-TX-ORIGIN");
+    expect(output.leads.map((lead) => lead.rule_id)).toContain("JS-EVAL");
+    expect(output).toMatchObject({ execution_mode: "passive_only", authorization_status: "unverified", active_testing_allowed: false });
+    expect(persistSourceSnapshot).toHaveBeenCalledOnce();
+    expect(persistSourceSnapshot.mock.calls[0]?.[1]).toMatchObject({ sourceKind: "deterministic_passive_attack_surface_map" });
   });
 
   it("does not fetch code when repository identification did not succeed", async () => {
