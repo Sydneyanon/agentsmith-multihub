@@ -26,3 +26,10 @@ Stop and escalate on scope uncertainty, unexpected data access, service instabil
 - Use Fly secrets or another secret manager at runtime.
 - Prefer short-lived, app-scoped deployment credentials.
 - Rotate any credential that may have been exposed.
+
+
+## API access control
+
+All current `/v1/*` routes are protected by a configured bearer token. Set `API_BEARER_TOKEN` to a randomly generated secret of at least 32 characters in the deployment secret store; never place it in source control or public status output. If the token is not configured, the API returns `503 api_auth_not_configured` for versioned routes. Missing or invalid credentials receive `401 unauthorized`. Health endpoints remain available for platform health checks and disclose no research data.
+
+This is a single-operator bootstrap control, not a complete multi-user identity or role system. Before exposing the API to multiple users, add managed identity, per-user authorization, session/token rotation, rate limiting and audit attribution.
