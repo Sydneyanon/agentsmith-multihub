@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { processAttackSurfaceMapping, processAuthorizationGate, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
+import { processAttackSurfaceMapping, processAuthorizationGate, processHypothesisGeneration, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
 
 function step(input: Record<string, unknown>): ClaimedStep {
@@ -274,6 +274,29 @@ describe("passive intake resolution worker", () => {
     expect(output).toMatchObject({ execution_mode: "passive_only", authorization_status: "unverified", active_testing_allowed: false });
     expect(persistSourceSnapshot).toHaveBeenCalledOnce();
     expect(persistSourceSnapshot.mock.calls[0]?.[1]).toMatchObject({ sourceKind: "deterministic_passive_attack_surface_map" });
+  });
+
+  it("turns surface leads into evidence-linked unverified research questions", async () => {
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [{
+        output: {
+          status: "mapped",
+          leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
+          evidence: { snapshot_id: "map-snapshot" },
+        },
+      }] }),
+    } as unknown as import("pg").Pool;
+    await processHypothesisGeneration(pool, worker, { ...step({}), step_key: "generate_hypotheses" });
+    expect(complete.mock.calls[0]?.[1]).toMatchObject({
+      status: "hypotheses_generated",
+      hypothesis_count: 1,
+      hypotheses: [{ status: "unverified_hypothesis", path: "Vault.sol", rule_id: "SOL-TX-ORIGIN" }],
+      authorization_status: "unverified",
+      active_testing_allowed: false,
+      independent_review_completed: false,
+    });
+    expect(persistSourceSnapshot).toHaveBeenCalledOnce();
   });
 
   it("does not fetch code when repository identification did not succeed", async () => {
