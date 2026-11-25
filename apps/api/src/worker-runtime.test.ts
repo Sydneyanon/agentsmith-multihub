@@ -352,7 +352,13 @@ describe("passive intake resolution worker", () => {
       authorization_status: "unverified",
       active_testing_allowed: false,
       report_submission_ready: false,
-      brief: { research_status: "preliminary_passive_review" },
+      pipeline_completeness: "partial",
+      missing_step_keys: ["identify_project", "locate_official_repositories"],
+      brief: {
+        research_status: "preliminary_passive_review",
+        completeness: "partial_pipeline",
+        missing_step_keys: ["identify_project", "locate_official_repositories"],
+      },
     });
     expect(persistSourceSnapshot).toHaveBeenCalledOnce();
   });
