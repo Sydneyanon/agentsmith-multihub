@@ -18,7 +18,8 @@ function step(input: Record<string, unknown>): ClaimedStep {
 function fakeWorker() {
   const complete = vi.fn().mockResolvedValue(undefined);
   const persistSourceSnapshot = vi.fn().mockResolvedValue({ id: "snapshot-1", contentSha256: "a".repeat(64) });
-  return { complete, persistSourceSnapshot, worker: { complete, persistSourceSnapshot } as unknown as WorkflowWorker };
+  const heartbeat = vi.fn().mockResolvedValue(true);
+  return { complete, persistSourceSnapshot, heartbeat, worker: { complete, persistSourceSnapshot, heartbeat } as unknown as WorkflowWorker };
 }
 
 describe("passive intake resolution worker", () => {
