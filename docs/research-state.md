@@ -60,7 +60,7 @@ erDiagram
 A span is `(snapshot_id, path, blob_sha256, line_start, line_end, excerpt_sha256)`.
 - **Line definition (shared by SQL and TypeScript):** decode the blob as UTF-8 (invalid UTF-8 cannot be cited), split on `\n` only (a `\r` stays in the text), and ignore one final empty element when the text ends with a newline. Lines are numbered from 1; the excerpt is the selected lines joined with `\n`.
 - **At insert** the database checks that the snapshot is sealed, that `(snapshot, path, blob)` exists in the manifest (composite foreign key, so a span can only cite a stored file of that snapshot), that the range exists, that it is at most **400 lines**, and that `sha256(excerpt)` equals `excerpt_sha256`.
-- **Resolution later:** `verify_evidence_span(id)` returns `ok`, `evicted` (the blob has been removed), `range_error` or `mismatch`. `verify_snapshot(id)` re-hashes every stored blob and recomputes the manifest hash, reporting missing and mismatched blobs. Anything other than `ok` fails closed in the dossier.
+- **Resolution later:** `verify_evidence_span(id)` returns `ok`, `evicted` (the blob has been removed), `range_error` or `mismatch`. `verify_repo_snapshot(id)` re-hashes every stored blob and recomputes the manifest hash, reporting missing and mismatched blobs. Anything other than `ok` fails closed in the dossier.
 - A cited blob **cannot be evicted**, so a span never silently stops resolving.
 
 ## 5. Hypothesis lifecycle
@@ -127,5 +127,13 @@ The view also exposes `static_outcome` (`contradicts` > `weakens` > `supports` >
 - Step outputs shrink to **pointers** (snapshot id, hypothesis ids, hashes). The new `repository_research` workflow type (PR 5.2) will use them; the existing `link_or_idea_intake` workflow and its `source_snapshots` are untouched and keep working.
 - `findings`, `finding_evidence` and `verification_reviews` stay for later: a finding will be promoted from reviewed hypotheses by a future migration that adds the link. They are not changed here.
 
-## 10. What these protections do and do not do
+## 10. As implemented in PR 5.1
+- Migration `db/migrations/0007_research_state.sql`; TypeScript access layer `apps/api/src/research-state.ts` (`ResearchStore`: hashing, line semantics, lease-checked writes, `resolveSpan`, `verifySpan`, `verifySnapshot`).
+- Verification: unit tests for hashing and line semantics, and real-Postgres tests (`npm run test:integration`) for the rules above, including table-driven status derivation and mutation checks of each rule. The same line definition is checked against the SQL one over awkward texts (CRLF, trailing newlines, empty text, non-ASCII).
+- Nothing creates these records yet: acquisition (5.2), specialists (5.5), the review endpoint (5.6) and the dossier (5.7) are later PRs, and no existing stage was changed.
+- Eviction is a mechanism, not a policy: no age-based eviction runs.
+- `TRUNCATE` is not intercepted by the append-only triggers, as with the existing append-only tables.
+- A review's `reviewer_saw` is what the reviewing component declares. A test records the consequence of a hole we cannot close in SQL: a user who can set the eviction flag can delete a cited blob outside the audited function; verification then reports the span as `evicted` and the dossier must refuse it.
+
+## 11. What these protections do and do not do
 They stop application bugs and careless writes: wrong hashes, edits, silent drops, dangling spans, a record without history, a model claim without a reservation, a blinded review that saw the rationale. They do **not** defend against someone with owner-level SQL access, who can disable triggers (as with the existing append-only tables); that needs database-role separation and external audit, which is deployment work. Self-reported `reviewer_saw` is a record of what the reviewing component declares, not proof; it becomes checkable only when the review input is produced and hashed by our own code (the `input_sha256` field exists for that).
