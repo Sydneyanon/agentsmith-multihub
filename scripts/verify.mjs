@@ -1,6 +1,7 @@
 // Session-run verification (no GitHub Actions dependency).
 // Runs every check, prints an honest summary, and exits non-zero if any check failed.
 // A check that was not run is reported SKIPPED and never counts as a pass.
+// `npm test` is unit tests with a mocked database; real Postgres is `test:integration` (TEST_DATABASE_URL).
 //   npm run verify            lockfile consistency, typecheck, tests, build
 //   npm run verify -- --docker  also attempt a real `docker build` (skipped if no daemon)
 import { spawnSync } from "node:child_process";
@@ -14,6 +15,10 @@ const steps = [
   { name: "typecheck", command: "npm", args: ["run", "typecheck"] },
   { name: "tests", command: "npm", args: ["run", "test"] },
   { name: "build", command: "npm", args: ["run", "build"] },
+  {
+    name: "integration tests (real Postgres)", command: "npm", args: ["run", "test:integration"],
+    skipUnless: Boolean(process.env.TEST_DATABASE_URL), skipReason: "TEST_DATABASE_URL not set",
+  },
 ];
 if (wantDocker) steps.push({ name: "docker image build", command: "docker", args: ["build", "-t", "agentsmith-multihub:verify", "."], needsDocker: true });
 
@@ -24,6 +29,11 @@ console.log(`verify: node ${process.version}, commit ${git(["rev-parse", "--shor
 const results = [];
 for (const step of steps) {
   console.log(`\n=== ${step.name} ===`);
+  if (step.skipUnless === false) {
+    console.log(`SKIPPED: ${step.skipReason}`);
+    results.push({ name: step.name, outcome: "SKIPPED", detail: step.skipReason });
+    continue;
+  }
   if (step.needsDocker && quiet("docker", ["info"]).status !== 0) {
     console.log("SKIPPED: no reachable Docker daemon");
     results.push({ name: step.name, outcome: "SKIPPED", detail: "no reachable Docker daemon" });
