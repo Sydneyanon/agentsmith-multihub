@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { processAttackSurfaceMapping, processAuthorizationGate, processHypothesisGeneration, processIndependentChallenge, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
+import { processAttackSurfaceMapping, processAuthorizationGate, processHypothesisGeneration, processIndependentChallenge, processResearchBrief, processIntakeResolution, processProjectIdentification, processRepositoryAcquisition } from "./worker-runtime.js";
 import type { ClaimedStep, WorkflowWorker } from "./worker.js";
 
 function step(input: Record<string, unknown>): ClaimedStep {
@@ -326,6 +326,28 @@ describe("passive intake resolution worker", () => {
     expect(output.challenges[0]?.counterquestions.length).toBeGreaterThan(1);
     expect(output.challenges[0]?.verdict).toBe("unverified");
     expect(output.independent_review_completed).toBe(false);
+    expect(persistSourceSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("prepares a cautious evidence-linked brief without declaring findings verified", async () => {
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [
+        { step_key: "establish_authorization", output: { status: "unverified", active_testing_allowed: false } },
+        { step_key: "map_attack_surface", output: { status: "mapped", leads: [{ rule_id: "SOL-TX-ORIGIN" }], evidence: { snapshot_id: "map-1" } } },
+        { step_key: "generate_hypotheses", output: { hypotheses: [{ id: "H-1", status: "unverified_hypothesis", candidate_question: "Is this safe?" }] } },
+        { step_key: "independent_challenge", output: { challenges: [{ hypothesis_id: "H-1", challenge_status: "counter_review_required", verdict: "unverified" }] } },
+      ] }),
+    } as unknown as import("pg").Pool;
+    await processResearchBrief(pool, worker, { ...step({}), step_key: "prepare_research_brief" });
+    expect(complete.mock.calls[0]?.[1]).toMatchObject({
+      status: "brief_prepared",
+      execution_mode: "passive_only",
+      authorization_status: "unverified",
+      active_testing_allowed: false,
+      report_submission_ready: false,
+      brief: { research_status: "preliminary_passive_review" },
+    });
     expect(persistSourceSnapshot).toHaveBeenCalledOnce();
   });
 
