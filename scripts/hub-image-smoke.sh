@@ -42,6 +42,7 @@ check "node in image runs" 'run_in node -e "process.exit(0)"'
 check "app files are root-owned and not writable by node" '! run_in sh -c "touch /app/probe" 2>/dev/null && ! run_in sh -c "touch /app/dist/probe" 2>/dev/null'
 check "only production dependencies were installed (no typescript, vitest, jsdom, playwright-core)" '[ ! -e "$ROOTFS/app/node_modules/typescript" ] && [ ! -e "$ROOTFS/app/node_modules/vitest" ] && [ ! -e "$ROOTFS/app/node_modules/jsdom" ] && [ ! -e "$ROOTFS/app/node_modules/playwright-core" ]'
 check "hub client and migrations are in the image" '[ -f "$ROOTFS/app/dist/web/index.html" ] && [ -f "$ROOTFS/app/dist/web/assets/main.js" ] && [ "$(ls "$ROOTFS"/app/db/migrations/*.sql | wc -l)" = 7 ]'
+check "no tests, fixtures, test harnesses, declaration files, source maps or dev scripts in dist" '[ -z "$(find "$ROOTFS/app/dist" \( -name "*.test.js" -o -name "*.d.ts" -o -name "*.map" -o -path "*/integration/*" -o -path "*/testing/*" -o -name "hub-demo.js" -o -name "hub-layout-check.js" -o -name "hub-screenshots.js" \) | head -1)" ] && [ -f "$ROOTFS/app/dist/apps/api/src/server.js" ] && [ -f "$ROOTFS/app/dist/scripts/migrate.js" ]'
 check "no secret or local-state files in the image" '[ -z "$(find "$ROOTFS/app" -maxdepth 2 \( -name ".env*" -o -name ".git" -o -name "*.pem" \) | head -1)" ]'
 
 echo "== weak token is refused at startup"
@@ -80,7 +81,8 @@ check "/v1/research/overview without token -> 401" '[ "$(H $HOSTN /v1/research/o
 check "/v1/research/overview with the token -> 200 with real database" '[ "$(H $HOSTN /v1/research/overview -H "Authorization: Bearer $TOKEN")" = 200 ]'
 check "research data is empty on a fresh database (no seeded records)" '[ "$(curl -s -H "Host: $HOSTN" -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/research/overview" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[\"projects\"][\"total\"]+d[\"research\"][\"hypotheses\"][\"total\"])")" = 0 ]'
 for i in $(seq 1 11); do H $HOSTN /v1/research/overview -H "Authorization: Bearer wrong" >/dev/null; done
-check "repeated wrong tokens lock the client out (429)" '[ "$(H $HOSTN /v1/research/overview -H "Authorization: Bearer $TOKEN")" = 429 ]'
+check "repeated wrong tokens are throttled (429)" '[ "$(H $HOSTN /v1/research/overview -H "Authorization: Bearer wrong")" = 429 ]'
+check "...but the valid operator token is never locked out (200)" '[ "$(H $HOSTN /v1/research/overview -H "Authorization: Bearer $TOKEN")" = 200 ]'
 check "token never appears in the server log" '! grep -q "$TOKEN" /tmp/hubimg.log'
 
 echo; echo "image smoke test: $PASS passed, $FAIL failed"

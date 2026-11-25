@@ -33,3 +33,11 @@ All pools (API, worker, migration runner) are built by `buildPoolConfig` (`apps/
 
 ## Build-only image check (not run yet)
 `fly deploy --build-only --remote-only --app <staging-app>` builds the image on Fly's builder without releasing it. It needs a Fly credential and network access, so it is a separate, approved step. Nothing in this repository runs it.
+
+## Production image contents (review finding 5)
+
+The image is built from `tsconfig.build.json`, which compiles only `apps/api/src` (minus `*.test.ts`, `integration/`, and every `testing/` fixture directory) plus the two operator tools the image can run, `scripts/migrate.ts` and `scripts/apply-runtime-grants.ts`. Declaration files and source maps are not emitted. `tsconfig.json` is unchanged and still covers tests, so `npm run typecheck` checks everything. Previously the image shipped 38 compiled test files, the Postgres integration harness (which imports `child_process`), git fixture builders, demo/layout/screenshot scripts, and 90 `.d.ts` and 90 `.map` files (2.4 MB of `dist` against 0.5 MB now).
+
+Guards: `apps/api/src/build-output.test.ts` compiles with the production config and fails if tests, fixtures, harnesses, other scripts, declarations or maps appear; if a required entry point (`server`, `worker-main`, `migrate`, `apply-runtime-grants`) is missing; if any relative import is unresolved; if emitted code imports anything that is not a Node built-in or a production dependency, or spawns processes; or if the Dockerfile, `scripts/hub-image.sh` or `npm run build` stop using the production config. `scripts/hub-image-smoke.sh` repeats the content check against the real unpacked image filesystem. Mutation evidence: `scripts/mutations/image-minimisation.json` (12/12 killed).
+
+What this is **not**: a real Docker build. The Docker-less path (`scripts/hub-image.sh build|verify`) reproduces the Dockerfile stages by hand onto the pinned `node:22-alpine` digest and runs the production smoke test in a chroot as user `node`. Test seams that remain in production code (`setOutboundFetchForTests`, `testOrigins`, `unguardedFetchForLoopbackFixtures`) refuse to operate when `NODE_ENV=production`.

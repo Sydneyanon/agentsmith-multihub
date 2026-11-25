@@ -34,7 +34,7 @@ build() {
   rm -rf "$WORK/stage1" "$WORK/stage2" "$WORK/app.tar" "$WORK/app.tar.gz"
   mkdir -p "$WORK/stage1" "$WORK/stage2/app"
   # Dockerfile build stage: COPY package*.json, tsconfig.json, apps, scripts, db; npm ci; npm run build
-  git -C "$ROOT" archive HEAD package.json package-lock.json tsconfig.json apps scripts db | tar -x -C "$WORK/stage1"
+  git -C "$ROOT" archive HEAD package.json package-lock.json tsconfig.json tsconfig.build.json apps scripts db | tar -x -C "$WORK/stage1"
   (cd "$WORK/stage1" && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null)
   # Dockerfile runtime stage: COPY package*.json; npm ci --omit=dev; COPY dist, db
   cp "$WORK/stage1/package.json" "$WORK/stage1/package-lock.json" "$WORK/stage2/app/"
