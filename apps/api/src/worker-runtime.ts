@@ -470,7 +470,12 @@ export async function processAttackSurfaceMapping(pool: Pool, worker: WorkflowWo
     [priorOutput.evidence.snapshot_id],
   );
   const snapshot = snapshotResult.rows[0];
-  if (!snapshot || !isRecord(snapshot.content) || !Array.isArray(snapshot.content.files)) {
+  const expectedSourceHash = priorOutput.evidence.content_sha256;
+  if (!snapshot || typeof expectedSourceHash !== "string" ||
+      !/^[0-9a-f]{64}$/i.test(expectedSourceHash) || snapshot.content_sha256 !== expectedSourceHash) {
+    throw new Error("Referenced source snapshot is missing or its content hash does not match workflow evidence");
+  }
+  if (!isRecord(snapshot.content) || !Array.isArray(snapshot.content.files)) {
     throw new Error("Referenced source snapshot is missing or malformed");
   }
   const files = snapshot.content.files.filter((file): file is SnapshotFile =>
@@ -589,6 +594,20 @@ export async function processHypothesisGeneration(pool: Pool, worker: WorkflowWo
       authorization_status: "unverified",
     });
     return { status: "completed", stepId: step.id };
+  }
+  const mapEvidence = isRecord(mapped.evidence) ? mapped.evidence : null;
+  const mapSnapshotId = mapEvidence && typeof mapEvidence.snapshot_id === "string" ? mapEvidence.snapshot_id : null;
+  const mapSnapshotHash = mapEvidence && typeof mapEvidence.content_sha256 === "string" ? mapEvidence.content_sha256 : null;
+  if (!mapSnapshotId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(mapSnapshotId) ||
+      !mapSnapshotHash || !/^[0-9a-f]{64}$/i.test(mapSnapshotHash)) {
+    throw new Error("Attack-surface map is missing a valid immutable evidence reference");
+  }
+  const mapSnapshot = await pool.query<{ id: string; content_sha256: string }>(
+    "SELECT id, content_sha256 FROM source_snapshots WHERE id = $1",
+    [mapSnapshotId],
+  );
+  if (mapSnapshot.rows[0]?.content_sha256 !== mapSnapshotHash) {
+    throw new Error("Attack-surface map snapshot is missing or its content hash does not match workflow evidence");
   }
   const hypotheses: Array<{
     id: string; rule_id: string; family: string; path: string; candidate_question: string;
