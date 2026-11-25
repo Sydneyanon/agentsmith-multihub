@@ -83,7 +83,7 @@ M=[
  ("source: API response size not limited", A+"github-source.ts", 'if (total > this.limits.maxApiResponseBytes) {', 'if (false) {'),
  ("source: declared archive size not checked", A+"github-source.ts", 'if (declared > this.limits.maxCompressedBytes) {', 'if (false) {'),
  ("source: unsafe refs accepted", A+"github-source.ts", 'if (!REF.test(ref) || ref.includes("..")', 'if (false || ref.includes("..")'),
- ("source: test origins allowed in production", A+"github-source.ts", 'if (process.env.NODE_ENV === "production") throw new Error("testOrigins', 'if (false) throw new Error("testOrigins'),
+ ("source: test origins allowed outside the test environment", A+"github-source.ts", 'assertTestEnvironment("testOrigins");', ''),
  ("step: lost lease reported as a failure", A+"step.ts", 'if (leaseLost) throw new LeaseLostError', 'if (false) throw new LeaseLostError'),
  ("step: invalid input accepted unvalidated", A+"step.ts", 'if (!parsed.success) throw new AcquisitionError("invalid_reference"', 'if (false) throw new AcquisitionError("invalid_reference"'),
  ("tar: no cleanup on early exit", A+"tar-reader.ts", '    readable.destroy(); gunzip.destroy();\n  }\n}', '  }\n}'),
