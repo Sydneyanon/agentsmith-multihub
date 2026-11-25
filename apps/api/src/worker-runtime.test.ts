@@ -303,18 +303,23 @@ describe("passive intake resolution worker", () => {
   it("challenges hypotheses with counterquestions and refuses to claim independent verification", async () => {
     const { complete, persistSourceSnapshot, worker } = fakeWorker();
     const pool = {
-      query: vi.fn().mockResolvedValue({ rows: [
-        { step_key: "generate_hypotheses", output: {
-          status: "hypotheses_generated",
-          evidence: { snapshot_id: "hypothesis-snapshot" },
-          hypotheses: [{ id: "H-1", rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol" }],
-        } },
-        { step_key: "map_attack_surface", output: {
-          status: "mapped",
-          evidence: { snapshot_id: "map-snapshot" },
-          leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
-        } },
-      ] }),
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [
+          { step_key: "generate_hypotheses", output: {
+            status: "hypotheses_generated",
+            evidence: { snapshot_id: "00000000-0000-4000-8000-000000000001" },
+            hypotheses: [{ id: "H-1", rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol" }],
+          } },
+          { step_key: "map_attack_surface", output: {
+            status: "mapped",
+            evidence: { snapshot_id: "00000000-0000-4000-8000-000000000002" },
+            leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
+          } },
+        ] })
+        .mockResolvedValueOnce({ rows: [
+          { id: "00000000-0000-4000-8000-000000000001", content_sha256: "a".repeat(64) },
+          { id: "00000000-0000-4000-8000-000000000002", content_sha256: "b".repeat(64) },
+        ] }),
     } as unknown as import("pg").Pool;
     await processIndependentChallenge(pool, worker, { ...step({}), step_key: "independent_challenge" });
     const output = complete.mock.calls[0]?.[1] as {
