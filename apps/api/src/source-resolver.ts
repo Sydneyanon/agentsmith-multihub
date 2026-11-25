@@ -1,4 +1,4 @@
-import { isIP } from "node:net";
+import { assessHostname } from "./net/ip-policy.js";
 
 export type SourceReference = {
   submittedUrl: string;
@@ -10,6 +10,9 @@ export type SourceReference = {
 
 /**
  * Parse a submitted public reference without making a network request.
+ * This is the first of two layers: it rejects names that can never be public targets.
+ * The second layer is net/safe-fetch, which validates the actual resolved address at connect time —
+ * a name that passes here can still resolve to a private address, and only the second layer can see that.
  * Fetching and crawling are separate worker capabilities with their own
  * redirect, DNS, size, timeout and host-safety controls.
  */
@@ -24,13 +27,11 @@ export function resolveSourceReference(raw: string): SourceReference {
     throw new Error("Only HTTP and HTTPS source URLs are accepted");
   }
   if (url.username || url.password) throw new Error("URLs containing credentials are not accepted");
-  if (!url.hostname || isIP(url.hostname) !== 0 || url.hostname === "localhost" || url.hostname.endsWith(".localhost") ||
-      url.hostname.endsWith(".local") || url.hostname === "127.0.0.1" ||
-      url.hostname === "::1" || url.hostname.startsWith("10.") ||
-      url.hostname.startsWith("192.168.") || url.hostname.startsWith("169.254.") ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(url.hostname)) {
-    throw new Error("Local and private-network URLs are not accepted");
-  }
+  const assessed = assessHostname(url.hostname);
+  if (!assessed.ok) throw new Error(`Local, private-network and IP-literal URLs are not accepted (${assessed.reason})`);
+  // WHATWG parsing drops a scheme's default port, so any remaining port is a non-default one.
+  if (url.port !== "") throw new Error("URLs with a non-default port are not accepted");
+  url.hostname = assessed.hostname; // canonical: lower-case, no trailing dot, punycode
 
   url.hash = "";
   const host = url.hostname.toLowerCase();
