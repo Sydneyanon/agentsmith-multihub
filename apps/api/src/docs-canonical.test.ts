@@ -1,0 +1,65 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const root = join(__dirname, "..", "..", "..");
+const read = (p: string) => readFileSync(join(root, p), "utf8");
+
+describe("the canonical roadmap and decision log", () => {
+  const plan = read("docs/research-intelligence-plan.md");
+  it("records the four agreed roadmap capabilities", () => {
+    const rows = plan.split("## 9.")[1]!.split("## 10.")[0]!;
+    for (const [id, name] of [["5.4B", "Automated Security Toolchain"], ["5.5A", "Weirdness Engine"], ["-", "Adaptive Research Priority Engine"], ["5.9", "Live Engine Control Room"]]) {
+      expect(rows, name).toContain(`| **${id}** | **${name}** |`);
+    }
+  });
+  it("requires the control room to show only genuine activity", () => {
+    const row = plan.split("\n").find((l) => l.includes("Live Engine Control Room") && l.includes("genuine"))!;
+    expect(row).toBeTruthy();
+    expect(row).toMatch(/No simulated or demo activity in production/);
+    for (const thing of ["events", "running tools", "agent activity", "queues", "costs", "errors", "progress"]) expect(row, thing).toContain(thing);
+  });
+  it("does not claim the Weirdness Engine is defined, and does not authorise any addition", () => {
+    expect(plan).toMatch(/The definition is not yet written/);
+    expect(plan).toMatch(/none designed, approved for implementation or started/);
+  });
+  it("keeps Task 5.3 unauthorised and records the hosting and acquisition decisions with dates", () => {
+    expect(plan).toMatch(/Task 5\.3 \(Discover\) is not authorised/);
+    expect(plan).toMatch(/\| 2026-11-25 \| \*\*Hosting approved and executed\.\*\*/);
+    expect(plan).toMatch(/\*\*PR 5\.2 Repository Acquisition approved\*\*/);
+    expect(plan).toMatch(/section 10 is the current, canonical decision log/i);
+  });
+});
+
+describe("stale statements are corrected", () => {
+  it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
+    const head = read("fly.toml").split("\n").slice(0, 4).join("\n");
+    expect(head).toMatch(/LEGACY \/ DO NOT DEPLOY/);
+    expect(head).not.toMatch(/names the existing app/);
+  });
+  it("the hub config and plan say the hub is deployed", () => {
+    expect(read("fly.hub.toml").split("\n")[0]).toMatch(/DEPLOYED/);
+    expect(read("docs/hub-production-plan.md").split("\n")[0]).toMatch(/DEPLOYED/);
+  });
+  it("the retirement audit and the Hunt document carry their corrections", () => {
+    expect(read("docs/hub-retirement-audit.md")).toMatch(/Update 2026-11-25[^\n]*Fly is now inspected/);
+    expect(read("docs/existing-hunt-board-integration.md")).toMatch(/Correction \(2026-11-25\)[^\n]*not by GitHub Pages/);
+  });
+});
+
+describe("the release plan is a plan, not a record", () => {
+  const rel = read("docs/first-production-release-plan.md");
+  it("says nothing was executed and keeps the engine idle", () => {
+    expect(rel).toMatch(/NOT EXECUTED/);
+    expect(rel).toMatch(/Nothing in this document has been executed/);
+    expect(rel).toMatch(/\*\*Idle engine:\*\*/);
+  });
+  it("names exact rollback target, migrations, permissions and the open blockers", () => {
+    expect(rel).toContain("hub-b5bc4b548c2e");
+    expect(rel).toContain("sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8");
+    expect(rel).toMatch(/## 2\. Migrations\n\*\*None\.\*\*/);
+    expect(rel).toMatch(/a0c96e3/);
+    expect(rel).toMatch(/Real Docker build never performed/);
+  });
+  it("lists the approvals it needs", () => { expect((rel.match(/\*\*\[approval\]\*\*/g) ?? []).length).toBeGreaterThanOrEqual(5); });
+});

@@ -1,5 +1,7 @@
 # Existing Hunt Control Room Integration
 
+> **Correction (2026-11-25):** the text below describes the dashboard as served from GitHub Pages at `sydneyanon.github.io/hunt/`. The live hostname `hunt.agentsmithdesk.xyz` was observed to be served by its own server (Caddy, address `194.195.254.216`), not by GitHub Pages; where it is hosted is unverified and the Pages URL below may be a stale or secondary address. Treat the hosting statements as unconfirmed until the owner states them. The integration principles (private source of truth, one-way sanitised projection, no changes to the Hunt site without approval) are unaffected. The Hunt site has not been touched by any of this work.
+
 ## Product continuity
 
 The existing public dashboard is https://sydneyanon.github.io/hunt/ and its source repository is https://github.com/Sydneyanon/hunt. It is currently a static HTML dashboard with an embedded status snapshot. Its public purpose is a status-only TV/control-room view. It explicitly excludes findings, proof-of-concepts and hypotheses.

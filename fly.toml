@@ -1,5 +1,6 @@
-# This names the existing app. Never deploy with this file without an explicit
-# `--app <name>`; staging must use its own app (see docs/runtime-and-verification.md).
+# LEGACY / DO NOT DEPLOY. This file names `agentsmith-multihub`. When the production hub was provisioned (2026-11-25) the Fly
+# organisation held no apps at all, so this app did not exist there and the name is not a live production app. The production hub is
+# `agentsmith-hub` and uses fly.hub.toml. Never deploy with this file without an explicit `--app <name>`.
 app = "agentsmith-multihub"
 primary_region = "syd"
 

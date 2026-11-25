@@ -1,4 +1,6 @@
-# Production plan: private hub at https://hub.agentsmithdesk.xyz (PREPARED, NOT DEPLOYED)
+# Production plan: private hub at https://hub.agentsmithdesk.xyz (DEPLOYED 2026-11-25; sections 1-11 are the original plan, 12-15 record what happened)
+
+> **Status update (2026-11-25):** the hub is live. Everything below "Nothing in this document has been executed" was true when the plan was written and is retained as the record of what was approved; sections 12-15 describe the deployed state. Release history, rollback target and the next release are in `docs/first-production-release-plan.md`. Review findings 1-5 (SSRF, auth order, lockout/proxy trust, database roles, image contents) are fixed in draft PRs and are **not** deployed.
 
 **Decision recorded:** the owner has confirmed `https://hub.agentsmithdesk.xyz` as the permanent production address. The root domain `agentsmithdesk.xyz` does not serve the hub and nothing here depends on it (so not being able to fetch the root page blocks nothing). Only the `hub` name is used.
 

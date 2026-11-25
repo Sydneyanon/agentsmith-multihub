@@ -34,7 +34,7 @@ The current worker does not execute repository code, install dependencies, run t
 
 All `/v1/*` API routes require a configured bearer token. Set `API_BEARER_TOKEN` to a randomly generated secret of at least 32 characters before using the API. Never commit the secret. The public status projection and existing Hunt dashboard remain separate and unchanged.
 
-The workflow is intentionally incomplete after hypothesis generation: independent challenge, report preparation, learning and UI integration remain to be implemented. CI currently reports failures before exposing any job steps or downloadable logs, so build and test success has not yet been independently confirmed.
+The workflow is intentionally incomplete after hypothesis generation: independent challenge, report preparation, learning and UI integration remain to be implemented. CI currently reports failures before exposing any job steps or downloadable logs (the workflow `ci.yml` exists, but no independent CI result has been obtained; the Actions billing block is the recorded cause), so build and test success has not yet been independently confirmed.
 
 ## Deployment
 
