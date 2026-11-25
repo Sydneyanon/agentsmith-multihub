@@ -112,7 +112,7 @@ describe.skipIf(skipIntegration)("workflow queue against real Postgres", () => {
 
     it("does not claim a step that has used all its attempts", async () => {
       const { stepIds } = await seedRun(db.pool, ["attempts_used"]);
-      await db.pool.query("UPDATE workflow_steps SET attempt = 3 WHERE id = $1", [stepIds[0]]);
+      await db.ownerPool.query("UPDATE workflow_steps SET attempt = 3 WHERE id = $1", [stepIds[0]]);
       expect(await worker().claimNext(["attempts_used"])).toBeNull();
     });
   });
@@ -180,7 +180,7 @@ describe.skipIf(skipIntegration)("workflow queue against real Postgres", () => {
       const { runId, stepIds } = await seedRun(db.pool, ["reap_exhausted"]);
       const w = worker("reaper");
       await w.claimNext(["reap_exhausted"]);
-      await db.pool.query("UPDATE workflow_steps SET attempt = 3 WHERE id = $1", [stepIds[0]]);
+      await db.ownerPool.query("UPDATE workflow_steps SET attempt = 3 WHERE id = $1", [stepIds[0]]);
       await expireLease(db.pool, stepIds[0]!);
       expect(await w.reapExhaustedLeases()).toBeGreaterThanOrEqual(1);
       const step = await stepRow(db.pool, stepIds[0]!);
@@ -239,9 +239,9 @@ describe.skipIf(skipIntegration)("workflow queue against real Postgres", () => {
       const w = worker();
       await w.claimNext(["snap_immutable"]);
       const saved = await w.persistSourceSnapshot(stepIds[0]!, { sourceUri: "u", sourceKind: "k", content });
-      await expect(db.pool.query("UPDATE source_snapshots SET source_kind = 'x' WHERE id = $1", [saved.id])).rejects.toThrow(/immutable/);
-      await expect(db.pool.query("UPDATE source_snapshots SET content_sha256 = $2 WHERE id = $1", [saved.id, "0".repeat(64)])).rejects.toThrow(/immutable/);
-      await expect(db.pool.query("DELETE FROM source_snapshots WHERE id = $1", [saved.id])).rejects.toThrow(/immutable/);
+      await expect(db.ownerPool.query("UPDATE source_snapshots SET source_kind = 'x' WHERE id = $1", [saved.id])).rejects.toThrow(/immutable/);
+      await expect(db.ownerPool.query("UPDATE source_snapshots SET content_sha256 = $2 WHERE id = $1", [saved.id, "0".repeat(64)])).rejects.toThrow(/immutable/);
+      await expect(db.ownerPool.query("DELETE FROM source_snapshots WHERE id = $1", [saved.id])).rejects.toThrow(/immutable/);
       expect((await db.pool.query("SELECT content_sha256 FROM source_snapshots WHERE workflow_run_id = $1", [runId])).rows[0]!.content_sha256).toBe(sha);
     });
   });

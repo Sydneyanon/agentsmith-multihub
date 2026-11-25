@@ -1,0 +1,71 @@
+{
+ "command": "npx vitest run apps/api/src/db-roles apps/api/src/integration/runtime-role",
+ "mutations": [
+  {
+   "name": "script grants ALL instead of the manifest's privileges",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "GRANT ${privs.join(\", \")} ON TABLE",
+   "new": "GRANT ALL ON TABLE"
+  },
+  {
+   "name": "script leaves PUBLIC able to execute functions (evict_research_blob reachable)",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "    await client.query(`REVOKE ALL ON ALL FUNCTIONS IN SCHEMA ${schema} FROM PUBLIC`);\n",
+   "new": ""
+  },
+  {
+   "name": "script grants EXECUTE on every function",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "if (manifest.functions_executable.includes(f.name)) await",
+   "new": "await"
+  },
+  {
+   "name": "script accepts an elevated role",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "if (r.rolsuper || r.rolcreaterole || r.rolcreatedb || r.rolreplication || r.rolbypassrls) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "script ignores manifest/catalog drift",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "if (problems.length) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "script leaves CREATE on schema public with PUBLIC",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "    await client.query(`REVOKE CREATE ON SCHEMA ${schema} FROM PUBLIC`);\n",
+   "new": ""
+  },
+  {
+   "name": "role assessment ignores ownership",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (owned > 0) problems.push",
+   "new": "if (false) problems.push"
+  },
+  {
+   "name": "role assessment ignores superuser/CREATEROLE flags",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (attrs[flag]) problems.push",
+   "new": "if (false) problems.push"
+  },
+  {
+   "name": "startup guard never refuses",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (options.require) throw new Error(message);",
+   "new": ""
+  },
+  {
+   "name": "manifest loader allows DELETE/TRIGGER",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (privs.includes(forbidden)) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "manifest grants UPDATE on audit_events",
+   "file": "db/runtime-grants.json",
+   "old": "\"audit_events\": [\n   \"SELECT\",\n   \"INSERT\"\n  ]",
+   "new": "\"audit_events\": [\n   \"SELECT\",\n   \"INSERT\",\n   \"UPDATE\"\n  ]"
+  }
+ ]
+}

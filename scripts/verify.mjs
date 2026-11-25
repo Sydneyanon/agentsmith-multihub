@@ -19,6 +19,11 @@ const steps = [
     name: "integration tests (real Postgres)", command: "npm", args: ["run", "test:integration"],
     skipUnless: Boolean(process.env.TEST_DATABASE_URL), skipReason: "TEST_DATABASE_URL not set",
   },
+  {
+    // The same suite again with the code under test connected as the least-privilege runtime role (needs CREATEROLE on the test login).
+    name: "integration tests as the restricted runtime role", command: "npm", args: ["run", "test:integration:restricted"],
+    skipUnless: Boolean(process.env.TEST_DATABASE_URL), skipReason: "TEST_DATABASE_URL not set",
+  },
 ];
 if (wantDocker) steps.push({ name: "docker image build", command: "docker", args: ["build", "-t", "agentsmith-multihub:verify", "."], needsDocker: true });
 

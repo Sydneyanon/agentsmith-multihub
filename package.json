@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web/tsconfig.test.json",
     "test": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "node scripts/test-integration.mjs",
+    "test:integration:restricted": "TEST_RUNTIME_ROLE=1 node scripts/test-integration.mjs",
     "db:migrate": "node dist/scripts/migrate.js",
     "worker:intake": "node dist/apps/api/src/worker-main.js",
     "worker:intake:dev": "tsx apps/api/src/worker-main.ts",

@@ -31,7 +31,7 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
 
   async function legacyProject(finished: boolean) {
     const { runId, stepIds } = await seedRun(db.pool, LEGACY_KEYS);
-    await db.pool.query("UPDATE workflow_runs SET input = $2::jsonb, status = $3 WHERE id = $1", [runId,
+    await db.ownerPool.query("UPDATE workflow_runs SET input = $2::jsonb, status = $3 WHERE id = $1", [runId,
       JSON.stringify({ kind: "url", value: finished ? "https://github.com/example/finished" : "https://github.com/example/active", source: "user", notes: "private operator note" }),
       finished ? "succeeded" : "running"]);
     const done = finished ? LEGACY_KEYS.length : 5;
@@ -39,9 +39,9 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
       const output = LEGACY_KEYS[i] === "map_attack_surface"
         ? { status: "mapped", leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1, description: "tx.origin" }] }
         : LEGACY_KEYS[i] === "prepare_research_brief" ? { status: "brief_prepared", brief: { completeness: "all_stages_executed", research_completeness: "preliminary_unreviewed" } } : { status: "ok" };
-      await db.pool.query("UPDATE workflow_steps SET status = 'succeeded', attempt = 1, output = $2::jsonb, completed_at = now() WHERE id = $1", [stepIds[i], JSON.stringify(output)]);
+      await db.ownerPool.query("UPDATE workflow_steps SET status = 'succeeded', attempt = 1, output = $2::jsonb, completed_at = now() WHERE id = $1", [stepIds[i], JSON.stringify(output)]);
     }
-    if (!finished) await db.pool.query("UPDATE workflow_steps SET status = 'running', attempt = 1, lease_owner = 'intake-test', lease_expires_at = now() + interval '1 minute' WHERE id = $1", [stepIds[5]]);
+    if (!finished) await db.ownerPool.query("UPDATE workflow_steps SET status = 'running', attempt = 1, lease_owner = 'intake-test', lease_expires_at = now() + interval '1 minute' WHERE id = $1", [stepIds[5]]);
     await db.pool.query("INSERT INTO source_snapshots (workflow_run_id, workflow_step_id, source_uri, source_kind, content_sha256, content) VALUES ($1,$2,'https://api.github.com/repos/example/x','github_repository_metadata_api',$3,'{}'::jsonb)", [runId, stepIds[1], sha256Hex(`legacy${runId}`)]);
     await db.pool.query("INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason) VALUES ('user','intake.created','workflow_run',$1::text,(SELECT correlation_id FROM workflow_runs WHERE id = $1::uuid),'User submitted a research URL or idea')", [runId]);
     await db.pool.query("INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id) VALUES ('intake-test','workflow_step.claimed','workflow_step',$1::text,(SELECT correlation_id FROM workflow_runs WHERE id = $2::uuid))", [stepIds[0], runId]);
@@ -168,7 +168,7 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
         await checkHealthStates(state);
       } finally {
         for (const row of original) {
-          await db.pool.query("UPDATE workflow_steps SET status = $2, attempt = $3, lease_owner = $4, lease_expires_at = $5, completed_at = $6 WHERE id = $1",
+          await db.ownerPool.query("UPDATE workflow_steps SET status = $2, attempt = $3, lease_owner = $4, lease_expires_at = $5, completed_at = $6 WHERE id = $1",
             [row.id, row.status, row.attempt, row.lease_owner, row.lease_expires_at, row.completed_at]);
         }
       }
@@ -178,15 +178,15 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
       let pipeline = await state();
       expect(pipeline.health.state).toBe("working");
       expect(pipeline.live_lease_owners).toBeGreaterThanOrEqual(1);
-      await db.pool.query("UPDATE workflow_steps SET lease_expires_at = now() - interval '5 minutes' WHERE status = 'running'");
+      await db.ownerPool.query("UPDATE workflow_steps SET lease_expires_at = now() - interval '5 minutes' WHERE status = 'running'");
       pipeline = await state();
       expect(pipeline.health.state).toBe("attention");
       expect(pipeline.running_with_expired_lease).toBeGreaterThanOrEqual(1);
       expect(pipeline.health.reasons.join(" ")).toMatch(/expired lease/);
-      await db.pool.query("UPDATE workflow_steps SET status = 'succeeded', completed_at = now(), lease_owner = NULL, lease_expires_at = NULL WHERE status IN ('running','queued')");
+      await db.ownerPool.query("UPDATE workflow_steps SET status = 'succeeded', completed_at = now(), lease_owner = NULL, lease_expires_at = NULL WHERE status IN ('running','queued')");
       pipeline = await state();
       expect(pipeline.health).toEqual({ state: "idle", reasons: [] });
-      await db.pool.query("UPDATE workflow_steps SET status = 'failed', completed_at = now() WHERE id = $1", [seeded.finished.stepIds[0]]);
+      await db.ownerPool.query("UPDATE workflow_steps SET status = 'failed', completed_at = now() WHERE id = $1", [seeded.finished.stepIds[0]]);
       pipeline = await state();
       expect(pipeline.health.state).toBe("attention");
       expect(pipeline.health.reasons.join(" ")).toMatch(/failed in the last 24 hours/);
@@ -363,7 +363,7 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
     });
 
     it("fails closed when the evidence no longer resolves, saying why", async () => {
-      const client = await db.pool.connect();
+      const client = await db.ownerPool.connect();
       try {
         await client.query("BEGIN");
         await client.query("SELECT set_config('agentsmith.blob_eviction', 'on', true)");
