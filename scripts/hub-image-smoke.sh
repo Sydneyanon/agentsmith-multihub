@@ -64,7 +64,8 @@ echo "$OUT" | tail -3 | sed 's/^/     /'
 echo "== start exactly as the image does"
 ( run_in sh -c "cd /app && HOST=127.0.0.1 PORT=$PORT LOG_LEVEL=info DATABASE_CONNECT_TIMEOUT_MS=30000 $CA_ENV DATABASE_URL='$DBURL' HUB_ALLOWED_HOSTS=$HOSTN API_BEARER_TOKEN='$TOKEN' exec docker-entrypoint.sh npm start" >/tmp/hubimg.log 2>&1 & )
 for i in $(seq 1 30); do curl -s -o /dev/null "http://127.0.0.1:$PORT/health/live" && break; sleep 1; done
-PID="$(pgrep -f 'dist/apps/api/src/server.js' | head -1)"
+# Only the node user's process: an unrelated process whose command line merely contains the path (a wrapper, another run) must not be mistaken for the server.
+PID="$(pgrep -u "${UID_NODE%%:*}" -f '^node dist/apps/api/src/server.js' | head -1)"
 check "server process runs as the node user, not root (uid $(ps -o uid= -p "${PID:-0}" 2>/dev/null | tr -d ' '))" '[ -n "$PID" ] && [ "$(ps -o uid= -p "$PID" | tr -d " ")" = "${UID_NODE%%:*}" ]'
 H() { curl -s -o /dev/null -w "%{http_code}" -H "Host: $1" "http://127.0.0.1:$PORT$2" "${@:3}"; }
 check "GET /health/live -> 200" '[ "$(H 10.0.0.9:8080 /health/live)" = 200 ]'
