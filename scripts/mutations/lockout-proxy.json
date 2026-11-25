@@ -1,0 +1,59 @@
+{
+ "command": "npx vitest run apps/api/src/auth apps/api/src/lockout apps/api/src/client-identity apps/api/src/route-coverage",
+ "mutations": [
+  {
+   "name": "valid token checked after lockout (operator can be locked out)",
+   "file": "apps/api/src/auth.ts",
+   "old": "if (isValidBearerToken(request.headers.authorization, configuredToken)) return;\n    const client = clientIdentity(request);\n    const wait = limiter.retryAfterSeconds(client);\n    if (wait > 0) return reply.code(429).header(\"retry-after\", String(wait)).send({ error: \"too_many_attempts\", retry_after_seconds: wait });",
+   "new": "const client = clientIdentity(request);\n    const wait = limiter.retryAfterSeconds(client);\n    if (wait > 0) return reply.code(429).header(\"retry-after\", String(wait)).send({ error: \"too_many_attempts\", retry_after_seconds: wait });\n    if (isValidBearerToken(request.headers.authorization, configuredToken)) return;"
+  },
+  {
+   "name": "trustProxy re-enabled (leftmost X-Forwarded-For identity)",
+   "file": "apps/api/src/app.ts",
+   "old": "trustProxy: false",
+   "new": "trustProxy: true"
+  },
+  {
+   "name": "identity uses X-Forwarded-For",
+   "file": "apps/api/src/client-identity.ts",
+   "old": "const peer = request.socket.remoteAddress ?? \"unknown\";",
+   "new": "const peer = (request.headers[\"x-forwarded-for\"] as string | undefined)?.split(\",\")[0]?.trim() ?? request.socket.remoteAddress ?? \"unknown\";"
+  },
+  {
+   "name": "Fly-Client-IP trusted from any peer",
+   "file": "apps/api/src/client-identity.ts",
+   "old": "if (trusted.length > 0 && trusted.some((c) => inCidr(peer, c))) {",
+   "new": "if (true) {"
+  },
+  {
+   "name": "Fly-Client-IP header not validated",
+   "file": "apps/api/src/client-identity.ts",
+   "old": "parseAddress(header) !== null && !header.includes(\"%\")",
+   "new": "header.length > 0"
+  },
+  {
+   "name": "CIDR prefix not applied (exact network ignored)",
+   "file": "apps/api/src/client-identity.ts",
+   "old": "return ((a.value >> shift) << shift) === cidr.network;",
+   "new": "return true;"
+  },
+  {
+   "name": "overly broad CIDR accepted",
+   "file": "apps/api/src/client-identity.ts",
+   "old": "if (bits < (addr.family === 4 ? 8 : 16)) return",
+   "new": "if (false) return"
+  },
+  {
+   "name": "IPv4-mapped peers not folded",
+   "file": "apps/api/src/net/ip-policy.ts",
+   "old": "if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return { family: 4,",
+   "new": "if (false) return { family: 4,"
+  },
+  {
+   "name": "public paths counted as failures",
+   "file": "apps/api/src/auth.ts",
+   "old": "if (isPublicRequest(request.method, request.url)) return;\n    if (!configuredToken)",
+   "new": "if (!configuredToken && isPublicRequest(request.method, request.url)) return;\n    if (isPublicRequest(request.method, request.url)) { limiter.recordFailure(clientIdentity(request)); return; }\n    if (!configuredToken)"
+  }
+ ]
+}
