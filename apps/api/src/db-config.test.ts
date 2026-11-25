@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { buildPoolConfig } from "./db-config.js";
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import { buildPoolConfig, selectMigrationUrl } from "./db-config.js";
 
 const local = "postgres://u@127.0.0.1:5432/agentsmith";
 const remote = "postgres://u:p@direct.mycluster.flympg.net/fly-db";
@@ -51,5 +52,70 @@ describe("buildPoolConfig", () => {
       expect((error as Error).message).not.toContain("topsecretpw");
       expect((error as Error).message).not.toContain("admin");
     }
+  });
+});
+
+describe("which URL each component uses", () => {
+  const env = { DATABASE_URL: "postgres://u:p@pooled.mycluster.flympg.net/db", DIRECT_DATABASE_URL: "postgres://u:p@direct.mycluster.flympg.net/db" };
+
+  it("builds the application pool from DATABASE_URL by default", () => {
+    expect(buildPoolConfig(env, { max: 5 }).connectionString).toBe(env.DATABASE_URL);
+  });
+
+  it("builds the migration pool from DIRECT_DATABASE_URL only when asked", () => {
+    expect(buildPoolConfig(env, { max: 1, urlVariable: "DIRECT_DATABASE_URL" }).connectionString).toBe(env.DIRECT_DATABASE_URL);
+  });
+
+  it("does not fall back from one variable to the other", () => {
+    expect(() => buildPoolConfig({ DATABASE_URL: env.DATABASE_URL }, { max: 1, urlVariable: "DIRECT_DATABASE_URL" })).toThrow(/required/);
+    expect(() => buildPoolConfig({ DIRECT_DATABASE_URL: env.DIRECT_DATABASE_URL }, { max: 1 })).toThrow(/required/);
+  });
+
+  it("selects the migration URL from DIRECT_DATABASE_URL and ignores DATABASE_URL", () => {
+    expect(selectMigrationUrl(env)).toBe(env.DIRECT_DATABASE_URL);
+    expect(selectMigrationUrl({ ...env, DATABASE_URL: "postgres://u@127.0.0.1/other" })).toBe(env.DIRECT_DATABASE_URL);
+  });
+
+  it("refuses to select a migration URL when DIRECT_DATABASE_URL is missing or blank, whatever DATABASE_URL holds", () => {
+    for (const direct of [undefined, "", "  "]) {
+      expect(() => selectMigrationUrl({ DATABASE_URL: env.DATABASE_URL, DIRECT_DATABASE_URL: direct })).toThrow(/DIRECT_DATABASE_URL is required/);
+    }
+    expect(() => selectMigrationUrl({ DATABASE_URL: env.DATABASE_URL })).toThrow(/not used as a fallback/);
+  });
+
+  it("keeps the migration runner source free of any DATABASE_URL read", () => {
+    const source = readFileSync(new URL("../../../scripts/migrate.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/env\.DATABASE_URL|env\["DATABASE_URL"\]|urlVariable: "DATABASE_URL"/);
+    expect(source).toContain("selectMigrationUrl(process.env)");
+    expect(source).toContain('urlVariable: "DIRECT_DATABASE_URL"');
+  });
+});
+
+describe("TLS verification stays on unless explicitly overridden", () => {
+  const remote = "postgres://u:p@direct.mycluster.flympg.net/fly-db";
+
+  it("is enabled by default and never warns when enabled", () => {
+    const warn = vi.fn();
+    expect(buildPoolConfig({ DATABASE_URL: remote }, { max: 1, onWarning: warn }).ssl).toEqual({ rejectUnauthorized: true });
+    expect(buildPoolConfig({ DATABASE_URL: remote, DATABASE_SSL_VERIFY: "true" }, { max: 1, onWarning: warn }).ssl).toEqual({ rejectUnauthorized: true });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("warns, naming the variable and host but no credentials, when the override disables verification", () => {
+    const warn = vi.fn();
+    const config = buildPoolConfig({ DIRECT_DATABASE_URL: remote, DATABASE_SSL_VERIFY: "false" }, { max: 1, urlVariable: "DIRECT_DATABASE_URL", onWarning: warn });
+    expect(config.ssl).toEqual({ rejectUnauthorized: false });
+    expect(warn).toHaveBeenCalledOnce();
+    const message = warn.mock.calls[0]![0] as string;
+    expect(message).toContain("DISABLED");
+    expect(message).toContain("DIRECT_DATABASE_URL");
+    expect(message).toContain("direct.mycluster.flympg.net");
+    expect(message).not.toContain("u:p");
+  });
+
+  it("does not warn for a loopback database, where there is no TLS to disable", () => {
+    const warn = vi.fn();
+    buildPoolConfig({ DATABASE_URL: "postgres://u@127.0.0.1/db", DATABASE_SSL_VERIFY: "false" }, { max: 1, onWarning: warn });
+    expect(warn).not.toHaveBeenCalled();
   });
 });

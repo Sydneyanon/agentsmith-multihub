@@ -4,9 +4,9 @@ import { config } from "./config.js";
 import { isValidBearerToken } from "./auth.js";
 import { registerIntakeRoutes } from "./intake.js";
 import { registerWorkflowRoutes } from "./workflows.js";
-import { buildPoolConfig } from "./db-config.js";
+import { buildPoolConfig, stderrWarning } from "./db-config.js";
 
-const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5 })) : undefined;
+const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning })) : undefined;
 
 export function buildServer() {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });

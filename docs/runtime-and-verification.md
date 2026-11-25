@@ -21,10 +21,10 @@ Runs, locally and without GitHub Actions: lockfile consistency (`npm ci --dry-ru
 ## Database client settings
 All pools (API, worker, migration runner) are built by `buildPoolConfig` (`apps/api/src/db-config.ts`):
 - `DATABASE_CONNECT_TIMEOUT_MS` (default 3000, allowed 1000-60000). `fly.toml` sets 30000 because a Fly Managed Postgres **Developer** cluster auto-pauses after 15 minutes idle and takes about 15-25 s to wake.
-- TLS is used in production and for any non-loopback host, with certificate verification. `DATABASE_SSL_VERIFY=false` turns verification off and is meant only as a documented fallback if the first connection fails with a certificate error; Fly's documentation says SSL is enabled but does not say which CA signs it, so this is **unverified until the first staging connection**.
+- TLS is used in production and for any non-loopback host, **with certificate verification on**. Fly's documentation says SSL is enabled for Managed Postgres but not which CA signs it, so verification is untested until the first staging connection. `DATABASE_SSL_VERIFY=false` exists only as a last-resort, security-reducing override: it is never set automatically, a loud warning is logged whenever it is in effect, and it must not be used during setup without the owner's explicit approval. A failed verification is reported, not worked around.
 - Connections are recycled after 10 minutes and idle ones after 30 s, per Fly's guidance to stay under the proxy's drain timeout.
 - Developer-plan limits to plan around: up to 20 connections shared by all clients (API pool 5, worker pool 3, migration 1), 1 GB growing to 5 GB, one backup a day kept for one day (take your own `pg_dump` of anything that matters).
-- Migrations use the cluster's **direct** URL and, because the host is not loopback, need `MIGRATE_CONFIRM_REMOTE_HOST=<that exact host>`; they are still a separate, explicitly approved step.
+- The API and worker use `DATABASE_URL`. Migrations use **only** `DIRECT_DATABASE_URL` (no fallback to `DATABASE_URL`), and because the host is not loopback they need `MIGRATE_CONFIRM_REMOTE_HOST=<that exact host>`; they are still a separate, explicitly approved step. See `docs/fly-staging-runbook.md` for the order of operations.
 
 ## Tests: unit versus real Postgres
 - `npm test` runs the unit tests. They use a mocked database and say nothing about SQL behaviour.

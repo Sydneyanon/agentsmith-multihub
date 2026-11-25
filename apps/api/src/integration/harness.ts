@@ -60,11 +60,11 @@ export async function createTestDatabase(): Promise<TestDatabase> {
 export type RunResult = { code: number | null; stdout: string; stderr: string; ms: number };
 
 /** Run the real migration runner (scripts/migrate.ts) in a child process with a scrubbed environment. */
-export function runMigrate(options: { databaseUrl: string; cwd?: string; extraEnv?: Record<string, string> }): Promise<RunResult> {
+export function runMigrate(options: { directUrl?: string; cwd?: string; extraEnv?: Record<string, string> }): Promise<RunResult> {
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? "",
     HOME: process.env.HOME ?? "",
-    DATABASE_URL: options.databaseUrl,
+    ...(options.directUrl === undefined ? {} : { DIRECT_DATABASE_URL: options.directUrl }),
     ...options.extraEnv,
   }; // deliberately no PGHOST/PGDATABASE/etc.: nothing ambient can redirect the connection
   const started = Date.now();
@@ -83,7 +83,7 @@ export function runMigrate(options: { databaseUrl: string; cwd?: string; extraEn
 
 export async function migratedTestDatabase(): Promise<TestDatabase> {
   const db = await createTestDatabase();
-  const result = await runMigrate({ databaseUrl: db.url });
+  const result = await runMigrate({ directUrl: db.url });
   if (result.code !== 0) {
     await db.drop();
     throw new Error(`Migrations failed in the test database: ${result.stderr.slice(0, 500)}`);

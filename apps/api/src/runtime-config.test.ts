@@ -67,6 +67,12 @@ describe("runtime and Fly configuration", () => {
     expect(fly).not.toContain("release_command");
   });
 
+  it("keeps database URLs and the TLS override out of fly.toml (secrets and last-resort settings are never committed)", () => {
+    for (const forbidden of ["DATABASE_URL", "DIRECT_DATABASE_URL", "DATABASE_SSL_VERIFY", "MIGRATE_CONFIRM_REMOTE_HOST", "postgres://"]) {
+      expect(fly, forbidden).not.toContain(forbidden);
+    }
+  });
+
   it("makes the app-name hazard explicit", () => {
     expect(fly).toContain("Never deploy with this file without an explicit");
   });
