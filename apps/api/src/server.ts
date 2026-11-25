@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { Pool } from "pg";
 import { config } from "./config.js";
+import { isValidBearerToken } from "./auth.js";
 import { registerIntakeRoutes } from "./intake.js";
 import { registerWorkflowRoutes } from "./workflows.js";
 
@@ -16,6 +17,15 @@ const pool = config.databaseUrl
 
 export function buildServer() {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
+  app.addHook("preHandler", async (request, reply) => {
+    if (!request.url.startsWith("/v1/")) return;
+    if (!config.apiBearerToken) {
+      return reply.code(503).send({ error: "api_auth_not_configured" });
+    }
+    if (!isValidBearerToken(request.headers.authorization, config.apiBearerToken)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+  });
   app.get("/", async () => ({ service: "agentsmith-multihub-api", version: "0.1.0", status: "scaffolded" }));
   app.get("/health/live", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
   app.get("/health/ready", async (_request, reply) => {
