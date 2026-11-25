@@ -749,22 +749,33 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     ? generated.evidence.snapshot_id : null;
   const mapSnapshotId = isRecord(mapped.evidence) && typeof mapped.evidence.snapshot_id === "string"
     ? mapped.evidence.snapshot_id : null;
-  const snapshotIds = [hypothesisSnapshotId, mapSnapshotId].filter((id): id is string => id !== null);
+  const hypothesisHash = isRecord(generated.evidence) && typeof generated.evidence.content_sha256 === "string"
+    ? generated.evidence.content_sha256 : null;
+  const mapHash = isRecord(mapped.evidence) && typeof mapped.evidence.content_sha256 === "string"
+    ? mapped.evidence.content_sha256 : null;
+  const validSnapshotId = (id: string | null) =>
+    id !== null && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+  const snapshotIds = [hypothesisSnapshotId, mapSnapshotId].filter(validSnapshotId);
   const persistedSnapshots = snapshotIds.length
     ? await pool.query<{ id: string; content_sha256: string }>(
         "SELECT id, content_sha256 FROM source_snapshots WHERE id = ANY($1::uuid[])",
         [snapshotIds],
       )
     : { rows: [] as Array<{ id: string; content_sha256: string }> };
-  const persistedSnapshotIds = new Set(persistedSnapshots.rows.map((row) => row.id));
+  const persistedSnapshotHashes = new Map(persistedSnapshots.rows.map((row) => [row.id, row.content_sha256]));
+  const hypothesisEvidenceMatches = validSnapshotId(hypothesisSnapshotId) &&
+    typeof hypothesisHash === "string" && /^[0-9a-f]{64}$/i.test(hypothesisHash) &&
+    persistedSnapshotHashes.get(hypothesisSnapshotId) === hypothesisHash;
+  const mapEvidenceMatches = validSnapshotId(mapSnapshotId) &&
+    typeof mapHash === "string" && /^[0-9a-f]{64}$/i.test(mapHash) &&
+    persistedSnapshotHashes.get(mapSnapshotId) === mapHash;
   const challenges = hypotheses.map((hypothesis) => {
     const lead = mapLeads.find((candidate) =>
       candidate.rule_id === hypothesis.rule_id && candidate.family === hypothesis.family &&
       candidate.path === hypothesis.path
     );
     const rules = CHALLENGE_RULES[String(hypothesis.family)];
-    const evidenceLinked = Boolean(lead) && hypothesisSnapshotId !== null && mapSnapshotId !== null &&
-      persistedSnapshotIds.has(hypothesisSnapshotId) && persistedSnapshotIds.has(mapSnapshotId);
+    const evidenceLinked = Boolean(lead) && hypothesisEvidenceMatches && mapEvidenceMatches;
     return {
       hypothesis_id: hypothesis.id,
       rule_id: hypothesis.rule_id,
@@ -785,7 +796,9 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     challenge_protocol: "deterministic-counterreview-v1",
     hypothesis_snapshot_id: hypothesisSnapshotId,
     surface_map_snapshot_id: mapSnapshotId,
-    persisted_evidence_snapshot_count: persistedSnapshotIds.size,
+    persisted_evidence_snapshot_count: persistedSnapshotHashes.size,
+    hypothesis_snapshot_hash_matches: hypothesisEvidenceMatches,
+    surface_map_snapshot_hash_matches: mapEvidenceMatches,
     challenge_count: challenges.length,
     challenges,
     protocol_limitations: [
