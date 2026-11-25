@@ -22,6 +22,14 @@ Status: implemented in the SSRF PR (finding 1 of the stack review). Applies to e
 
 Revert-proof evidence: `scripts/ssrf-mutation-check.py` re-introduces 31 individual weaknesses in a scratch worktree; each must make the tests fail.
 
+## Address classification
+
+Default deny. IPv4 is public only if canonical dotted-decimal (no leading zeros, no decimal/hex/octal/short forms) and outside: `0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16` (incl. cloud metadata), `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.31.196/24`, `192.52.193/24`, `192.88.99/24`, `192.168/16`, `192.175.48/24`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, `224/4`, `240/4`. IPv6 is public only if inside `2000::/3` (global unicast) and not in `2001::/23` (IETF assignments, Teredo), `2001:db8::/32`, `2002::/16` (6to4), `3fff::/20`; everything outside `2000::/3` is blocked (loopback, unspecified, IPv4-mapped/compatible, NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, discard `100::/64`, ULA `fc00::/7`, link-local `fe80::/10`, site-local, multicast). Zone ids are stripped; unparseable text is "invalid" and therefore blocked.
+
+## Status statement
+
+This closes the gaps found in review finding 1 at the application layer. It is **not** claimed to make SSRF "completely solved": the deployment environment (Fly egress, resolver behaviour), the real GitHub response path and a real Docker build have not been reviewed or exercised. Those remain open items for the combined stack review.
+
 ## Known limitations
 
 - Resolution uses the platform resolver (`getaddrinfo`), so `/etc/hosts` and the platform's DNS are trusted for *answers* but every answer is still classified. A hostile DNS server can only produce answers that are then rejected or pinned.
