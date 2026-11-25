@@ -9,6 +9,14 @@ const SOURCE_HEADER = [
   "# `--app <name>`; staging must use its own app (see docs/runtime-and-verification.md).",
   'app = "agentsmith-multihub"',
 ].join("\n");
+const GROUPS_COMMENT = [
+  "# Two process groups from the same image. The worker has no HTTP service, so Fly",
+  "# never auto-stops it; its machine count is set at deploy time, not in this file.",
+].join("\n");
+const BOOTSTRAP_GROUPS_COMMENT = [
+  "# One process group (app) for the first release. The worker group is added by a later",
+  "# release with fly.staging.toml, once a database is attached and migrated.",
+].join("\n");
 const WORKER_PROCESS = '  worker = "npm run worker:intake"\n';
 const WORKER_VM = '\n[[vm]]\n  processes = ["worker"]\n  memory = "512mb"\n  cpu_kind = "shared"\n  cpus = 1\n';
 
@@ -35,7 +43,8 @@ export function stagingFull(source: string): string {
  */
 export function stagingBootstrap(source: string): string {
   const full = mustReplace(source, SOURCE_HEADER, header("# FIRST RELEASE: app process group only, no worker (it needs a database)."), "app header block");
-  return mustReplace(mustReplace(full, WORKER_PROCESS, "", "worker process line"), WORKER_VM, "", "worker vm block");
+  const appOnly = mustReplace(mustReplace(full, WORKER_PROCESS, "", "worker process line"), WORKER_VM, "", "worker vm block");
+  return mustReplace(appOnly, GROUPS_COMMENT, BOOTSTRAP_GROUPS_COMMENT, "process-groups comment");
 }
 
 const root = fileURLToPath(new URL("../", import.meta.url));

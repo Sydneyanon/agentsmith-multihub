@@ -33,6 +33,8 @@ describe("staging Fly configs", () => {
     expect(processGroups(bootstrap)).toEqual(["app"]);
     expect(vmGroups(bootstrap)).toEqual(["app"]);
     expect(bootstrap.split("\n").filter((line) => !line.startsWith("#")).join("\n")).not.toContain("worker");
+    expect(bootstrap).not.toContain("Two process groups"); // the explanatory comment must not contradict the content
+    expect(full).toContain("Two process groups");
   });
 
   it("otherwise match fly.toml: same service, health check, environment and no release command or secrets", () => {
