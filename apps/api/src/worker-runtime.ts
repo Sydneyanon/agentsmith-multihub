@@ -801,11 +801,93 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
   return { status: "completed", stepId: step.id };
 }
 
+
+export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<ProcessResult> {
+  if (step.step_key !== "prepare_research_brief") {
+    throw new Error(`Unsupported step for research brief: ${step.step_key}`);
+  }
+  const result = await pool.query<{ step_key: string; output: unknown }>(
+    `SELECT step_key, output FROM workflow_steps
+     WHERE workflow_run_id = $1 AND step_key IN
+       ('identify_project', 'locate_official_repositories', 'establish_authorization',
+        'map_attack_surface', 'generate_hypotheses', 'independent_challenge')
+       AND status = 'succeeded'`,
+    [step.workflow_run_id],
+  );
+  const outputs = new Map(result.rows.map((row) => [row.step_key, row.output]));
+  const hypothesesOutput = outputs.get("generate_hypotheses");
+  const challengeOutput = outputs.get("independent_challenge");
+  const mapOutput = outputs.get("map_attack_surface");
+  const repositoryOutput = outputs.get("identify_project");
+  const sourceOutput = outputs.get("locate_official_repositories");
+  const hypotheses = isRecord(hypothesesOutput) && Array.isArray(hypothesesOutput.hypotheses)
+    ? hypothesesOutput.hypotheses.filter(isRecord) : [];
+  const challenges = isRecord(challengeOutput) && Array.isArray(challengeOutput.challenges)
+    ? challengeOutput.challenges.filter(isRecord) : [];
+  const leads = isRecord(mapOutput) && Array.isArray(mapOutput.leads) ? mapOutput.leads.filter(isRecord) : [];
+  const brief = {
+    brief_version: "passive-research-brief-v1",
+    research_status: "preliminary_passive_review",
+    repository: isRecord(repositoryOutput) && isRecord(repositoryOutput.repository)
+      ? repositoryOutput.repository : null,
+    source_sample: isRecord(sourceOutput) ? {
+      status: sourceOutput.status ?? "unknown",
+      file_count: sourceOutput.file_count ?? 0,
+      total_bytes: sourceOutput.total_bytes ?? 0,
+      evidence: sourceOutput.evidence ?? null,
+    } : null,
+    authorization: isRecord(outputs.get("establish_authorization"))
+      ? outputs.get("establish_authorization") : { status: "unverified", active_testing_allowed: false },
+    attack_surface: {
+      status: isRecord(mapOutput) ? mapOutput.status : "not_available",
+      lead_count: leads.length,
+      evidence: isRecord(mapOutput) ? mapOutput.evidence ?? null : null,
+    },
+    hypotheses: hypotheses.map((hypothesis) => ({
+      id: hypothesis.id,
+      rule_id: hypothesis.rule_id,
+      family: hypothesis.family,
+      path: hypothesis.path,
+      question: hypothesis.candidate_question,
+      status: hypothesis.status,
+    })),
+    counterreview: challenges.map((challenge) => ({
+      hypothesis_id: challenge.hypothesis_id,
+      challenge_status: challenge.challenge_status,
+      counterquestions: challenge.counterquestions,
+      minimum_evidence_required: challenge.minimum_evidence_required,
+      verdict: challenge.verdict,
+    })),
+    unresolved_requirements: [
+      "Review complete source context, not only the bounded sample",
+      "Resolve counterquestions with code-path and design evidence",
+      "Obtain independent human or separately configured model review",
+      "Establish current program scope and explicit approval before any active testing",
+    ],
+    conclusion: "No vulnerability has been verified. This brief is a preliminary passive research artifact, not a bounty submission or security assessment.",
+  };
+  const evidence = await worker.persistSourceSnapshot(step.id, {
+    sourceUri: `internal://workflow-runs/${step.workflow_run_id}/research-brief-v1`,
+    sourceKind: "preliminary_passive_research_brief",
+    content: brief,
+  });
+  await worker.complete(step.id, {
+    status: "brief_prepared",
+    brief,
+    evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
+    execution_mode: "passive_only",
+    authorization_status: "unverified",
+    active_testing_allowed: false,
+    report_submission_ready: false,
+  });
+  return { status: "completed", stepId: step.id };
+}
+
 export async function runIntakeWorker(pool: Pool, workerId: string, signal: AbortSignal, pollMs = 2_000): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
   while (!signal.aborted) {
     await worker.reapExhaustedLeases();
-    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses", "independent_challenge"]);
+    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief"]);
     if (!step) {
       await new Promise<void>((resolve) => {
         let timer: ReturnType<typeof setTimeout>;
@@ -827,7 +909,8 @@ export async function runIntakeWorker(pool: Pool, workerId: string, signal: Abor
       else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
       else if (step.step_key === "map_attack_surface") await processAttackSurfaceMapping(pool, worker, step);
       else if (step.step_key === "generate_hypotheses") await processHypothesisGeneration(pool, worker, step);
-      else await processIndependentChallenge(pool, worker, step);
+      else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
+      else await processResearchBrief(pool, worker, step);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown intake resolution error";
       await worker.fail(step.id, reason, false);
