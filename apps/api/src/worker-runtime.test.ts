@@ -249,6 +249,30 @@ describe("passive intake resolution worker", () => {
     });
   });
 
+  it("rejects a source snapshot whose stored hash differs from the acquisition evidence", async () => {
+    const { complete, persistSourceSnapshot, worker } = fakeWorker();
+    const pool = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [{
+          output: {
+            status: "source_sampled",
+            evidence: { snapshot_id: "source-snapshot-1", content_sha256: "a".repeat(64) },
+          },
+        }] })
+        .mockResolvedValueOnce({ rows: [{
+          id: "source-snapshot-1",
+          source_uri: "https://api.github.com/tree",
+          content_sha256: "b".repeat(64),
+          content: { files: [] },
+        }] }),
+    } as unknown as import("pg").Pool;
+    await expect(processAttackSurfaceMapping(pool, worker, {
+      ...step({}), step_key: "map_attack_surface",
+    })).rejects.toThrow("content hash does not match");
+    expect(persistSourceSnapshot).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
   it("maps source patterns into review leads without claiming verified vulnerabilities", async () => {
     const { complete, persistSourceSnapshot, worker } = fakeWorker();
     const pool = {
