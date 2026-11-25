@@ -117,7 +117,17 @@ export function surfaceMap(files: SurfaceFile[], onSelect: (path: string) => voi
     wrap.append(treemapSvg(files, onSelect, size));
   };
   draw(typeof window !== "undefined" ? window.innerWidth : TREEMAP_WIDE.w);
-  if (typeof ResizeObserver !== "undefined") new ResizeObserver((entries) => { const width = entries[0]?.contentRect.width; if (width) draw(width); }).observe(wrap);
+  if (typeof ResizeObserver !== "undefined") {
+    let attached = false;
+    const observer = new ResizeObserver((entries) => {
+      // Once the map has been shown and then removed from the page (route change, re-render), stop observing so nothing keeps it alive.
+      if (wrap.isConnected) attached = true;
+      else if (attached) { observer.disconnect(); return; }
+      const width = entries[0]?.contentRect.width;
+      if (width) draw(width);
+    });
+    observer.observe(wrap);
+  }
   return wrap;
 }
 

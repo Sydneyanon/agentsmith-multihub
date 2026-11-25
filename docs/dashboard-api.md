@@ -80,3 +80,16 @@ Screenshots in `docs/hub-screenshots/` are produced by `npm run hub:screenshots`
 | Repository, Hypotheses, Evidence screens, fully tested against records written through the store | Hypotheses and evidence in real runs: analysis (5.5) |
 | Review display: blinded vs disclosed, what the reviewer saw | Recording reviews and withdrawals: review endpoint (5.6) |
 | | Reviews, Findings, Knowledge, System sections; multi-user identity; hosting at a separate address |
+
+## 8. Screens that still need validation against real pipeline-produced records
+Every screen below was exercised only with records written through the real `ResearchStore` by tests or by the SYNTHETIC local demo; none has seen records produced by the research pipeline, because the pipeline does not produce them yet. Production data is never seeded to fill these screens.
+
+| Screen | Needs | Validate when |
+|---|---|---|
+| Repository (list, snapshot, file viewer, attack-surface map) | sealed snapshots from acquisition, including large, binary, skipped and evicted files, and real repository sizes (map readability at thousands of files) | Task 5.2 |
+| Hypotheses (list, detail) | real generator output: long claims, many evidence spans, superseded chains | Task 5.5 |
+| Evidence (list, detail) | spans produced by real generators, unresolvable spans, multi-line and very long lines | Task 5.5 |
+| Review display (blinded vs disclosed, reviewer-saw matrix) | model and human reviews recorded by the real review path, including the `reviewer_saw` shape it writes | Task 5.6 |
+| Stage stepper | real Discovery and Understanding records | Tasks 5.3, 5.4 |
+| Home charts and Activity | real volumes (many hypotheses, many events, paging) | after 5.5 |
+| Projects detail "legacy" block | real intake runs, which exist today and are the only real data | now, with owner-approved production access |

@@ -1,0 +1,44 @@
+# PRODUCTION HUB (PREPARED, NOT DEPLOYED): the private dashboard and research API at https://hub.agentsmithdesk.xyz.
+# Nothing has been created from this file. The app name below is a PROPOSAL: Fly app names are global, so
+# availability is unknown until the owner creates the app. Deploy only with an explicit `--app` and only after the
+# owner approves docs/hub-production-plan.md. Never use fly.toml (it names a pre-existing app) for the hub.
+app = "agentsmith-hub"
+primary_region = "syd"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  LOG_LEVEL = "info"
+  # Fly Managed Postgres (Developer plan) auto-pauses and takes up to ~25s to wake.
+  DATABASE_CONNECT_TIMEOUT_MS = "30000"
+  # Secrets are never listed here. Set with `fly secrets set` (names only in docs/hub-production-plan.md):
+  #   API_BEARER_TOKEN, DATABASE_URL
+
+# App process group only. The worker (intake pipeline) is a separate, later decision: the hub dashboard does not need it.
+[processes]
+  app = "npm start"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  # Liveness only: /health/ready depends on the database and must not restart the API.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health/live"
+
+[[vm]]
+  processes = ["app"]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -17,12 +17,17 @@ const TYPES: Record<string, string> = {
 };
 const ASSET_NAME = /^[a-z0-9][a-z0-9._-]{0,80}\.(js|css|svg)$/;
 
-export function registerHubStatic(app: FastifyInstance, options: { assetsDir?: string } = {}): void {
+/** One year; no includeSubDomains, so the root domain and the Hunt site are never affected by the hub's policy. */
+export const HUB_HSTS = "max-age=31536000";
+
+export function registerHubStatic(app: FastifyInstance, options: { assetsDir?: string; hsts?: boolean } = {}): void {
+  const hsts = options.hsts ?? process.env.NODE_ENV === "production";
   const dir = options.assetsDir ?? process.env.HUB_ASSETS_DIR ?? join(process.cwd(), "dist", "web");
 
   const send = async (reply: FastifyReply, file: string, ext: string) => {
     try {
       const body = await readFile(file);
+      if (hsts) reply.header("strict-transport-security", HUB_HSTS);
       return reply.header("content-type", TYPES[ext]!).header("content-security-policy", HUB_CSP).header("x-content-type-options", "nosniff")
         .header("referrer-policy", "no-referrer").header("cache-control", "no-cache").header("cross-origin-resource-policy", "same-origin").send(body);
     } catch {

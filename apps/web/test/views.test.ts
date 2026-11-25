@@ -253,6 +253,20 @@ describe("attack-surface map follows its container", () => {
     expect(initial).not.toBeNull();
     vi.unstubAllGlobals();
   });
+  it("stops observing once the map has been removed from the page", async () => {
+    const { surfaceMap } = await import("../src/components.js");
+    let notify: (entries: Array<{ contentRect: { width: number } }>) => void = () => {};
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class { constructor(cb: typeof notify) { notify = cb; } observe() {} disconnect = disconnect; });
+    const el = surfaceMap([], () => {});
+    document.body.append(el);
+    notify([{ contentRect: { width: 900 } }]);
+    expect(disconnect).not.toHaveBeenCalled();
+    el.remove();
+    notify([{ contentRect: { width: 400 } }]);
+    expect(disconnect).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("layout contracts that jsdom can see", () => {
