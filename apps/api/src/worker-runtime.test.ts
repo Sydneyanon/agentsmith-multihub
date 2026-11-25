@@ -307,12 +307,12 @@ describe("passive intake resolution worker", () => {
         .mockResolvedValueOnce({ rows: [
           { step_key: "generate_hypotheses", output: {
             status: "hypotheses_generated",
-            evidence: { snapshot_id: "00000000-0000-4000-8000-000000000001" },
+            evidence: { snapshot_id: "00000000-0000-4000-8000-000000000001", content_sha256: "a".repeat(64) },
             hypotheses: [{ id: "H-1", rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol" }],
           } },
           { step_key: "map_attack_surface", output: {
             status: "mapped",
-            evidence: { snapshot_id: "00000000-0000-4000-8000-000000000002" },
+            evidence: { snapshot_id: "00000000-0000-4000-8000-000000000002", content_sha256: "b".repeat(64) },
             leads: [{ rule_id: "SOL-TX-ORIGIN", family: "solidity-authentication", path: "Vault.sol", count: 1 }],
           } },
         ] })
