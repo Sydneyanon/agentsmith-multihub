@@ -15,6 +15,7 @@
     "test:integration": "node scripts/test-integration.mjs",
     "test:integration:restricted": "TEST_RUNTIME_ROLE=1 node scripts/test-integration.mjs",
     "db:migrate": "node dist/scripts/migrate.js",
+    "db:grants": "node dist/scripts/apply-runtime-grants.js",
     "worker:intake": "node dist/apps/api/src/worker-main.js",
     "worker:intake:dev": "tsx apps/api/src/worker-main.ts",
     "staging:configs": "tsx scripts/staging-config.ts",

@@ -61,6 +61,13 @@ export async function assessConnectedRole(db: pg.Pool | pg.PoolClient, schema = 
   if (owned > 0) problems.push(`role owns ${owned} relation(s) in schema ${schema} (an owner can disable triggers and drop tables)`);
   const canCreate = (await db.query<{ c: boolean }>("SELECT has_schema_privilege(current_user, $1, 'CREATE') AS c", [schema])).rows[0]!.c;
   if (canCreate) problems.push(`role can CREATE objects in schema ${schema}`);
+  const temp = (await db.query<{ h: boolean }>("SELECT has_database_privilege(current_user, current_database(), 'TEMP') AS h")).rows[0]!.h;
+  // A temp table named like a real one is searched first by unqualified names: it can feed forged data to the guard functions.
+  if (temp) problems.push("role can create TEMPORARY tables (temp-schema shadowing of guard-function lookups)");
+  const publicGrants = (await db.query<{ n: number }>(
+    `SELECT count(DISTINCT c.oid)::int AS n FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace, aclexplode(c.relacl) a
+      WHERE ns.nspname = $1 AND a.grantee = 0 AND c.relkind IN ('r','p','v','m','S')`, [schema])).rows[0]!.n;
+  if (publicGrants > 0) problems.push(`PUBLIC holds privileges on ${publicGrants} relation(s) in schema ${schema}`);
   const members = (await db.query<{ r: string }>(
     "SELECT r.rolname AS r FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)")).rows;
   if (members.length) problems.push(`role is a member of: ${members.map((x) => x.r).join(", ")}`);
@@ -107,7 +114,10 @@ export async function runRoleGuard(db: pg.Pool, options: {
       return;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      if (attempt < attempts) await sleep(delay);
+      if (attempt < attempts) {
+        options.warn(`database runtime role check: attempt ${attempt}/${attempts} failed (${lastError}); retrying`);
+        await sleep(delay);
+      }
     }
   }
   const message = `could not verify the database runtime role after ${attempts} attempts (${lastError})`;

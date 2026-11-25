@@ -169,6 +169,73 @@ describe.skipIf(skipIntegration)("least-privilege runtime role (real Postgres)",
     });
   });
 
+  describe("temp-schema shadowing cannot defeat the guard functions (independent review blocker)", () => {
+    const ghost = "f".repeat(64);
+    it("the runtime role has no TEMPORARY privilege on the database and cannot create temp tables", async () => {
+      expect((await rt.query<{ h: boolean }>("SELECT has_database_privilege(current_user, current_database(), 'TEMP') AS h")).rows[0]!.h).toBe(false);
+      await denied("CREATE TEMP TABLE research_blobs (content_sha256 text, content bytea)");
+    });
+    it("the apply script takes TEMPORARY back from the role itself, and the role assessment reports it while granted", async () => {
+      await db.pool.query(`GRANT TEMPORARY ON DATABASE ${db.name} TO ${role}`);
+      expect((await assessConnectedRole(rt)).problems.join(" ")).toMatch(/TEMPORARY/);
+      const r = await runScript("scripts/apply-runtime-grants.ts", { DIRECT_DATABASE_URL: db.url, RUNTIME_ROLE: role });
+      expect(r.code, r.stderr).toBe(0);
+      expect((await rt.query<{ h: boolean }>("SELECT has_database_privilege(current_user, current_database(), 'TEMP') AS h")).rows[0]!.h).toBe(false);
+    });
+    it("every application function pins its search_path, so a temp table cannot replace a real one", async () => {
+      const unpinned = (await db.pool.query<{ f: string }>(
+        `SELECT p.proname AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+            AND NOT (coalesce(p.proconfig, '{}') @> ARRAY['search_path=public, pg_temp'])`)).rows.map((r) => r.f);
+      expect(unpinned).toEqual([]);
+    });
+    it("even if TEMP were granted back, shadowing research_blobs does not change what research_span_check sees", async () => {
+      await db.pool.query(`GRANT TEMPORARY ON DATABASE ${db.name} TO ${role}`);
+      const c = await rt.connect();
+      try {
+        await c.query("CREATE TEMP TABLE research_blobs (content_sha256 text, content bytea)");
+        await c.query("INSERT INTO pg_temp.research_blobs VALUES ($1, 'forged'::bytea)", [ghost]);
+        const { sha256Hex } = await import("../research-state.js");
+        const forged = (await c.query<{ r: string }>("SELECT research_span_check($1, 1, 1, $2) AS r", [ghost, sha256Hex("forged")])).rows[0]!.r;
+        expect(forged).toBe("evicted"); // the real table has no such blob; the temp table must be ignored
+      } finally { c.release(); await db.pool.query(`REVOKE TEMPORARY ON DATABASE ${db.name} FROM ${role}`); }
+    });
+  });
+
+  describe("other holders of privilege are not tolerated", () => {
+    it("the apply script revokes table privileges granted to PUBLIC, and the role assessment reports them", async () => {
+      await db.pool.query("GRANT UPDATE ON audit_events TO PUBLIC");
+      const before = await assessConnectedRole(rt);
+      expect(before.problems.join(" ")).toMatch(/PUBLIC holds privileges/);
+      const r = await runScript("scripts/apply-runtime-grants.ts", { DIRECT_DATABASE_URL: db.url, RUNTIME_ROLE: role });
+      expect(r.code, r.stderr).toBe(0);
+      expect((await assessConnectedRole(rt)).problems).toEqual([]);
+      await denied("UPDATE audit_events SET action = 'x'");
+    });
+    it("the apply script refuses predefined (pg_*) roles, a role that owns objects and a role with memberships", async () => {
+      const bad = await runScript("scripts/apply-runtime-grants.ts", { DIRECT_DATABASE_URL: db.url, RUNTIME_ROLE: "pg_monitor" });
+      expect(bad.code).not.toBe(0); expect(bad.stderr).toMatch(/predefined PostgreSQL role/);
+      const group = `${role}_grp`; const grouped = `${role}_member`;
+      await db.adminPool.query(`CREATE ROLE ${group} NOLOGIN`);
+      await db.adminPool.query(`CREATE ROLE ${grouped} LOGIN`);
+      await db.adminPool.query(`GRANT ${group} TO ${grouped}`);
+      try {
+        const m = await runScript("scripts/apply-runtime-grants.ts", { DIRECT_DATABASE_URL: db.url, RUNTIME_ROLE: grouped });
+        expect(m.code).not.toBe(0); expect(m.stderr).toMatch(/member of/);
+      } finally { await db.adminPool.query(`DROP ROLE ${grouped}`); await db.adminPool.query(`DROP ROLE ${group}`); }
+      const owner2 = `${role}_own`;
+      await db.adminPool.query(`CREATE ROLE ${owner2} LOGIN`);
+      await db.adminPool.query(`GRANT ${owner2} TO CURRENT_USER WITH SET TRUE`);
+      await db.pool.query(`GRANT CREATE ON SCHEMA public TO ${owner2}`);
+      await db.pool.query("CREATE SEQUENCE owned_probe");
+      await db.pool.query(`ALTER SEQUENCE owned_probe OWNER TO ${owner2}`);
+      try {
+        const o = await runScript("scripts/apply-runtime-grants.ts", { DIRECT_DATABASE_URL: db.url, RUNTIME_ROLE: owner2 });
+        expect(o.code).not.toBe(0); expect(o.stderr).toMatch(/owns \d+ object/);
+      } finally { await db.pool.query("DROP SEQUENCE owned_probe"); await db.pool.query(`REVOKE CREATE ON SCHEMA public FROM ${owner2}`); await db.adminPool.query(`DROP ROLE ${owner2}`); }
+    });
+  });
+
   describe("legitimate operations still work as the runtime role", () => {
     it("inserts audit events, reads them back, and uses the verification functions", async () => {
       const run = await rt.query<{ id: string }>("INSERT INTO workflow_runs (workflow_type, status, input) VALUES ('link_or_idea_intake','queued','{}'::jsonb) RETURNING id");

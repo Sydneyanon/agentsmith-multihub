@@ -27,6 +27,11 @@ export function assessTokenStrength(token: string): string | null {
   let entropy = 0;
   for (const n of counts.values()) { const p = n / token.length; entropy -= p * Math.log2(p); }
   if (entropy < 3.2) return "looks repetitive (low character entropy); generate one with `openssl rand -base64 48`";
+  // The failed-attempt limiter does not bound guessing (a correct guess is always accepted), so the token itself must be unguessable.
+  if (counts.size < 12) return "uses too few distinct characters (needs at least 12); generate one with `openssl rand -base64 48`";
+  for (let period = 1; period <= token.length / 2; period += 1) {
+    if (token.length % period === 0 && token === token.slice(0, period).repeat(token.length / period)) return "is a repeated pattern; generate one with `openssl rand -base64 48`";
+  }
   return null;
 }
 
@@ -77,10 +82,15 @@ const PUBLIC_EXACT = new Set(["/health/live", "/health/ready", "/", "/hub", "/hu
 const PUBLIC_ASSET = /^\/hub\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 export const PUBLIC_ROUTE_DESCRIPTIONS = ["GET|HEAD /health/live", "GET|HEAD /health/ready", "GET|HEAD /", "GET|HEAD /hub", "GET|HEAD /hub/", "GET|HEAD /hub/assets/<file>"] as const;
 
+/** Path part of a raw request URL (query string removed). */
+export function rawPath(rawUrl: string): string {
+  const q = rawUrl.indexOf("?");
+  return q === -1 ? rawUrl : rawUrl.slice(0, q);
+}
+
 export function isPublicRequest(method: string, rawUrl: string): boolean {
   if (method !== "GET" && method !== "HEAD") return false;
-  const q = rawUrl.indexOf("?");
-  const path = q === -1 ? rawUrl : rawUrl.slice(0, q);
+  const path = rawPath(rawUrl);
   return PUBLIC_EXACT.has(path) || (PUBLIC_ASSET.test(path) && !path.includes(".."));
 }
 

@@ -11,14 +11,21 @@ export function buildServer() {
 }
 
 const app = buildServer();
+// An idle client killed by the database (restart, auto-pause) must not crash the process with an unhandled event.
+pool?.on("error", (error) => app.log.error({ err: error }, "idle database client error"));
 try {
   await app.listen({ host: config.host, port: config.port });
+  if (config.environment === "production" && config.hubAllowedHosts.length === 0) app.log.warn("HUB_ALLOWED_HOSTS is not set: any Host header is served in production");
   // After listening and not awaited: an unreachable or paused database must never delay or prevent boot (liveness and honest readiness first).
   if (pool && config.environment === "production") {
     void runRoleGuard(pool, {
       require: config.requireRestrictedDbRole,
       warn: (m) => app.log.warn(m),
-      fatal: (m) => { app.log.fatal(m); void app.close().finally(() => process.exit(1)); },
+      fatal: (m) => {
+        app.log.fatal(m);
+        setTimeout(() => process.exit(1), 5000).unref(); // never wait indefinitely for in-flight requests
+        void app.close().finally(() => process.exit(1));
+      },
     });
   }
 } catch (error) {

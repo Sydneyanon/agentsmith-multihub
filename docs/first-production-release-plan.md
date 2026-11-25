@@ -4,8 +4,31 @@ Status as of 2026-11-25. **Nothing in this document has been executed.** No PR i
 
 Goal: put the reviewed security fixes (review findings 1-5) and the foundation PRs they sit on into production at `https://hub.agentsmithdesk.xyz`, with the research engine **idle**, preserving production data, with a tested rollback. Task 5.3 is not part of this and is not required.
 
+## 0. Release checklist (record to be completed; every PENDING item blocks the release)
+Owner decisions 2026-11-25: independent review, official Fly documentation, CI correction and a genuine Docker build are approved as *work*; deployment, merge, production migration, DNS and role/credential changes are **not** approved.
+
+| # | Item | Status / value |
+|---|---|---|
+| 1 | **Exact release commit** | **PENDING.** Not fixed until the independent-review findings are fixed or accepted and the owner approves the stack. Currently the stack tip is the head of PR #19 (on #18 `e9c25cd`, on #17 `91806bc`); it moves if anything is added. Record the full 40-character SHA here. |
+| 2 | **Exact image digest** | **PENDING, not produced.** Must be the registry digest (`registry.fly.io/agentsmith-hub@sha256:...`) of the image built from item 1, recorded after the genuine build in item 3 and equal to what is deployed. No digest of any candidate image has been published. (Docker-less layer diff ids recorded during review, e.g. `8f21928b...` for `91806bc`, are local and are **not** release digests.) |
+| 3 | **Genuine Docker build** | **NOT YET DONE.** See section 5a for the options. The CI `image` job (PR #18) is a genuine `docker build` but has not yet executed (item 4). |
+| 4 | **CI result** | **FAILED TO START (2026-11-25).** The first run of the corrected workflow (run 120 on PR #18, head `e9c25cd`) was created with its three jobs but every job ended in 2-3 s with no steps and no log (`get_job_logs`: 404; check-run output empty). Same signature as run 119 on PR #1. The cause is **not visible through the API**; it is consistent with the GitHub account or billing condition recorded earlier, but that is an inference. The repository is public, for which hosted runners are documented as free (not re-verified). Owner action needed: open the run page and read the annotation, and check Settings > Billing. No billing was changed. |
+| 5 | **Local verification of the release commit** | `npm run verify` (incl. both integration runs), layout check, image smoke, all mutation specs on the exact SHA: **to be re-run on item 1.** Last full run: `91806bc` (see `docs/stack-review-2026-11-25.md`). |
+| 6 | **Authentication verification (post-deploy)** | `/v1/*` 401 without token; unauthenticated malformed JSON to `/v1/intake` 401 (not 400/413); valid token 200 immediately after a burst of wrong tokens (never 429); other Host 421; token absent from logs. All scripted in section 6 and mirrored in the CI `image` job. |
+| 7 | **Database verification (post-deploy)** | `/health/ready` 200; `schema_migrations` still exactly seven checksummed rows (no migration runs); row counts unchanged from the pre-deploy snapshot; no role, grant or credential change; startup log shows the expected non-restricted-role warning. |
+| 8 | **Rollback target and procedure** | Previous release `registry.fly.io/agentsmith-hub:hub-b5bc4b548c2e`, digest `sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8` (commit `b5bc4b5`); procedure in section 8; rehearsed locally 18/18, **not on Fly**. Re-read the live release at deploy time. |
+| 9 | **Known residual risks** | See section 0a. |
+
+### 0a. Residual risks accepted for release 1 (explicit)
+1. **R1, production database role: the app keeps running as the table owner `schema_admin`.** A compromise of the application could disable the append-only triggers, rewrite or delete research data, or drop tables (review finding 4). PR #14 builds the least-privilege role, but it is **not applied** and no production role or credential is changed. Accepting this means: the engine stays idle so it produces no research data (production data is never seeded; the pre-deploy counts in item 7 show what exists), the exposed surface is the authenticated API only, and the role rollout follows as a separate approval. The startup log will warn about it every boot.
+2. R2: the SSRF client has never contacted a real third party and has known should-fix items from independent review (signal not honoured during DNS, no own handshake timeout). Not reachable in release 1: no worker, no code path fetches a URL.
+3. R3: all verification is local; CI has not run; no genuine Docker build yet.
+4. R4: Fly proxy peer range and `Fly-Client-IP` semantics: docs say the header is the client IP "from the perspective of Fly Proxy" and call `X-Forwarded-For` spoofable; the app trusts neither by default. Throttling is per shared peer until configured.
+5. R5: single machine, no HA, database auto-pauses after 15 minutes without connections (Developer plan: no PgBouncer, 20 connections).
+6. R6: Fly builders and registry storage are documented as free today, with a stated possibility of future charges.
+
 ## 1. What would be released
-Source of truth is the stacked draft PRs. Tips at the time of writing (each tip is verified by `npm run verify` incl. both integration runs, and by its mutation spec, on exactly that tree; the **final** release commit must be re-verified and recorded here when chosen):
+Source of truth is the stacked draft PRs. Tips at the time of writing (each tip was verified by `npm run verify` incl. both integration runs and by its mutation spec on the identical tree **immediately before squashing**, not re-run on the squashed SHA except where `docs/stack-review-2026-11-25.md` section 4 says so; the full suite was re-run on the stack tips recorded there; the **final** release commit must be re-verified and recorded in checklist item 1):
 
 | Layer | PR | Branch | Tip |
 |---|---|---|---|
@@ -17,7 +40,9 @@ Source of truth is the stacked draft PRs. Tips at the time of writing (each tip 
 | 4. Least-privilege runtime DB role (grants manifest, startup guard) | #14 | `claude/fix-db-least-privilege` | `32669e7` |
 | 5. Image without tests/dev code | #15 | `claude/fix-production-image-minimisation` | `746478e` |
 | Docs, roadmap, this plan | #16 | `claude/docs-roadmap-and-release-plan` | `ad5ab5f` |
-| 6. Startup role guard must not block boot on a database outage (found by the stack review) | #17 | `claude/fix-startup-guard-db-outage` | the head of PR #17; **this is the release-candidate tip** |
+| 6. Startup role guard must not block boot on a database outage (found by the stack review) | #17 | `claude/fix-startup-guard-db-outage` | `91806bc` |
+| CI: all stacked PRs, disposable-Postgres integration, genuine Docker build job | #18 | `claude/ci-stacked-prs-and-docker-build` | `e9c25cd` (its first CI run failed to start, see checklist item 4) |
+| 7. Fixes from the independent review (temp-schema shadowing blocker, SSRF timeouts/seams, token quality, image test gaps, docs) | #19 | `claude/independent-review-fixes` | head of PR #19; **this is the current release-candidate tip** (not yet approved) |
 
 Release candidate = the tip of the last PR in the chain after the owner's combined stack review. No merge is needed to build it (the image is built from a commit), but the owner decides whether the stack is merged first.
 
@@ -48,6 +73,25 @@ Preconditions: owner has completed the combined stack review; PR #10 display rec
 2. **[approval]** Push: `scripts/hub-image.sh push` (needs `FLY_API_TOKEN`; never printed) to `registry.fly.io/agentsmith-hub:hub-<12 hex>`; record the pushed digest and confirm it matches the tested layer.
 3. **[approval]** Record the rollback target before touching anything: current image `registry.fly.io/agentsmith-hub:hub-b5bc4b548c2e`, digest `sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8` (from `docs/hub-production-plan.md` section 12; re-read from `fly status`/`fly releases` at release time).
 4. **[approval]** `fly deploy --config fly.hub.toml --app agentsmith-hub --image <new ref> --ha=false`. Explicit `--app`; never `fly.toml`.
+
+### 5a. Options for a genuine Docker build (researched 2026-11-25; nothing run, nothing billed)
+Sources: Fly docs read from `docs.fly.io` (`flyctl/cmd/fly_deploy`, `about/pricing`, `reference/builders`); GitHub facts are from general knowledge and **not verified in this session**.
+
+| Option | What it does | Cost | Limits / needs approval |
+|---|---|---|---|
+| A. GitHub Actions `image` job (PR #18) | `docker build` of the repository Dockerfile on a hosted runner, content checks, production-mode container probe. Produces a runner-local image id, not a registry digest, and publishes nothing. | Repository is public; hosted standard runners are documented as free for public repositories (unverified here). No billing change made. | **Currently blocked: the first run failed to start** (checklist item 4). The owner must read the run annotation / billing page. |
+| B. Fly remote builder, build only | `fly deploy --build-only --push --image-label <label> --app agentsmith-hub --config fly.hub.toml` (all flags in the flyctl docs: `--build-only` "Build but do not deploy", `--push` "Push image to registry after build is complete", `--remote-only` is the default, Depot is the default builder). Prints the pushed image reference and digest; it deploys nothing. | Docs: "App builders and registry image storage: No charge ... currently free", with a warning that charges may start in future with notice. The docs do **not** say whether a builder app/Machine appears in the organisation. | Pushes an image into the production app's registry namespace (no deploy), uses `FLY_API_TOKEN`: **needs owner approval.** Gives the registry digest that item 2 requires. |
+| C. A Docker host the owner controls | `docker build`, then push with crane/docker. | Owner's own machine. | The owner has said no such machine is available. |
+| D. Docker-less layer build (current) | Hand-assembled layer on the pinned base; chroot smoke test. | None. | Not a genuine build (documented differences); used for the two existing releases. |
+
+Recommendation: use A for repeatable evidence once Actions runs, and B (after approval) to produce the exact release image and its registry digest; deploy only with `--image registry.fly.io/agentsmith-hub@sha256:<that digest>`. Until B or A succeeds, item 3 stays PENDING.
+
+### 5b. Platform facts read from the official Fly docs (2026-11-25)
+- `Fly-Client-IP`: "The IP address of the client from the perspective of Fly Proxy" (not stated whether a client-supplied value is overwritten). `X-Forwarded-For`: a list whose rightmost entry is the app's own shared or dedicated IP; "must be treated with caution to avoid spoofing". No fixed peer address range is documented. The design (trust nothing by default, `Fly-Client-IP` only from configured CIDRs) is consistent with this; the range must still be read from logs after an approved deploy.
+- Managed Postgres: PostgreSQL 16, 17 and 18 are supported (default 17); users are created with `fly mpg users create --role schema_admin|writer|reader` (also in the Machines API: create-user, update-user-role). **The privileges behind each role are not documented**, and the default user is `fly-user`. So a least-privilege runtime login should be created through this supported mechanism, and whether `writer`/`reader` users satisfy the PR #14 checks (no membership in provider group roles, no ownership) must be tested before the rollout. The runbook assumed `CREATE ROLE` by SQL; that is now the fallback, not the plan.
+- Developer plan: $4 per 30 days incl. storage; no PgBouncer; 20 direct connections shared by all clients; auto-pause after 15 minutes with no client connections, waking on the next connection (this is why the startup role check must not block boot). Pool max is 5 in the app.
+- Egress: the docs describe static egress IPs (`fly ips allocate-egress`, extra cost, per region) for allow-listing; **no outbound firewall or egress allow-list for Machines is documented**. Egress filtering would therefore have to be application-level on Fly (as implemented) unless Fly adds a control.
+- Builders: see option B.
 
 ## 6. Post-deploy verification (read-only; each result recorded)
 1. `fly status`: one Machine started, health check passing, image digest equals the pushed digest.

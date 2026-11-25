@@ -15,6 +15,7 @@
     "coverage",
     "apps/web",
     "**/*.test.ts",
+    "**/*.spec.ts",
     "apps/api/src/integration/**",
     "apps/api/src/**/testing/**"
   ]

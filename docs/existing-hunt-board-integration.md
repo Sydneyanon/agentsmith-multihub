@@ -1,6 +1,6 @@
 # Existing Hunt Control Room Integration
 
-> **Correction (2026-11-25):** the text below describes the dashboard as served from GitHub Pages at `sydneyanon.github.io/hunt/`. The live hostname `hunt.agentsmithdesk.xyz` was observed to be served by its own server (Caddy, address `194.195.254.216`), not by GitHub Pages; where it is hosted is unverified and the Pages URL below may be a stale or secondary address. Treat the hosting statements as unconfirmed until the owner states them. The integration principles (private source of truth, one-way sanitised projection, no changes to the Hunt site without approval) are unaffected. The Hunt site has not been touched by any of this work.
+> **Correction (2026-11-25):** the text below describes the dashboard as served from GitHub Pages at `sydneyanon.github.io/hunt/`. The live hostname `hunt.agentsmithdesk.xyz` was observed (by the author, **without a recorded artifact**) to be served by its own server (Caddy, address `194.195.254.216`), not by GitHub Pages; this is unconfirmed and where it is hosted is unverified; the GitHub Pages statements below are **unconfirmed claims**, not facts and the Pages URL below may be a stale or secondary address. Treat the hosting statements as unconfirmed until the owner states them. The integration principles (private source of truth, one-way sanitised projection, no changes to the Hunt site without approval) are unaffected. The Hunt site has not been touched by any of this work.
 
 ## Product continuity
 

@@ -94,3 +94,7 @@ The same suites are re-run on the final tip (the commit that contains PR #17 and
 
 ## 8. Roadmap verification
 `docs/research-intelligence-plan.md` on the PR #16 branch contains section 9 (5.4B Automated Security Toolchain, 5.5A Weirdness Engine, Adaptive Research Priority Engine, 5.9 Live Engine Control Room) and section 10 (dated decision log); the stale-document corrections (`fly.toml`, `fly.hub.toml`, production plan, retirement audit, Hunt doc, README, runtime doc) are in the same commit and guarded by `docs-canonical.test.ts` (10 tests, 7/7 mutations killed). **They are committed to the PR branch only: `origin/main` (`b50ff6f`) contains none of them, so the roadmap is not canonical on `main` until the stack is reviewed and merged.**
+
+## 9. Second pass (same day): independent review, CI, Docker, Fly docs
+See `docs/independent-review-2026-11-25.md` (per-PR findings, including a **blocker** in the database role design that this author's own review missed: temp-schema shadowing of the guard functions), `docs/first-production-release-plan.md` sections 0, 5a and 5b (checklist, Docker build options, platform facts read from `docs.fly.io`), and PR #18 (CI) and PR #19 (fixes). Correction to section 6 above: the Fly documentation **was** reachable through the shell (`docs.fly.io`, read-only GETs) even though the web-fetch tool could not resolve `fly.io`; the questions left open there are now answered or narrowed in release plan section 5b.
+

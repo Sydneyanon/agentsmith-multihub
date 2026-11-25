@@ -19,6 +19,7 @@ export function registerHostGuard(app: FastifyInstance, allowedHosts: readonly s
   if (allowedHosts.length === 0) return;
   const allowed = new Set(allowedHosts);
   app.addHook("onRequest", async (request, reply) => {
+    // Exact URLs only, on purpose: a query string does not earn the Host exemption (hub-deploy.test.ts pins this).
     if (request.url === "/health/live" || request.url === "/health/ready") return;
     const host = (request.headers.host ?? "").toLowerCase().replace(/:\d+$/, "");
     if (!allowed.has(host)) return reply.code(421).send({ error: "misdirected_request" });

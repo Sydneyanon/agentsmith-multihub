@@ -1,0 +1,149 @@
+{
+ "command": "npx vitest run apps/api/src/net apps/api/src/review-hardening apps/api/src/auth apps/api/src/db-roles apps/api/src/build-output apps/api/src/lockout apps/api/src/integration/runtime-role",
+ "mutations": [
+  {
+   "name": "ssrf: signal ignored during DNS",
+   "file": "apps/api/src/net/safe-fetch.ts",
+   "old": "await abortable(resolver(host.hostname), signal)",
+   "new": "await resolver(host.hostname)"
+  },
+  {
+   "name": "ssrf: no headers/handshake timeout",
+   "file": "apps/api/src/net/safe-fetch.ts",
+   "old": "const headerTimer = setTimeout(() => timeout(\"waiting for response headers (connect, TLS handshake or server)\"), headersTimeoutMs);",
+   "new": "const headerTimer = setTimeout(() => undefined, headersTimeoutMs);"
+  },
+  {
+   "name": "ssrf: no idle timeout",
+   "file": "apps/api/src/net/safe-fetch.ts",
+   "old": "req.setTimeout(idleTimeoutMs, () => timeout(\"socket inactivity\"));",
+   "new": ""
+  },
+  {
+   "name": "ssrf: custom headers kept across origins",
+   "file": "apps/api/src/net/safe-fetch.ts",
+   "old": "if (!SAFE_ON_CROSS_ORIGIN.has(h)) headers.delete(h);",
+   "new": "if (h === \"authorization\") headers.delete(h);"
+  },
+  {
+   "name": "ssrf: raw (trailing-dot) hostname used for Host",
+   "file": "apps/api/src/net/safe-fetch.ts",
+   "old": "await once(url, hostname, addresses,",
+   "new": "await once(url, url.hostname, addresses,"
+  },
+  {
+   "name": "seams: enabled whenever not production",
+   "file": "apps/api/src/net/test-env.ts",
+   "old": "if (process.env.NODE_ENV !== \"test\") {",
+   "new": "if (process.env.NODE_ENV === \"production\") {"
+  },
+  {
+   "name": "auth: distinct-character rule removed",
+   "file": "apps/api/src/auth.ts",
+   "old": "if (counts.size < 12) return",
+   "new": "if (false) return"
+  },
+  {
+   "name": "auth: repeated-pattern rule removed",
+   "file": "apps/api/src/auth.ts",
+   "old": "token === token.slice(0, period).repeat(token.length / period)",
+   "new": "false"
+  },
+  {
+   "name": "app: 5xx details leaked",
+   "file": "apps/api/src/app.ts",
+   "old": "if (status >= 500) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "app: readiness never cached",
+   "file": "apps/api/src/app.ts",
+   "old": "if (!(cached && Date.now() - cached.at < cacheMs)) {",
+   "new": "if (true) {"
+  },
+  {
+   "name": "db: TEMP not revoked from PUBLIC",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "await client.query(`REVOKE TEMPORARY ON DATABASE ${q(dbName)} FROM PUBLIC`);",
+   "new": ""
+  },
+  {
+   "name": "db: TEMP not revoked from the role",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "await client.query(`REVOKE TEMPORARY, CREATE ON DATABASE ${q(dbName)} FROM ${q(role)}`);",
+   "new": ""
+  },
+  {
+   "name": "db: search_path not pinned",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "for (const f of allFns.rows) await client.query(`ALTER FUNCTION ${f.sig} SET search_path = ${schema}, pg_temp`);",
+   "new": ""
+  },
+  {
+   "name": "db: PUBLIC table grants kept",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "await client.query(`REVOKE ALL ON ALL TABLES IN SCHEMA ${schema} FROM PUBLIC`);",
+   "new": ""
+  },
+  {
+   "name": "db: predefined roles accepted",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "if (role.startsWith(\"pg_\")) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "db: object owner accepted",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "if (owned > 0) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "db: group membership accepted",
+   "file": "scripts/apply-runtime-grants.ts",
+   "old": "if (memberOf.length) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "db: role assessment ignores TEMP",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (temp) problems.push",
+   "new": "if (false) problems.push"
+  },
+  {
+   "name": "db: role assessment ignores PUBLIC grants",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (publicGrants > 0) problems.push",
+   "new": "if (false) problems.push"
+  },
+  {
+   "name": "guard: failed attempts not logged",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "        options.warn(`database runtime role check: attempt ${attempt}/${attempts} failed (${lastError}); retrying`);\n",
+   "new": ""
+  },
+  {
+   "name": "server: pool errors unhandled",
+   "file": "apps/api/src/server.ts",
+   "old": "pool?.on(\"error\", (error) => app.log.error({ err: error }, \"idle database client error\"));",
+   "new": ""
+  },
+  {
+   "name": "server: fatal exit not capped",
+   "file": "apps/api/src/server.ts",
+   "old": "setTimeout(() => process.exit(1), 5000).unref(); // never wait indefinitely for in-flight requests",
+   "new": ""
+  },
+  {
+   "name": "image: spec files compiled",
+   "file": "tsconfig.build.json",
+   "old": "    \"**/*.spec.ts\",\n",
+   "new": ""
+  },
+  {
+   "name": "image: db:grants script missing",
+   "file": "package.json",
+   "old": "    \"db:grants\": \"node dist/scripts/apply-runtime-grants.js\",\n",
+   "new": ""
+  }
+ ]
+}

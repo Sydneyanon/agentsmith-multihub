@@ -152,3 +152,76 @@ describe("SSRF-safe fetch: response handling", () => {
     await expect(reader.read()).rejects.toBeTruthy();
   });
 });
+
+describe("SSRF-safe fetch: independent-review fixes", () => {
+  const base = (port: number, map: Record<string, string[]>) => ({ resolver: staticResolver(map), allowedPorts: [port], allowInsecureHttp: true, allowLoopbackForTests: true });
+  const within = async (p: Promise<unknown>, ms: number) => {
+    const t = Date.now();
+    const r = await p.then(() => "resolved", (e) => (e as Error).name + ":" + ((e as { code?: string }).code ?? (e as Error).message));
+    return { r, took: Date.now() - t, ok: Date.now() - t < ms };
+  };
+
+  it("honours the caller's AbortSignal while DNS resolution is still pending", async () => {
+    const f = createSafeFetch({ resolver: () => new Promise<string[]>(() => undefined) });
+    const out = await within(f("https://slow-dns.example.org/", { signal: AbortSignal.timeout(300) }), 1500);
+    expect(out.ok, `took ${out.took} ms`).toBe(true);
+    expect(out.r).not.toBe("resolved");
+  });
+  it("gives up on a server that accepts the connection and never answers, without any caller signal", async () => {
+    const s = await track((_q, _r) => { /* never respond */ });
+    const f = createSafeFetch({ ...base(s.port, { "mute.example.org": ["127.0.0.1"] }), headersTimeoutMs: 300 });
+    const out = await within(f(`http://mute.example.org:${s.port}/`), 2000);
+    expect(out.ok, `took ${out.took} ms`).toBe(true);
+    expect(out.r).toMatch(/timeout/);
+  });
+  it("gives up on a TLS handshake that never completes", async () => {
+    const net = await import("node:net");
+    const sock = net.createServer((c) => { c.on("error", () => undefined); /* accept and say nothing */ });
+    await new Promise<void>((r) => sock.listen(0, "127.0.0.1", r));
+    const port = (sock.address() as AddressInfo).port;
+    try {
+      const f = createSafeFetch({ resolver: staticResolver({ "tls-stall.example.org": ["127.0.0.1"] }), allowedPorts: [port], allowLoopbackForTests: true, headersTimeoutMs: 300 });
+      const out = await within(f(`https://tls-stall.example.org:${port}/`), 2000);
+      expect(out.ok, `took ${out.took} ms`).toBe(true);
+      expect(out.r).toMatch(/timeout/);
+    } finally { sock.close(); }
+  });
+  it("gives up on a body that goes quiet (idle timeout)", async () => {
+    const s = await track((_q, r) => { r.write("a"); /* then silence */ });
+    const f = createSafeFetch({ ...base(s.port, { "idle.example.org": ["127.0.0.1"] }), idleTimeoutMs: 300 });
+    const res = await f(`http://idle.example.org:${s.port}/`);
+    const out = await within(res.text(), 2000);
+    expect(out.ok, `took ${out.took} ms`).toBe(true);
+    expect(out.r).not.toBe("resolved");
+  });
+  it("drops every custom header on a cross-origin redirect, keeping only a small safe set", async () => {
+    let seen: http.IncomingHttpHeaders = {};
+    const b = await track((q, r) => { seen = q.headers; r.end("b"); });
+    const a = await track((_q, r) => { r.statusCode = 302; r.setHeader("location", `http://b.example.org:${b.port}/`); r.end(); });
+    const f = createSafeFetch({ resolver: staticResolver({ "a.example.org": ["127.0.0.1"], "b.example.org": ["127.0.0.1"] }), allowedPorts: [a.port, b.port], allowInsecureHttp: true, allowLoopbackForTests: true });
+    await (await f(`http://a.example.org:${a.port}/`, { headers: { "x-api-key": "secret", authorization: "Bearer s", accept: "text/plain", "x-internal": "1" } })).text();
+    expect(seen["x-api-key"]).toBeUndefined();
+    expect(seen["x-internal"]).toBeUndefined();
+    expect(seen.authorization).toBeUndefined();
+    expect(seen.accept).toBe("text/plain");
+  });
+  it("uses the normalised name (no trailing dot) for Host", async () => {
+    let host = ""; const s = await track((q, r) => { host = String(q.headers.host); r.end("ok"); });
+    const f = createSafeFetch(base(s.port, { "dot.example.org": ["127.0.0.1"] }));
+    await (await f(`http://dot.example.org.:${s.port}/`)).text();
+    expect(host).toBe(`dot.example.org:${s.port}`);
+  });
+  it("test-only policies are available ONLY when NODE_ENV is 'test', not merely 'not production'", () => {
+    const prev = process.env.NODE_ENV;
+    try {
+      for (const v of [undefined, "", "development", "staging", "production"]) {
+        if (v === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = v;
+        expect(() => createSafeFetch({ allowLoopbackForTests: true }), String(v)).toThrow(/NODE_ENV/);
+        expect(() => createSafeFetch({ allowInsecureHttp: true }), String(v)).toThrow(/NODE_ENV/);
+      }
+      process.env.NODE_ENV = "test";
+      expect(() => createSafeFetch({ allowLoopbackForTests: true })).not.toThrow();
+    } finally { if (prev === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prev; }
+  });
+});
+

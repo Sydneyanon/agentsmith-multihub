@@ -34,3 +34,11 @@ Evidence: `scripts/mutations/auth-order.json` (run with `scripts/mutation-check.
 ## Lockout and proxy trust (review finding 3)
 
 Previously every request counted against a per-client budget *before* the token was compared, so anyone sending ten wrong tokens from the operator's address — or, with `trustProxy: true`, from an address they chose via `X-Forwarded-For` — could return `429` to the legitimate operator. Now: a valid token is always accepted; only invalid attempts are throttled (`429` + `Retry-After`, attempts made while locked out are not recorded so the lockout cannot extend itself); client identity is the TCP peer, never `X-Forwarded-For`; and `Fly-Client-IP` is honoured only from peers inside `HUB_TRUSTED_PROXY_CIDRS` (empty by default). Verified and unverified Fly facts, and the procedure for enabling per-client buckets, are in `docs/fly-proxy-topology.md`. Evidence: `scripts/mutations/lockout-proxy.json` — 9 reintroduced weaknesses, all killed.
+
+## Independent review changes (2026-11-25)
+- **Token quality.** Because a correct guess is always accepted (the limiter only throttles *invalid* attempts), the token itself must be unguessable. Startup now also refuses a token with fewer than 12 distinct characters or one that is a repeated pattern (for example `abcdefghij` x4), in addition to the length and entropy checks. Generated tokens (`openssl rand -base64 48`, hex, base64url) pass.
+- **Host guard is deliberately stricter than the public matcher.** The auth hook treats `/health/live?x=1` as public (query string ignored), but only the exact `/health/live` and `/health/ready` URLs are exempt from the Host guard, so a health URL with a query string on a foreign Host is 421. Fly's probes send no query string. (The independent review flagged the difference; the existing test pins it as intended.)
+- **No internal detail in errors.** Any 5xx answers `{"error":"internal_error"}`; driver messages with hosts and ports go to the log only.
+- **`/health/ready` is cached for 5 s** so the public probe cannot hammer the database or keep an auto-paused Developer-plan cluster awake; it still reports a failing database as 503 without details.
+- Accepted: behind Fly the throttle bucket is the shared gateway peer until `HUB_TRUSTED_PROXY_CIDRS` is set, so noise can make a mistyped token read `429`; the valid token is never throttled.
+
