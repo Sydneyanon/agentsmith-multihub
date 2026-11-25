@@ -94,6 +94,21 @@ PostgreSQL 16-compatible, migrations `0001`-`0007` (`npm run db:migrate`, `DIREC
 
 CI cannot run (GitHub Actions billing). The release gate is the local `npm run verify`, `npm run hub:layout-check`, and the checks above, none of which is independent CI.
 
+## 7a. Go-live command sheet (syntax checked against flyctl v0.5.17 `--help`; none of it has been run)
+Approved by the owner on 2026-11-25: create the separate app, its separate database, and deploy the private hub; Fly charges understood. Still requires approval at the time: any DNS change (the exact records are shown first), any deletion (none is part of this release).
+Prerequisite: a Fly credential in the session (`FLY_API_TOKEN`) and a Fly account whose billing allows creating apps. If Fly refuses for billing or any account-level reason, stop and report the exact message; no workaround.
+
+1. `fly apps create agentsmith-hub --org <org>` (if the name is taken, stop and report; do not silently pick another).
+2. `fly mpg create --name agentsmith-hub-db --org <org> --region syd --plan Dev-256 --pg-major-version 16` (**the plan must be named: without it the default is Basic at $38/month**; the CLI prints the plan's monthly price: record it; if `syd` is not offered or `Dev-256` is not the $4 plan, stop and report; the connection string it prints is never copied anywhere).
+3. Secrets, staged so nothing deploys yet: generate the token locally into a variable that is never echoed, then `fly secrets set --stage --app agentsmith-hub API_BEARER_TOKEN=<generated>`; the token is handed to the owner once, through the Fly dashboard or a channel the owner chooses, never in chat history, a file, a log or git.
+4. `fly mpg attach <cluster id> --app agentsmith-hub` sets `DATABASE_URL` (prints the string: do not log it).
+5. `fly deploy --config fly.hub.toml --app agentsmith-hub --ha=false`. Checks: release succeeded, one `app` Machine healthy, no worker, `/health/live` 200 (through `fly proxy 8080:8080 --app agentsmith-hub` and `Host: hub.agentsmithdesk.xyz`), `/health/ready` reports postgres ok (allow 30 s for a paused cluster to wake), TLS verification stays on (if it fails: stop and report; never set `DATABASE_SSL_VERIFY=false`).
+6. Migration, only after confirming the target is the new empty cluster (list its tables, expect none): `fly mpg proxy <cluster id>` gives a loopback endpoint on 127.0.0.1:16380; run `npm run db:migrate` locally with `DIRECT_DATABASE_URL` pointing at that loopback endpoint, or run it inside the app Machine as in `docs/fly-staging-runbook.md` step 8 with `MIGRATE_CONFIRM_REMOTE_HOST`. Expect seven migrations applied.
+7. `fly certs add hub.agentsmithdesk.xyz --app agentsmith-hub`, then show the owner the exact DNS records it prints.
+8. Owner adds the records. `fly certs check hub.agentsmithdesk.xyz --app agentsmith-hub` until issued.
+9. Run the acceptance checklist (section 9) and confirm Hunt still responds.
+Open unknowns that only a real attempt reveals: whether the remote builder is reachable from the session's network policy (extra hosts may need allowing), whether the Developer plan is offered in `syd`, and whether the token's scope covers Managed Postgres.
+
 ## 8. DNS: proposed changes (NOT applied)
 Current state of `hub.agentsmithdesk.xyz`: **unknown**. This session's resolver is filtered (`example.com` and the `xyz` zone itself return no such domain), so its answers are not evidence of the real zone. The owner's zone export is needed (see the audit).
 
