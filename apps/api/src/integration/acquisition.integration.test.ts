@@ -211,6 +211,18 @@ describe.skipIf(skipIntegration)("repository acquisition over real Postgres", ()
     });
   });
 
+  describe("the 5.1 retry rule for snapshot reports compares values, not key order", () => {
+    it("a retry carrying the same report with its keys in another order is the same snapshot; a changed value is a conflict", async () => {
+      const { lease } = await fx.step();
+      const commitSha = fx.commit();
+      const report = { zeta: 1, alpha: { nested: [1, 2], b: "x" }, mid: true };
+      const id = await store.createSnapshot(lease, { repository: "acme/order", commitSha, acquisitionReport: report });
+      const reordered = { mid: true, alpha: { b: "x", nested: [1, 2] }, zeta: 1 };
+      expect(await store.createSnapshot(lease, { repository: "acme/order", commitSha, acquisitionReport: reordered })).toBe(id);
+      await expect(store.createSnapshot(lease, { repository: "acme/order", commitSha, acquisitionReport: { ...reordered, zeta: 2 } })).rejects.toThrow(/acquisition report/);
+    });
+  });
+
   describe("leases", () => {
     it("a worker that lost its lease before the writes cannot create anything", async () => {
       const { lease, runId } = await fx.step();

@@ -1,3 +1,4 @@
+import { canonicalJson } from "./research-state.js";
 import { describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import {
@@ -155,5 +156,19 @@ describe("retry comparison helpers", () => {
     expect(error.message).toContain("src/A.sol");
     expect(error.message).toContain("blob, size");
     expect(error.name).toBe("ResearchConflictError");
+  });
+});
+
+describe("canonicalJson (how snapshot reports are compared on a retry)", () => {
+  it("is independent of object key order at every depth, because PostgreSQL jsonb returns keys in its own order", () => {
+    const a = { z: 1, a: { y: [1, { q: 1, b: 2 }], c: "x" }, m: null };
+    const b = { m: null, a: { c: "x", y: [1, { b: 2, q: 1 }] }, z: 1 };
+    expect(canonicalJson(a)).toBe(canonicalJson(b));
+  });
+  it("still tells different values apart, including array order, types and nulls", () => {
+    expect(canonicalJson({ a: [1, 2] })).not.toBe(canonicalJson({ a: [2, 1] }));
+    expect(canonicalJson({ a: 1 })).not.toBe(canonicalJson({ a: "1" }));
+    expect(canonicalJson({ a: null })).not.toBe(canonicalJson({}));
+    expect(canonicalJson({ a: { b: 1 } })).not.toBe(canonicalJson({ a: { b: 2 } }));
   });
 });
