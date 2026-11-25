@@ -10,13 +10,14 @@ Source of truth is the stacked draft PRs. Tips at the time of writing (each tip 
 | Layer | PR | Branch | Tip |
 |---|---|---|---|
 | Foundation: hub UI + API alpha (5.1 research state, ...) | #7-#9 | `claude/hub-dashboard-alpha` and ancestors | already reviewed earlier; **the currently deployed code is `b5bc4b5`** |
-| Acquisition 5.2 (engine code, idle without a worker) | #10 | `claude/task5-2-repository-acquisition` | `8e0121d` (displayed head on GitHub still `a0c96e3`: **unreconciled**, see section 7) |
+| Acquisition 5.2 (engine code, idle without a worker) | #10 | `claude/task5-2-repository-acquisition` | `8e0121d` (GitHub's PR head was stuck at `a0c96e3` for hours; **reconciled** by an idempotent PR update, see `docs/stack-review-2026-11-25.md` section 1) |
 | 1. SSRF-safe outbound requests | #11 | `claude/fix-ssrf-source-url-validator` | `8f5cbdc` |
 | 2. Auth before body parsing, default-deny | #12 | `claude/fix-auth-before-body-parsing` | `fd60659` |
 | 3. No lockout of the operator, no spoofable proxy trust | #13 | `claude/fix-lockout-and-proxy-trust` | `1908c97` |
 | 4. Least-privilege runtime DB role (grants manifest, startup guard) | #14 | `claude/fix-db-least-privilege` | `32669e7` |
 | 5. Image without tests/dev code | #15 | `claude/fix-production-image-minimisation` | `746478e` |
-| Docs, roadmap, this plan | #16 | `claude/docs-roadmap-and-release-plan` | recorded when pushed |
+| Docs, roadmap, this plan | #16 | `claude/docs-roadmap-and-release-plan` | `ad5ab5f` |
+| 6. Startup role guard must not block boot on a database outage (found by the stack review) | #17 | `claude/fix-startup-guard-db-outage` | the head of PR #17; **this is the release-candidate tip** |
 
 Release candidate = the tip of the last PR in the chain after the owner's combined stack review. No merge is needed to build it (the image is built from a commit), but the owner decides whether the stack is merged first.
 
@@ -35,7 +36,7 @@ Release candidate = the tip of the last PR in the chain after the owner's combin
 | DB role creation | **not done**; whether the Fly MPG user may `CREATE ROLE` is **unknown** | needed for stage 2 |
 | `fly.hub.toml` | unchanged | unchanged |
 
-Staged DB-role rollout (each stage separately approved, each reversible): (1) release the code; (2) create the role and apply grants; (3) switch `DATABASE_URL` and redeploy; (4) require the restricted role. Releasing the code first is safe because the new code works with either role (proved by the rehearsal below).
+Staged DB-role rollout (each stage separately approved, each reversible): (1) release the code; (2) create the role and apply grants; (3) switch `DATABASE_URL` and redeploy; (4) require the restricted role. Releasing the code first is safe because the new code works with either role (proved by the rehearsal below). The startup role check runs only after the server is listening (PR #17); the earlier version (PR #14) ran it before `listen` and would have made an unreachable or paused database stop the server booting.
 
 ## 4. Costs
 No new billable resource. Same single `app` Machine (shared-cpu-1x, 512 MB, `auto_stop_machines` on), same Managed Postgres Developer cluster, free shared IPv4/IPv6, one certificate. List prices recorded in `docs/hub-production-plan.md` section 2 (about $7.69/month for app + database; **list prices as of that doc, not re-verified in this pass**). A deploy replaces the Machine's image; the build is done locally with `crane`, no paid builder. The retained previous image costs registry storage only (not itemised by Fly in the references reviewed).
@@ -64,7 +65,8 @@ Preconditions: owner has completed the combined stack review; PR #10 display rec
 Stop conditions: any failed step above, a new migration appearing, unexpected 5xx, or any DB error: roll back (section 8) and report; do not retry blindly.
 
 ## 7. Open items that block the release decision
-- **PR #10 display discrepancy**: GitHub shows head `a0c96e3`; the remote branch tip is `8e0121d`. Must be reconciled (a fresh read of the PR, not a force-push or history rewrite) before the combined review.
+- ~~PR #10 display discrepancy~~ **Resolved 2026-11-25**: GitHub's PR #10 head ref was stale (`a0c96e3`, hours after the branch moved to `8e0121d`); an idempotent update of the PR's base to its existing value made GitHub re-sync (`refs/pull/10/head` now `8e0121d`). No history change. See `docs/stack-review-2026-11-25.md`.
+- **CI cannot cover the stack even if billing is fixed**: `.github/workflows/ci.yml` triggers only for pull requests targeting `main`; every PR in this stack targets another branch, and the workflow runs neither the integration tests nor the build-output checks.
 - No independent CI result exists (`ci.yml` present; Actions billing block recorded). All evidence is local.
 - **Real Docker build never performed** (Docker-less equivalent only).
 - Unverified: Fly MPG PostgreSQL version and `CREATE ROLE` ability; Fly peer range; `Fly-Client-IP` overwrite semantics; real GitHub response path of the new SSRF client; network egress filtering.

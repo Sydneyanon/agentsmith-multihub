@@ -1,0 +1,35 @@
+{
+ "command": "npx vitest run apps/api/src/db-roles",
+ "mutations": [
+  {
+   "name": "guard awaited (boot blocked by the check)",
+   "file": "apps/api/src/server.ts",
+   "old": "void runRoleGuard(pool, {",
+   "new": "await runRoleGuard(pool, {"
+  },
+  {
+   "name": "no retry between failed checks",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (attempt < attempts) await sleep(delay);",
+   "new": ""
+  },
+  {
+   "name": "a bad role is always fatal, even when not required",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "if (options.require) options.fatal(message); else options.warn(message);\n      }\n      return;",
+   "new": "options.fatal(message);\n      }\n      return;"
+  },
+  {
+   "name": "a never-verified role is only a warning even when required",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "  const message = `could not verify the database runtime role after ${attempts} attempts (${lastError})`;\n  if (options.require) options.fatal(message); else options.warn(message);",
+   "new": "  const message = `could not verify the database runtime role after ${attempts} attempts (${lastError})`;\n  options.warn(message);"
+  },
+  {
+   "name": "a connection failure is fatal when not required",
+   "file": "apps/api/src/db-roles.ts",
+   "old": "  const message = `could not verify the database runtime role after ${attempts} attempts (${lastError})`;\n  if (options.require) options.fatal(message); else options.warn(message);",
+   "new": "  const message = `could not verify the database runtime role after ${attempts} attempts (${lastError})`;\n  options.fatal(message);"
+  }
+ ]
+}

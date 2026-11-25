@@ -29,7 +29,7 @@ Notes on specific grants:
 - Mutations: `scripts/mutations/db-roles.json`.
 
 ## Application changes
-`HUB_REQUIRE_RESTRICTED_DB_ROLE` (default `false`). In production the server inspects its own role at startup: with `false` it logs a warning naming the problems; with `true` it refuses to start.
+`HUB_REQUIRE_RESTRICTED_DB_ROLE` (default `false`). In production the server inspects its own role **after it is already listening** (never awaited; found in the stack review: the first version ran the check before `listen`, so an unreachable or paused database made the process exit at boot, which the previous release did not do). A failed check is retried (6 attempts, 15 s apart); with `false` a bad role or an unverifiable role is logged as a warning; with `true` a bad role is fatal immediately and a role that cannot be verified after the attempts is fatal (fail closed).
 
 ## Rollout runbook — NOT executed; each step needs separate approval
 1. Confirm whether the Fly Managed Postgres user can `CREATE ROLE` (**unknown**). If not, create the role through the provider's own mechanism and pass its name as `RUNTIME_ROLE`. Do not guess.
@@ -42,5 +42,5 @@ Notes on specific grants:
 ## Limitations
 - The owner role can still bypass the triggers (and run migrations). This change protects against compromise of the **application**, not of the owner credential; keep `DIRECT_DATABASE_URL` out of the runtime environment.
 - Not exercised on Fly Managed Postgres; PostgreSQL major version and `CREATEROLE` availability there are unverified. Local runs used the local PostgreSQL 16.
-- The startup check is wired in `server.ts` (module-level, not unit-tested); the check itself is tested.
+- The startup wiring in `server.ts` (module-level) is covered by a source-order test, not an executed boot test.
 - The worker entry point (`worker-main.ts`) does not run the startup check yet.
