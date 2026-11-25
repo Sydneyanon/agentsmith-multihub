@@ -40,7 +40,7 @@ Step failures are classified (`step-errors.ts`) and unknown errors fail closed a
 
 At the attempt ceiling the stored reason says `retry limit reached: attempt N of M` and the SQL marks the step and run failed. Original error messages are preserved. If a failure cannot be recorded because the database is down, the worker retries the write three times and then leaves the lease to expire; the step is reclaimed and the attempt count still advances. On SIGINT/SIGTERM the in-flight step finishes, no further step is claimed and the pool is closed.
 
-Limits: retry backoff is per worker process (another worker may claim a re-queued step sooner), and queue SQL behaviour is covered by mocked tests only until database integration tests exist.
+Limits: retry backoff is per worker process (another worker may claim a re-queued step sooner). The queue SQL (claim order, leases, the retry ceiling, the reaper, snapshot immutability) and the loop over it are covered by real-Postgres integration tests (`npm run test:integration`); the unit tests in `npm test` use a mocked database.
 
 ## Running locally
 

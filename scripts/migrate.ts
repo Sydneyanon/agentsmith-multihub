@@ -3,8 +3,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Pool } from "pg";
 
+import { assertMigrationTarget } from "../apps/api/src/db-safety.js";
+
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required to run migrations");
+// Fail closed before any connection: loopback only, unless the remote host is explicitly confirmed.
+assertMigrationTarget(databaseUrl, process.env.MIGRATE_CONFIRM_REMOTE_HOST);
 
 const pool = new Pool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 5_000 });
 const lockId = 7_341_109_221;
