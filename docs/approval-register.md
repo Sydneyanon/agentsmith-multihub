@@ -4,6 +4,7 @@
 > - **APPROVED:** A16 (T-149 authority); A17 (D10); A4 (T-144 **design**, plus a draft on throwaway databases only); [A2 moved to UNRESOLVED below]; A20 **narrowed to P1 implementation only**.
 > - **UNRESOLVED:** A2 (corpus-4 scoring). The owner will clarify whether it was explicitly selected on the approval screen. It was executed (`aa6119d`, `f0ef971`); see `docs/corpus4-decision-record.md` for the exact chronology. The earlier recording is not rewritten in the decision log.
 > - **NOT approved:** P2 and P3 (stop for review after P1); D1–D9 (A5–A13, nine separate decisions); T-149 S2 (the human-review and outcome API); A4b; A15; A18 (deferred); A19; A21; production changes, deployments, worker activation, PR merges, legacy retirement.
+> - **2026-11-26 (later): A24 ACCEPTED as a branch milestone. APPROVED: T-180 (corpus-5 brief and selection process preparation), A28 (design only, no migration), A33 (branch), T-185 (study).** A25 awaits the checklist (`docs/a25-release-checklist.md`). A26, A30, A31 and A32 stay deferred or unapproved; P4 not started.
 > - **2026-11-26: A24 APPROVED and implemented** (CR1/CR2, `abf76a5`). A25 (release), A26 (worker), P4, corpus-5 execution beyond an approved brief, ML training, migrations, production changes, paid runtime, bounty submissions, external polling and active testing are **not** approved.
 > - The rows below keep their original wording; where they differ, these recorded decisions apply.
 
