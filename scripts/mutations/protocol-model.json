@@ -60,6 +60,54 @@
    "file": "apps/api/src/analysis/solidity/protocol-model.ts",
    "old": "weight: Math.max(1, entry.get(c.id) ?? 0)",
    "new": "weight: 1"
+  },
+  {
+   "name": "P1: constructors omitted",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "|| f.kind === \"fallback\" || f.kind === \"constructor\")) continue;",
+   "new": "|| f.kind === \"fallback\")) continue;"
+  },
+  {
+   "name": "P1: constructors counted as entry points",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "const entryPoint = f.kind !== \"constructor\" && (",
+   "new": "const entryPoint = ("
+  },
+  {
+   "name": "P1: unresolved calls not recorded as relationships",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "if (un && m) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "P1: interface/untyped calls resolved to a guess",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "resolvedCallee: e.calleeResolved && e.callee ? e.callee : null",
+   "new": "resolvedCallee: e.callee ?? null"
+  },
+  {
+   "name": "P1: reachable calls do not follow helpers",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "if (!seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }",
+   "new": "void 0;"
+  },
+  {
+   "name": "P1 consumer: dossier lists only direct calls",
+   "file": "apps/api/src/analysis/solidity/pipeline.ts",
+   "old": "external_calls: reachableCalls(m, f.id).filter((e) => e.kind !== \"unresolved\")",
+   "new": "external_calls: m.callEdges.filter((e) => e.from === f.id && e.kind !== \"internal\" && e.kind !== \"modifier\" && e.kind !== \"unresolved\")"
+  },
+  {
+   "name": "P1 consumer: scoring counts research at any hash as current",
+   "file": "apps/api/src/priority/from-model.ts",
+   "old": ".filter((r) => r.contentSha256 === c.contentSha256).flatMap",
+   "new": ".flatMap"
+  },
+  {
+   "name": "P1 consumer: scoring ignores recorded research",
+   "file": "apps/api/src/priority/from-model.ts",
+   "old": "researchedAtHashes: [...new Set(mine.map((r) => r.contentSha256))].sort(),",
+   "new": "researchedAtHashes: [],"
   }
  ],
  "_notes": [

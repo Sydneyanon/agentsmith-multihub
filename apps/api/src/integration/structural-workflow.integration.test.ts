@@ -92,6 +92,9 @@ describe.skipIf(skipIntegration)("structural analysis inside the repository_rese
       expect(eps.some((e) => !e.guarded)).toBe(true);
       for (const c of built.architecture.components) expect(c.content_sha256).toMatch(/^[0-9a-f]{64}$/);
       for (const e of eps.flatMap((x) => x.external_calls)) expect(e.at).toMatch(/^contracts\/.+\.sol:\d+/);
+      // calls made by an internal helper on behalf of an entry point are listed under the entry point (Bank.withdrawHelper -> _pay)
+      const helper = eps.find((e) => e.fn === "Bank.withdrawHelper(uint256)");
+      expect(helper).toBeTruthy(); expect(helper!.external_calls.some((x) => x.kind === "low-level-call" && x.target_provenance === "msg.sender")).toBe(true);
     }
     expect(renderDossierMarkdown(built)).toMatch(/## Architecture \(protocol model P1\)/);
   });

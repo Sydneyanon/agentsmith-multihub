@@ -4,7 +4,7 @@ import { ProgramIndex } from "./index.js";
 import { challengeFinding } from "./challenge.js";
 import { validateReentrancy, type SimOutcome } from "./simulate.js";
 import { analyzeSources, type Finding } from "./specialists.js";
-import { buildProtocolModel, type ProtocolModel } from "./protocol-model.js";
+import { buildProtocolModel, reachableCalls, type ProtocolModel } from "./protocol-model.js";
 import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
 
 /**
@@ -88,7 +88,7 @@ export type DossierEntry = {
 };
 export type ArchitectureSection =
   | { available: false; reason: string }
-  | { available: true; model_sha256: string; builder: string; components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; at: string }> }> }>; unknowns: Array<{ at: string; what: string }> };
+  | { available: true; model_sha256: string; builder: string; components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; resolved_callee: string | null; at: string }>; unresolved_calls: Array<{ name: string; at: string }> }> }>; unknowns: Array<{ at: string; what: string }> };
 export type Dossier = {
   snapshot: { id: string; repository: string; commit_sha: string; file_count: number; manifest_sha256: string; verified: boolean };
   summary: Record<string, number>; entries: DossierEntry[]; architecture: ArchitectureSection; limitations: string[]; content_sha256: string;
@@ -112,7 +112,8 @@ async function architectureFromStoredModel(pool: Pool, snapshotId: string): Prom
       id: c.id, kind: c.kind, file: c.file, lines: `${c.evidence.lineStart}-${c.evidence.lineEnd}`, content_sha256: c.contentSha256,
       entry_points: m.functions.filter((f) => f.component === c.id && f.entryPoint).map((f) => ({
         fn: f.id, guarded: f.callerGuarded, writes: f.stateWrites,
-        external_calls: m.callEdges.filter((e) => e.from === f.id && e.kind !== "internal" && e.kind !== "modifier").map((e) => ({ kind: e.kind, to: e.to, target_provenance: e.targetProvenance, at: at(e.evidence) })),
+        external_calls: reachableCalls(m, f.id).filter((e) => e.kind !== "unresolved").map((e) => ({ kind: e.kind, to: e.to, target_provenance: e.targetProvenance, resolved_callee: e.resolvedCallee ?? null, at: at(e.evidence) })),
+        unresolved_calls: reachableCalls(m, f.id).filter((e) => e.kind === "unresolved").map((e) => ({ name: e.to, at: at(e.evidence) })),
       })),
     })),
     unknowns: m.unknowns.map((u) => ({ at: `${u.file}${u.line ? `:${u.line}` : ""}`, what: u.what })),
@@ -172,7 +173,7 @@ export function renderDossierMarkdown(d: Dossier): string {
     o.push(`Model \`${d.architecture.model_sha256}\` (${d.architecture.builder}). Every item cites code; P1 covers components, entry points, writes and external calls only (no roles, assets or value flows yet).\n`);
     for (const c of d.architecture.components) {
       o.push(`### ${c.id} (${c.kind}, \`${c.file}:${c.lines}\`)`);
-      for (const f of c.entry_points) o.push(`- \`${f.fn}\` ${f.guarded ? "caller-guarded" : "**no caller guard**"}${f.writes.length ? `; writes ${f.writes.join(", ")}` : ""}${f.external_calls.length ? `; calls ${f.external_calls.map((x) => `${x.kind} ${x.to} (target from ${x.target_provenance ?? "n/a"}, \`${x.at}\`)`).join("; ")}` : ""}`);
+      for (const f of c.entry_points) o.push(`- \`${f.fn}\` ${f.guarded ? "caller-guarded" : "**no caller guard**"}${f.writes.length ? `; writes ${f.writes.join(", ")}` : ""}${f.external_calls.length ? `; calls ${f.external_calls.map((x) => `${x.kind} ${x.to}${x.resolved_callee ? ` -> ${x.resolved_callee}` : ""} (target from ${x.target_provenance ?? "n/a"}, \`${x.at}\`)`).join("; ")}` : ""}${f.unresolved_calls.length ? `; **unresolved:** ${f.unresolved_calls.map((x) => `${x.name} (\`${x.at}\`)`).join(", ")}` : ""}`);
       o.push("");
     }
     if (d.architecture.unknowns.length) o.push(`Not modelled (${d.architecture.unknowns.length}): ` + d.architecture.unknowns.slice(0, 20).map((u) => `\`${u.at}\` ${u.what}`).join("; ") + (d.architecture.unknowns.length > 20 ? "; ..." : "") + "\n");
@@ -188,11 +189,12 @@ export function buildStructuralMap(sources: ReadonlyArray<{ path: string; text: 
     name: c.id, kind: c.kind, file: c.file, bases: ix.contracts.get(c.id)?.bases ?? [], lines: [c.evidence.lineStart, c.evidence.lineEnd],
     state_variables: c.stateVariables.map((v) => ({ name: v.name, type: v.type, constant: v.constant, immutable: v.immutable })),
     functions: model.functions.filter((f) => f.component === c.id).map((f) => {
-      const calls = model.callEdges.filter((e) => e.from === f.id && e.kind !== "internal" && e.kind !== "modifier");
+      const calls = reachableCalls(model, f.id).filter((e) => e.kind !== "unresolved");
       return {
         name: f.name, kind: f.kind, visibility: f.visibility, mutability: f.mutability, modifiers: f.modifiers, lines: [f.evidence.lineStart, f.evidence.lineEnd], declared_in: f.declaredIn,
         entry_point: f.entryPoint, caller_guarded: f.callerGuarded, external_calls: calls.length,
         low_level_calls: [...new Set(calls.map((e) => e.kind).filter((k) => k !== "external"))], state_writes: f.stateWrites,
+        unresolved_calls: reachableCalls(model, f.id).filter((e) => e.kind === "unresolved").length,
       };
     }),
   }));

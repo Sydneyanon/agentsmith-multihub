@@ -1,5 +1,14 @@
 # Protocol model P1: evidence for owner review (2026-11-26). P2 is NOT started; it awaits this review.
 
+> **Revision 2 (after the owner's ten P1 requirements).** The first P1 commit was `6e1ed20`. Checking it against the requirements found three gaps, now closed:
+> 1. **Explicit unresolved relationships.** An unresolved call is now an `unresolved` edge of the calling function, with its location. External calls carry `resolvedCallee`, which is `null` unless the type resolves to a snapshot contract; an interface is never connected to an implementer.
+> 2. **The scoring consumer.** The Priority Engine's scorer takes its per-component input from the model (`priority/from-model.ts`). There was no private code-derived component list to remove: components were hand-supplied inputs.
+> 3. **Old-versus-new comparison** (below). It found **two regressions in the first P1 commit**, now fixed:
+>    - calls made by internal helpers had dropped out of the entry points that reach them;
+>    - constructors were missing.
+>
+> The figures in this revision supersede the first commit's where they differ (model hash, unknowns count).
+
 **Scope approved (A20, narrowed):** P1 implementation only.
 
 **Built:**
@@ -72,3 +81,60 @@ the analyzer already computed rather than derived a second time.
 - **Recommended P2 scope** (from the plan): state-variable roles, consumed by the reentrancy validator's world seeding (replacing its
   private V1 derivation) and by the specialists' authority detection. Gate: identical verdicts and findings on all development data,
   with the private derivations deleted.
+
+
+## Old versus new (pre-P1 structural map at `48d9a38` versus the P1 projection), every corpus and the real repository
+
+| Source | Functions old → new | Old functions missing | Re-homed to the deployed contract | Same-function differences |
+|---|---|---|---|---|
+| dev corpus | 42 → 42 | 0 | 1 | entry-point flag on 3 constructors |
+| corpus 1 | 106 → 106 | 0 | 4 | 22 constructors |
+| corpus 2 | 175 → 175 | 0 | 1 | 29 constructors |
+| corpus 3 | 370 → 370 | 0 | 74 | 54 constructors |
+| corpus 4 | 464 → 493 | 0 | 127 | 60 constructors |
+| `not-so-smart-contracts` | 185 → 208 | 0 | 0 | 17 constructors |
+
+On every source:
+- **Identical:** caller-guard flag, state writes, reachable external-call count and call kinds (the old label `call` is now
+  `low-level-call`).
+- **Entry-point flag differences:** **all are constructors**, verified exhaustively (0 exceptions). The old map wrongly counted public
+  constructors as callable entry points.
+- **Extra functions:** inherited functions now described in each deployed child contract that exposes them.
+
+### Where P1 improves consistency
+- **One derivation.** The dossier, the step's structural map and the Priority Engine's coverage and scoring inputs all read the same
+  stored model; previously the map was computed separately and the other two had nothing.
+- **Deployed-context truth.** Inherited functions are described where they are actually callable, through the override that
+  contract reaches. Constructors are no longer mislabelled as entry points.
+- **Version-aware components.** Per-component content hashes let coverage and scoring tell changed code from unchanged code, including
+  for two contracts in one file.
+- **Explicit gaps.** Unresolved calls and interface calls are marked as such instead of being dropped or guessed.
+
+### Where P1 does not yet provide enough information
+- **"Caller-guarded" is a yes/no flag.** It cannot say which role guards a function, or whether that role can be seized (P3).
+- **No variable roles.** It does not know what a state variable *is*: a ledger, a total, an authority or an implementation pointer
+  (P2). The validator and specialists therefore still derive those privately.
+- **No assets, value flows, state transitions or multi-transaction structure** (P4–P6), and no external-integration assumptions (P7).
+- **Unknowns on legacy code are inflated** (38 on the real repository, mostly pre-0.4.21 events written without `emit`).
+- **Internal call targets have no parameter signature,** so overloaded internal functions are not distinguished.
+
+## Final figures (revision 2)
+- **Real repository** (`run5-p1-final-*`): two independent clone acquisitions of `crytic/not-so-smart-contracts` @ `020dbdb` produced an
+  identical model `13fa83c7…` and identical dossier content `66c40511…`. 51 deployable components and 162 entry points; 53 reach an
+  external call, 32 reach an unresolved call; 38 unknowns; 34 leads (unchanged).
+- **Tests:**
+  - 16 protocol-model unit tests and 2 dossier workflow integration tests.
+  - P1 mutation spec 18/18 killed; analyzer spec 36/36.
+  - Findings unchanged on every corpus; corpus-4 per-label results identical to the scored candidate 3.
+  - Full verify: 807 unit tests, 254/254 integration as owner and as restricted role.
+- **Requirement checklist:**
+  1. Deterministic from the sealed snapshot ✓
+  2. Versioned format and producer ✓
+  3. Evidence for every relationship ✓
+  4. Unresolved relationships explicit, nothing invented ✓
+  5. Content-addressed and hash-verified ✓
+  6. Priority Engine consumes P1 ✓ (no private derivation existed to remove)
+  7. The dossier's architecture comes only from P1 ✓
+  8. Behavioural and integration tests for both consumers ✓
+  9. Old versus new compared ✓
+  10. Limitations recorded ✓

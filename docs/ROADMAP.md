@@ -175,7 +175,7 @@ Evidence for every row is in `docs/roadmap-reconciliation-2026-11-26.md` section
 | Item | Change | Evidence |
 |---|---|---|
 | 5.4 / 5.5 | Fourth independent measurement (corpus 4, scored once under A2). Candidate 3 clear labels: precision 1.00, recall 0.69 (candidate 2: 0.95 / 0.69; baseline 0.67 / 0.34). Level stays **5 (synthetic corpora)**; no significant improvement claimed, since the change is one label on each side | `eval/results/README.md`; registry `eval/candidates.json` |
-| 5.3 function-level structure | **Protocol model P1 built** and stored per analysis; consumed by the research dossier (architecture section) and by Priority Engine coverage units; identical across two independent real-repository runs. Level **4**. Architecture intelligence (roles, boundaries, assets, flows) is still **1**: P2+ not approved | `docs/protocol-model-p1-evidence.md` |
+| 5.3 function-level structure | **Protocol model P1 built (revision 2)** and stored per analysis; consumed by the research dossier (architecture section), the step's structural map and the Priority Engine's coverage **and scoring** inputs; identical across two independent real-repository builds; old-versus-new comparison on every corpus shows no lost facts. Level **4**. Architecture intelligence (roles, boundaries, assets, flows) is still **1**: P2+ not approved | `docs/protocol-model-p1-evidence.md` |
 | 5.1 research memory | T-144 design approved; migration **draft** tested on throwaway databases. Level **2** (draft, not applied) | `db/drafts/t144-research-memory/` |
 
 The dependency-ordered milestones are in `docs/execution-plan.md`.

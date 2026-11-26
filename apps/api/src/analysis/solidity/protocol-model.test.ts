@@ -3,6 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { assessCoverage } from "../../priority/coverage.js";
+import { scoringComponentsFromModel } from "../../priority/from-model.js";
+import { scoreOpportunity } from "../../priority/score.js";
+import { FIXTURES, NOW } from "../../priority/fixtures.js";
 import { buildStructuralMap } from "./pipeline.js";
 import { buildProtocolModel, coverageComponents } from "./protocol-model.js";
 
@@ -131,5 +134,74 @@ describe("P1 on the development corpus: every contract is described and the mode
     expect(model.components.length).toBeGreaterThan(5);
     for (const c of model.components.filter((x) => x.deployable)) expect(c.contentSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(model.functions.filter((f) => f.entryPoint).length).toBeGreaterThan(10);
+  });
+});
+
+describe("P1: unresolved relationships are explicit and nothing is connected to a guess", () => {
+  const text = `pragma solidity ^0.8.20;
+interface IOracle { function price() external view returns (uint256); }
+contract Feed { function price() external view returns (uint256) { return 1; } }
+contract User {
+  Feed public feed; IOracle public oracle;
+  function useTyped() external { feed.price(); }
+  function useInterface() external { oracle.price(); }
+  function useMissing() external { helperThatDoesNotExist(1); }
+}`;
+  const { model } = buildProtocolModel([{ path: "contracts/U.sol", text }]);
+  const from = (id: string) => model.callEdges.filter((e) => e.from === id);
+  it("an unresolved internal call is an 'unresolved' edge of the calling function, with its location, and also an unknown", () => {
+    const u = from("User.useMissing()").find((e) => e.kind === "unresolved")!;
+    expect(u).toMatchObject({ to: "helperThatDoesNotExist", resolvedCallee: null, derivation: "inferred:trace-unresolved" });
+    expect(u.evidence.lineStart).toBe(8);
+    expect(model.unknowns.some((x) => /helperThatDoesNotExist/.test(x.what))).toBe(true);
+    expect(model.callEdges.some((e) => e.kind === "internal" && /helperThatDoesNotExist/.test(e.to))).toBe(false);
+  });
+  it("an external call names its target expression; it is resolved to a snapshot contract only when the type says so", () => {
+    const typed = from("User.useTyped()").find((e) => e.kind === "external")!;
+    expect(typed.to).toBe("feed"); expect(typed.resolvedCallee).toBe("Feed.price");
+    const iface = from("User.useInterface()").find((e) => e.kind === "external")!;
+    expect(iface.to).toBe("oracle"); expect(iface.resolvedCallee).toBeNull(); // an interface is never "resolved" to some implementer
+  });
+});
+
+describe("P1 consumer: priority SCORING takes its component input from the shared model", () => {
+  it("changed code raises the unexplored share; unchanged researched code keeps its saturation, through the frozen v1 scorer", () => {
+    const m1 = buildProtocolModel(src).model;
+    const recs = scoringComponentsFromModel(m1, []).map((c) => ({ componentId: c.id, contentSha256: c.contentSha256, commitSha: "a".repeat(40), classesExamined: ["reentrancy"], method: "structural" as const, recordedAt: "2026-11-26T00:00:00Z" }));
+    const before = scoringComponentsFromModel(m1, recs);
+    expect(before.every((c) => c.researchedAtHashes.includes(c.contentSha256))).toBe(true);
+    const m2 = buildProtocolModel([src[0]!, { path: "contracts/Token.sol", text: TOKEN.replace("+= a", "+= a * 2") }]).model;
+    const after = scoringComponentsFromModel(m2, recs);
+    expect(after.find((c) => c.id.endsWith("#Token"))!.researchedAtHashes).not.toContain(after.find((c) => c.id.endsWith("#Token"))!.contentSha256);
+    expect(after.find((c) => c.id.endsWith("#Token"))!.classesExamined).toEqual([]);
+    const s1 = scoreOpportunity({ ...FIXTURES.stale, components: before }, NOW); const s2 = scoreOpportunity({ ...FIXTURES.stale, components: after }, NOW);
+    expect(s2.unexploredShare).toBeGreaterThan(s1.unexploredShare); expect(s2.score).toBeGreaterThan(s1.score);
+  });
+});
+
+describe("P1: constructors and calls reached through helpers", () => {
+  const text = `pragma solidity ^0.8.20;
+contract Base { address public owner; constructor() { owner = msg.sender; } }
+contract Pay is Base {
+  mapping(address => uint256) public owed;
+  constructor() { owed[msg.sender] = 1; }
+  function withdraw() external { _pay(msg.sender, owed[msg.sender]); owed[msg.sender] = 0; }
+  function _pay(address to, uint256 a) internal { (bool ok, ) = to.call{value: a}(""); require(ok); }
+}`;
+  const { model } = buildProtocolModel([{ path: "contracts/P.sol", text }]);
+  it("every constructor in the linearisation is described (it sets authority) and none is an entry point", () => {
+    const ctors = model.functions.filter((f) => f.component === "Pay" && f.kind === "constructor");
+    expect(ctors.map((c) => c.declaredIn).sort()).toEqual(["Base", "Pay"]);
+    expect(ctors.every((c) => !c.entryPoint)).toBe(true);
+    expect(ctors.find((c) => c.declaredIn === "Base")!.stateWrites).toEqual(["owner"]);
+  });
+  it("an entry point's reachable calls include those its internal helpers make on its behalf, attributed to the helper", async () => {
+    const { reachableCalls } = await import("./protocol-model.js");
+    const direct = model.callEdges.filter((e) => e.from === "Pay.withdraw()" && e.kind === "low-level-call");
+    expect(direct).toHaveLength(0); // the call is made by the helper ...
+    const reach = reachableCalls(model, "Pay.withdraw()");
+    expect(reach.map((e) => [e.from, e.kind, e.targetProvenance])).toEqual([["Pay._pay", "low-level-call", "msg.sender"]]); // ... reached by withdraw, with the helper parameter traced back to its argument (msg.sender)
+    const map = buildStructuralMap([{ path: "contracts/P.sol", text }]);
+    expect(map.contracts.find((c) => c.name === "Pay")!.functions.find((f) => f.name === "withdraw")!.external_calls).toBe(1);
   });
 });
