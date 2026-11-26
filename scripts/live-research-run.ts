@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     await worker.complete(l1.stepId, { status: "sealed" });
     console.log(`sealed snapshot ${acq.snapshotId}: ${acq.fileCount} files, commit ${acq.commitSha}, completeness ${acq.completeness}`);
     const l2 = await lease("analyze_structure"); const analysis = await runStructuralAnalysis(db.pool, store, l2, acq.snapshotId);
-    await worker.complete(l2.stepId, { status: "analyzed", hypotheses: analysis.stored.length });
+    await worker.complete(l2.stepId, { status: "analyzed", hypotheses: analysis.stored.length, protocol_model_sha256: analysis.protocolModel.sha256, protocol_model_stored: analysis.protocolModel.stored });
     const l3 = await lease("challenge_leads"); await runChallenge(db.pool, store, l3, acq.snapshotId, analysis.stored); await worker.complete(l3.stepId, { status: "challenged" });
     const dossier = await buildDossier(db.pool, store, acq.snapshotId);
     mkdirSync(outDir!, { recursive: true });

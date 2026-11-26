@@ -215,6 +215,19 @@ describe("approved designs stay within their approvals (A16, A17, A4, A20; A18 d
   });
 });
 
+describe("P1 and corpus-4 records stay honest", () => {
+  it("P1 evidence stops before P2 and does not call P1 architecture intelligence", () => {
+    const e = read("docs/protocol-model-p1-evidence.md"); expect(e).toMatch(/P2 is NOT started; it awaits this review/); expect(e).toMatch(/\*\*P1 is not architecture intelligence yet\.\*\*/);
+  });
+  it("the execution plan keeps the north-star metric unmeasured until outcomes can be recorded, and leaves D1-D9 and S2 undecided", () => {
+    const x = read("docs/execution-plan.md"); expect(x).toMatch(/\*\*not measurable yet\*\*/); expect(x).toMatch(/S2, the human-review and outcome API: exact scope \(NOT approved; for decision\)/);
+    for (let i = 1; i <= 9; i++) expect(x).toMatch(new RegExp(`\\| D${i} \\|`));
+  });
+  it("corpus-4 results claim no significant improvement", () => {
+    expect(read("eval/results/README.md")).toMatch(/no\s+claim\s+of\s+significant\s+improvement\s+is\s+made/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

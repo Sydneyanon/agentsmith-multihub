@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { ProgramIndex } from "./index.js";
-import { Analyzer } from "./specialists.js";
 import { challengeFinding } from "./challenge.js";
 import { validateReentrancy, type SimOutcome } from "./simulate.js";
 import { analyzeSources, type Finding } from "./specialists.js";
+import { buildProtocolModel, type ProtocolModel } from "./protocol-model.js";
 import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
 
 /**
@@ -16,6 +16,9 @@ export const SPECIALIST_ID = "solidity-structural-specialists"; export const SPE
 export const VALIDATOR_ID = "reentrancy-execution-validator"; export const VALIDATOR_VERSION = "1";
 
 export type StoredHypothesis = { id: string; finding: Finding; spanIds: string[] };
+/** research_blobs holds at most 1 MiB per blob; a larger model is not stored (and the step says so) rather than truncated. */
+const MODEL_BLOB_LIMIT = 1_048_576;
+export type StoredProtocolModel = { sha256: string; stored: boolean; components: number; functions: number; callEdges: number; unknowns: number };
 
 async function readSnapshotSources(pool: Pool, snapshotId: string): Promise<Array<{ path: string; text: string }>> {
   const r = await pool.query<{ path: string; text: string }>(
@@ -24,8 +27,12 @@ async function readSnapshotSources(pool: Pool, snapshotId: string): Promise<Arra
   return r.rows;
 }
 
-export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number }> {
+export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
   const sources = await readSnapshotSources(pool, snapshotId);
+  // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
+  const pm = buildProtocolModel(sources); const bytes = Buffer.from(pm.json, "utf8");
+  const storedModel = bytes.length <= MODEL_BLOB_LIMIT ? (await store.putBlob(lease, bytes)).sha256 === pm.sha256 : false;
+  const protocolModel: StoredProtocolModel = { sha256: pm.sha256, stored: storedModel, components: pm.model.components.length, functions: pm.model.functions.length, callEdges: pm.model.callEdges.length, unknowns: pm.model.unknowns.length };
   const { findings, index, problems } = analyzeSources(sources);
   const stored: StoredHypothesis[] = []; const spanCache = new Map<string, string>();
   const span = async (file: string, line: number) => {
@@ -42,7 +49,7 @@ export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, le
     stored.push({ id: made.id, finding: f, spanIds: spans.map((s) => s.spanId) });
   }
   const fns = [...index.contracts.values()].reduce((n, c) => n + c.functions.length, 0);
-  return { stored, problems, contracts: index.contracts.size, functions: fns };
+  return { stored, problems, contracts: index.contracts.size, functions: fns, protocolModel };
 }
 
 export type Validation = { hypothesisId: string; outcome: SimOutcome };
@@ -79,10 +86,38 @@ export type DossierEntry = {
   generator: string; evidence: Array<{ path: string; lines: string; role: string; text: string; verified: boolean }>;
   evaluations: Array<{ evaluator: string; outcome: string; rationale: string }>; status: string | null; static_outcome: string | null; human_review: string;
 };
+export type ArchitectureSection =
+  | { available: false; reason: string }
+  | { available: true; model_sha256: string; builder: string; components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; at: string }> }> }>; unknowns: Array<{ at: string; what: string }> };
 export type Dossier = {
   snapshot: { id: string; repository: string; commit_sha: string; file_count: number; manifest_sha256: string; verified: boolean };
-  summary: Record<string, number>; entries: DossierEntry[]; limitations: string[]; content_sha256: string;
+  summary: Record<string, number>; entries: DossierEntry[]; architecture: ArchitectureSection; limitations: string[]; content_sha256: string;
 };
+
+/** P1 consumer: the dossier's architecture section, built ONLY from the protocol model the analysis step stored for this snapshot's run
+ *  (located through the step output, re-hashed on read; a missing or mismatching model is reported, never reconstructed). */
+async function architectureFromStoredModel(pool: Pool, snapshotId: string): Promise<ArchitectureSection> {
+  const ref = (await pool.query<{ sha: string | null }>(
+    `SELECT st.output->>'protocol_model_sha256' AS sha FROM repo_snapshots s JOIN workflow_steps st ON st.workflow_run_id = s.workflow_run_id
+      WHERE s.id = $1 AND st.step_key = 'analyze_structure' AND st.status = 'succeeded' AND st.output ? 'protocol_model_sha256' ORDER BY st.completed_at DESC LIMIT 1`, [snapshotId])).rows[0];
+  if (!ref?.sha) return { available: false, reason: "no protocol model is recorded for this snapshot's analysis step" };
+  const blob = (await pool.query<{ content: Buffer }>("SELECT content FROM research_blobs WHERE content_sha256 = $1", [ref.sha])).rows[0];
+  if (!blob) return { available: false, reason: `the recorded protocol model ${ref.sha} was not stored (too large for one blob)` };
+  if (createHash("sha256").update(blob.content).digest("hex") !== ref.sha) throw new Error("dossier refused: the stored protocol model does not match its recorded hash");
+  const m = JSON.parse(blob.content.toString("utf8")) as ProtocolModel;
+  const at = (e: { file: string; lineStart: number; lineEnd: number }) => `${e.file}:${e.lineStart}${e.lineEnd !== e.lineStart ? `-${e.lineEnd}` : ""}`;
+  return {
+    available: true, model_sha256: ref.sha, builder: `${m.schema} ${m.builder}`,
+    components: m.components.filter((c) => c.deployable).map((c) => ({
+      id: c.id, kind: c.kind, file: c.file, lines: `${c.evidence.lineStart}-${c.evidence.lineEnd}`, content_sha256: c.contentSha256,
+      entry_points: m.functions.filter((f) => f.component === c.id && f.entryPoint).map((f) => ({
+        fn: f.id, guarded: f.callerGuarded, writes: f.stateWrites,
+        external_calls: m.callEdges.filter((e) => e.from === f.id && e.kind !== "internal" && e.kind !== "modifier").map((e) => ({ kind: e.kind, to: e.to, target_provenance: e.targetProvenance, at: at(e.evidence) })),
+      })),
+    })),
+    unknowns: m.unknowns.map((u) => ({ at: `${u.file}${u.line ? `:${u.line}` : ""}`, what: u.what })),
+  };
+}
 
 /** Builds the dossier ONLY from stored records; spans are re-resolved and re-verified; fails closed if any cited span cannot be verified. */
 export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId: string): Promise<Dossier> {
@@ -115,9 +150,10 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
     "No human review is recorded for any item. Status values come from the database view and say so.",
     "The analysis is intra-repository: calls into code outside the snapshot, inline assembly and unresolved modifiers are not analysed (they are listed as assumptions where they affect a lead).",
   ];
+  const architecture = await architectureFromStoredModel(pool, snapshotId);
   const content = entries.map((e) => [e.class, e.function, e.claim, e.evidence.map((x) => `${x.path}:${x.lines}:${x.text}`), e.evaluations.map((x) => `${x.evaluator}:${x.outcome}`), e.status]);
-  const content_sha256 = createHash("sha256").update(JSON.stringify(content)).digest("hex");
-  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, summary, entries, limitations, content_sha256 };
+  const content_sha256 = createHash("sha256").update(JSON.stringify([content, architecture.available ? architecture.model_sha256 : null])).digest("hex");
+  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, summary, entries, architecture, limitations, content_sha256 };
 }
 
 export function renderDossierMarkdown(d: Dossier): string {
@@ -130,26 +166,37 @@ export function renderDossierMarkdown(d: Dossier): string {
     o.push(`\n**Challenge.**` + (e.evaluations.length ? "\n" + e.evaluations.map((v) => `- ${v.evaluator}: **${v.outcome}**. ${v.rationale.slice(0, 600)}`).join("\n") : " none recorded"));
     o.push(`\n**Required checks.** ${(e.required_checks as string[]).join("; ")}\n**Alternative explanations.** ${(e.alternative_explanations as string[]).join("; ")}\n**Generated by** ${e.generator}. Human review: ${e.human_review}.\n`);
   });
+  o.push("## Architecture (protocol model P1)\n");
+  if (!d.architecture.available) o.push(`Not available: ${d.architecture.reason}.\n`);
+  else {
+    o.push(`Model \`${d.architecture.model_sha256}\` (${d.architecture.builder}). Every item cites code; P1 covers components, entry points, writes and external calls only (no roles, assets or value flows yet).\n`);
+    for (const c of d.architecture.components) {
+      o.push(`### ${c.id} (${c.kind}, \`${c.file}:${c.lines}\`)`);
+      for (const f of c.entry_points) o.push(`- \`${f.fn}\` ${f.guarded ? "caller-guarded" : "**no caller guard**"}${f.writes.length ? `; writes ${f.writes.join(", ")}` : ""}${f.external_calls.length ? `; calls ${f.external_calls.map((x) => `${x.kind} ${x.to} (target from ${x.target_provenance ?? "n/a"}, \`${x.at}\`)`).join("; ")}` : ""}`);
+      o.push("");
+    }
+    if (d.architecture.unknowns.length) o.push(`Not modelled (${d.architecture.unknowns.length}): ` + d.architecture.unknowns.slice(0, 20).map((u) => `\`${u.at}\` ${u.what}`).join("; ") + (d.architecture.unknowns.length > 20 ? "; ..." : "") + "\n");
+  }
   o.push("## Limitations\n" + d.limitations.map((l) => `- ${l}`).join("\n") + "\n");
   return o.join("\n");
 }
 
-/** The structural map: every function with its visibility, modifiers, lines and a summary of the effects found on its inlined trace. Metadata only, no source text. */
+/** The structural map, now a PROJECTION of the protocol model (P1): one derivation, kept in the step output for compatibility. Metadata only. */
 export function buildStructuralMap(sources: ReadonlyArray<{ path: string; text: string }>) {
-  const ix = new ProgramIndex(sources); const an = new Analyzer(ix);
-  const contracts = [...ix.contracts.values()].sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name)).map((c) => ({
-    name: c.name, kind: c.kind, file: c.file, bases: c.bases, lines: [c.startLine, c.endLine], state_variables: c.stateVars.map((v) => ({ name: v.name, type: v.type, constant: v.constant, immutable: v.immutable })),
-    functions: c.functions.filter((f) => f.body).map((f) => {
-      const t = an.trace(f); const calls = t.events.filter((e) => e.k === "call"); const writes = t.events.filter((e) => e.k === "write");
+  const { model } = buildProtocolModel(sources); const ix = new ProgramIndex(sources);
+  const contracts = model.components.map((c) => ({
+    name: c.id, kind: c.kind, file: c.file, bases: ix.contracts.get(c.id)?.bases ?? [], lines: [c.evidence.lineStart, c.evidence.lineEnd],
+    state_variables: c.stateVariables.map((v) => ({ name: v.name, type: v.type, constant: v.constant, immutable: v.immutable })),
+    functions: model.functions.filter((f) => f.component === c.id).map((f) => {
+      const calls = model.callEdges.filter((e) => e.from === f.id && e.kind !== "internal" && e.kind !== "modifier");
       return {
-        name: f.name, kind: f.kind, visibility: f.visibility, mutability: f.mutability, modifiers: f.modifiers.map((m) => m.name), lines: [f.startLine, f.endLine],
-        entry_point: (f.visibility === "external" || f.visibility === "public") && f.mutability !== "view" && f.mutability !== "pure",
-        caller_guarded: t.events.some((e) => e.k === "guard" && e.auth), external_calls: calls.length, low_level_calls: [...new Set(calls.map((e) => (e.k === "call" ? e.low : null)).filter((x): x is NonNullable<typeof x> => x !== null))],
-        state_writes: [...new Set(writes.map((e) => (e.k === "write" ? e.variable : "")))].filter((x) => x && !x.startsWith("<")), assumptions: t.assumptions.length,
+        name: f.name, kind: f.kind, visibility: f.visibility, mutability: f.mutability, modifiers: f.modifiers, lines: [f.evidence.lineStart, f.evidence.lineEnd], declared_in: f.declaredIn,
+        entry_point: f.entryPoint, caller_guarded: f.callerGuarded, external_calls: calls.length,
+        low_level_calls: [...new Set(calls.map((e) => e.kind).filter((k) => k !== "external"))], state_writes: f.stateWrites,
       };
     }),
   }));
-  return { contracts, problems: ix.problems };
+  return { contracts, problems: ix.problems, protocol_model_schema: model.schema };
 }
 
 /** Rebuild the stored hypotheses of a snapshot (ids and primary spans) by matching the deterministic findings to the database records. */

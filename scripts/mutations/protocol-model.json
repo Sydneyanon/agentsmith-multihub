@@ -1,0 +1,68 @@
+{
+ "command": "REQUIRE_INTEGRATION=1 npx vitest run apps/api/src/analysis/solidity/protocol-model apps/api/src/integration/structural-workflow",
+ "mutations": [
+  {
+   "name": "P1: functions lose the deployed dispatch context",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "fns.push(f.contract === c.name ? f : { ...f, contract: c.name });",
+   "new": "fns.push(f);"
+  },
+  {
+   "name": "P1: abstract bases described standalone",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "if (c.kind === \"abstract\" && inherited.has(c.name)) continue;",
+   "new": "if (false) continue;"
+  },
+  {
+   "name": "P1: evidence without the file hash",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "fileSha256: fileSha.get(file) ?? \"\"",
+   "new": "fileSha256: \"\""
+  },
+  {
+   "name": "P1: unknowns dropped",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "for (const u of t.unknowns) {",
+   "new": "for (const u of [] as string[]) {"
+  },
+  {
+   "name": "P1: component hash over the whole file",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "contentSha256: sha(text)",
+   "new": "contentSha256: fileSha.get(c.file) ?? \"\""
+  },
+  {
+   "name": "P1: call edges not sorted (order-dependent model)",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "callEdges: [...edges.values()].sort(byKey((x) => `${x.from}\\u0000${x.kind}\\u0000${x.to}\\u0000${x.evidence.file}:${x.evidence.lineStart}`)),",
+   "new": "callEdges: [...edges.values()],"
+  },
+  {
+   "name": "P1: target provenance not recorded",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "targetProvenance: e.targetTaint ?? null",
+   "new": "targetProvenance: null"
+  },
+  {
+   "name": "P1 consumer: dossier ignores the stored model",
+   "file": "apps/api/src/analysis/solidity/pipeline.ts",
+   "old": "const architecture = await architectureFromStoredModel(pool, snapshotId);",
+   "new": "const architecture: ArchitectureSection = { available: false, reason: \"no protocol model is recorded for this snapshot's analysis step\" };"
+  },
+  {
+   "name": "P1: model not stored by the analysis step",
+   "file": "apps/api/src/analysis/solidity/pipeline.ts",
+   "old": "const storedModel = bytes.length <= MODEL_BLOB_LIMIT ? (await store.putBlob(lease, bytes)).sha256 === pm.sha256 : false;",
+   "new": "const storedModel = false;"
+  },
+  {
+   "name": "P1 consumer: coverage units ignore entry-point weight",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "weight: Math.max(1, entry.get(c.id) ?? 0)",
+   "new": "weight: 1"
+  }
+ ],
+ "_notes": [
+  "Removed as equivalent: 'dossier trusts a model without checking its hash'. research_blobs enforces CHECK (encode(sha256(content),'hex') = content_sha256) and the dossier looks the blob up by that hash, so a mismatched model cannot exist; the check in pipeline.ts stays as defence in depth."
+ ]
+}

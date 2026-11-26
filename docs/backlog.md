@@ -574,6 +574,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 | Approval required | Owner review; any schema change is a separate approval. |
 
 ### T-152: APEX: shared protocol model and invariant representation
+**Update 2026-11-26: P1 of the protocol model implemented under A20 (P1 only)** (`protocol-model.ts`; consumers: the dossier architecture section and Priority Engine coverage units). Evidence: `docs/protocol-model-p1-evidence.md`. P2 and P3 not approved; stop/go review pending.
 | Field | |
 |---|---|
 | Phase | 5.3 / 5.4 / 5.5-APEX |
@@ -733,6 +734,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 
 ### T-147: Corpus-4 evaluation gate
 **Status 2026-11-26: corpus sealed (`eval/heldout4`, 59 contracts, 79 labels, 12 ambiguous; b9df4e5); not scored.**
+**Update 2026-11-26: DONE under A2.** Candidate 3 (`48d9a38`) registered and pushed (`aa6119d`) before scoring; candidates 3 and 2 and the baseline scored once each; raw results and hashes in `eval/results/heldout4-run1-*` and the registry (`f0ef971`). Corpus 4 is now spent as held-out.
 | Field | |
 |---|---|
 | Phase | 5.8 |

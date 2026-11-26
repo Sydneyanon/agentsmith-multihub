@@ -8,7 +8,8 @@ import { ACQUIRE_STEP_KEY, createRepositoryResearchRun, processAcquireRepository
 import { FakeSource } from "../acquisition/testing/fake-source.js";
 import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fixture.js";
 import { ANALYSIS_STEP_KEYS, ANALYZE_STEP_KEY, ANALYZER_VERSION, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY } from "../analysis/solidity/keys.js";
-import { buildDossier } from "../analysis/solidity/pipeline.js";
+import { buildDossier, renderDossierMarkdown } from "../analysis/solidity/pipeline.js";
+import { ResearchFixture } from "./research-helpers.js";
 import { dispatchAnalysisStep, processAnalyzeStructureStep } from "../analysis/solidity/step.js";
 import { ResearchStore } from "../research-state.js";
 import { intakeStepKeys } from "../worker-runtime.js";
@@ -77,7 +78,24 @@ describe.skipIf(skipIntegration)("structural analysis inside the repository_rese
     expect((await buildDossier(db.pool, new ResearchStore(db.pool), a.snapshot_id)).content_sha256).toBe(dossier.content_sha256);
     // outputs carry pointers, counts and metadata, never source text
     expect(JSON.stringify(rows)).not.toMatch(/pragma solidity|SPDX-License/);
+    // P1 (protocol model): stored content-addressed by the analysis step, linked from its output, and consumed by the dossier
+    expect(analyze.protocol_model_sha256).toMatch(/^[0-9a-f]{64}$/); expect(analyze.protocol_model_stored).toBe(true);
+    expect(analyze.protocol_model_counts.components).toBeGreaterThan(3);
+    expect(Number((await db.pool.query("SELECT count(*) n FROM research_blobs WHERE content_sha256 = $1", [analyze.protocol_model_sha256])).rows[0].n)).toBe(1);
+    const built = await buildDossier(db.pool, new ResearchStore(db.pool), a.snapshot_id);
+    expect(built.architecture.available).toBe(true);
+    if (built.architecture.available) {
+      expect(built.architecture.model_sha256).toBe(analyze.protocol_model_sha256);
+      const eps = built.architecture.components.flatMap((c) => c.entry_points);
+      expect(eps.length).toBeGreaterThan(3);
+      // the architecture section says, with code locations, which entry points are unguarded and where external calls go
+      expect(eps.some((e) => !e.guarded)).toBe(true);
+      for (const c of built.architecture.components) expect(c.content_sha256).toMatch(/^[0-9a-f]{64}$/);
+      for (const e of eps.flatMap((x) => x.external_calls)) expect(e.at).toMatch(/^contracts\/.+\.sol:\d+/);
+    }
+    expect(renderDossierMarkdown(built)).toMatch(/## Architecture \(protocol model P1\)/);
   });
+
 
   it("refuses to analyse when acquisition has not produced a sealed snapshot", async () => {
     const { runId } = await createRepositoryResearchRun(db.pool, { repository: "acme/vaults", ref: "main" }, "operator", { structuralAnalysis: true });
@@ -101,5 +119,12 @@ describe.skipIf(skipIntegration)("structural analysis inside the repository_rese
       expect((await app.inject({ method: "GET", url: "/v1/research/snapshots/not-a-uuid/dossier", headers: auth })).statusCode).toBe(400);
       expect((await app.inject({ method: "GET", url: "/v1/research/snapshots/00000000-0000-0000-0000-000000000000/dossier", headers: auth })).statusCode).toBe(404);
     } finally { await app.close(); }
+  });
+
+  it("a dossier for a snapshot with no recorded protocol model says so instead of reconstructing one", async () => {
+    const rfx = new ResearchFixture(db); const snap = await rfx.sealedSnapshot(); // sealed, but never through the analysis step
+    const d = await buildDossier(db.pool, new ResearchStore(db.pool), snap.snapshotId);
+    expect(d.architecture).toEqual({ available: false, reason: "no protocol model is recorded for this snapshot's analysis step" });
+    expect(renderDossierMarkdown(d)).toMatch(/Not available: no protocol model is recorded/);
   });
 });
