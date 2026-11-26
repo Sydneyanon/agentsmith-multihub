@@ -3,7 +3,7 @@
 **Authority and scope.** Grounded in `docs/roadmap-reconciliation-2026-11-26.md` and the approvals in the decision log. Every milestone
 names the evidence that proves it; a design or passing unit tests do not.
 
-**North-star metric:** independently confirmed vulnerabilities per unit of research time and cost. It is **not measurable yet**, because
+**North-star metric:** independently confirmed, **non-duplicate** vulnerabilities per unit of research time and cost (ROADMAP decision M). Reported alongside: duplicate rate, and precision, recall and misses per vulnerability class. It is **not measurable yet**, because
 nothing can record a confirmed outcome (T-144 is not applied; there is no review API). Until then progress is shown by the milestone
 evidence below and by sealed-corpus measurements.
 

@@ -11,7 +11,7 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -187,6 +187,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 
 ### T-052: Research coverage and audit-saturation model
 **Status 2026-11-26: model built on fixtures only (`apps/api/src/priority/coverage.ts`, 9 tests): coverage per component at a content hash and per class; changed code never counts as covered; audits count only with provenance and permitted use, only for components they name at the unchanged hash, discounted (claimed 0.25, commit-specific 0.8, never 1.0); project figure is component-weighted. Not wired into policy v1 (frozen); no schema (needs T-041/T-144 approval); real-Postgres invalidation tests wait for that schema.**
+**Update 2026-11-26 (decision M):** saturation is measured per component AND per vulnerability class, the unit at which differentiated value and duplicate risk are judged.
 | Field | |
 |---|---|
 | Phase | cross-phase / 5.1 |
@@ -209,6 +210,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 | Approval required | Design approval; no live polling without owner approval. |
 
 ### T-054: Economic and research-efficiency scoring
+**Update 2026-11-26 (decision M):** scope extended to duplicate risk (known findings in `external_references`, prior duplicate outcomes), specialist advantage (measured per-class performance) and competition/exposure claims with provenance, as features of a future preregistered policy version; v1 stays frozen (`adaptive-priority-engine-design.md` section 13).
 | Field | |
 |---|---|
 | Phase | cross-phase |
@@ -244,6 +246,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 ### T-057: Comparative evaluation against simple baselines
 **Status 2026-11-26: offline replay harness built (`apps/api/src/priority/replay.ts`, 7 tests): random, newest-first, highest-reward-first and round-robin baselines plus engine v1 and a ground-truth oracle; reports confirmed findings, findings per cost, time to first confirmed, changed-code coverage, exploration yield and regret; strategies are tested not to see the ground truth. Only a SYNTHETIC scenario exists, so no result is evidence that any strategy is better; real comparison needs replayed histories with independently confirmed outcomes.**
 **Update 2026-11-26: diagnosis in `docs/priority-engine-diagnosis.md`: the synthetic comparison is dominated by forced redundant picks (16/20 for every strategy incl. the oracle); v1 lacks a marginal-value term, half-discounts its own coverage, and allocates 0 exploration slots at 1 slot per period. Policy v1 unchanged; revised, preregistered experiment proposed.**
+**Update 2026-11-26 (decision M):** evaluation reports confirmed non-duplicate discoveries per unit of time and cost, duplicate rate, and precision/recall/misses per vulnerability class; a policy that raises volume without raising these on held-out evidence is not an improvement.
 | Field | |
 |---|---|
 | Phase | cross-phase / 5.8 |
@@ -413,7 +416,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 |---|---|
 | Phase | 5.0 |
 | Dependencies | T-020, T-024 |
-| Scope | Record the scout's 13-platform inventory (Immunefi, Sherlock, Cantina, Code4rena, CodeHawks, Guardian, HackenProof, CertiK Hunt, HackerOne, Mantis, SpecSiege, bugbounty.fyi, X) with per-source: verified official interface, terms status, permitted access, priority. Aggregators are marked secondary. |
+| Scope | Record the scout's 13-platform inventory (Immunefi, Sherlock, Cantina, Code4rena, CodeHawks, Guardian, HackenProof, CertiK Hunt, HackerOne, Mantis, SpecSiege, bugbounty.fyi, X) plus community directories added later (`bug-bounty-board.vercel.app`, T-137) with per-source: verified official interface, terms status, permitted access, priority. Aggregators and directories are marked secondary and untrusted. |
 | Acceptance criteria | A table in docs; every entry says verified vs unverified; no adapter. |
 | Required tests | n/a |
 | Security considerations | No access without a recorded terms review. |
@@ -473,6 +476,18 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 | Required tests | n/a (policy); later enforced by adapter tests. |
 | Security considerations | A source's terms override convenience; absence of a robots rule is not permission. |
 | Approval required | None (documentation). |
+
+### T-137: Assess community bounty directory `bug-bounty-board.vercel.app` (untrusted discovery index)
+**Status 2026-11-26: proposed; NOT assessed** (host unreachable from this environment; nothing assumed).
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-131 (platform inventory), T-136 (conduct policy) |
+| Scope | Establish operator, coverage, data sources, update frequency, links to official programs and repositories, API/export options, terms, robots and permitted access. Compare coverage against current and planned sources (`discovery-intake-design.md` section 2.1). Record it in the T-131 inventory as an aggregator (secondary). |
+| Acceptance criteria | Every item marked verified or unverified with its source; a coverage-comparison table of claims with provenance; an explicit recommendation (ignore / manual reference only / candidate for an approved adapter). |
+| Required tests | n/a (documentation). |
+| Security considerations | Untrusted index only: every opportunity verified against the official program before research; no scraping, polling, protection bypass or adapter; never used as hosting. |
+| Approval required | Reading its pages from this environment needs the owner to allow the host or to paste the pages; any adapter needs terms review and owner approval. |
 
 ### T-138: Decide the single owner of discovery (Hunt engine vs MultiHub)
 | Field | |
@@ -698,6 +713,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 ### T-144: Research outcomes and coverage records
 **Update 2026-11-26: design proposal in `docs/research-memory-design.md` (three provenance planes; outcomes, missed, duplicates, ground-truth adjudications, effort, coverage, contributions; database rules; consumers). No migration.**
 **Update 2026-11-26: design APPROVED (A4). Migration DRAFT written in `db/drafts/t144-research-memory/` (outside `db/migrations`, so the runner cannot apply it): outcomes with the confirmed/refuted/missed/duplicate rules, ground-truth adjudications, coverage, effort, missed-in-runs, external references, evaluation artifacts; 14 throwaway-database tests (both roles, existing records, scope guard, rollback, compatibility), 10/10 rule mutants killed. Applying it anywhere is A4b (not approved).**
+**Update 2026-11-26 (decision M):** known findings and duplicate risk use `external_references` and `duplicate` outcomes; per-class performance and duplicate rate are derived only from outcomes and adjudications.
 | Field | |
 |---|---|
 | Phase | 5.1 / cross-phase |

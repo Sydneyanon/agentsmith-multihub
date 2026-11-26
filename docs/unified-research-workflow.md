@@ -177,6 +177,20 @@ This is recorded as new decision **D10**. It needs owner confirmation.
 | APEX | protocol model, memory (refutations, misses, coverage gaps) | hypotheses, contributions, counterexamples | own a memory (T-151 must conform) |
 | Domain packs (MD) | domain-specific protocol model behind the same interfaces | same tables | — |
 
+### 7.1 Differentiated discovery (ROADMAP decision M): where each requirement lives
+There is no new system; each requirement attaches to an existing capability and its shared records.
+
+| Requirement | Capability | Shared record or measure |
+|---|---|---|
+| Deep capability in difficult vulnerability classes | 5.5 specialists (classes B–H first), APEX later | hypotheses and contributions per specialist identity; per-class results on sealed corpora |
+| Cross-contract and multi-transaction behaviour | 5.3 P6 interactions, 5.6 validators (cross-function payable re-entry, sequences), APEX capability 4 | protocol model interactions; counterexample artifacts |
+| Unexplored components and meaningful code changes | Priority Engine (T-052/T-053) | `research_coverage` per component hash; P1 component hashes |
+| Known findings and duplicate risk | memory (T-144) | `external_references`; `hypothesis_outcomes(category='duplicate')` |
+| Saturation per component and vulnerability class | T-052 | `research_coverage` (component × class × method) |
+| Where AgentSmith is differentiated | 5.8 + Priority Engine | per-class precision, recall and duplicate rate; confirmed outcomes per class |
+| North-star measure | 5.8 / T-057 | confirmed (independently validated **and** human-adjudicated) discoveries per unit of `research_effort` |
+| Credibility | 5.6 + 5.7 | reproducible counterexamples, hash-verified evidence, dossiers built only from stored records |
+
 ## 8. Gap tests
 `apps/api/src/architecture-gaps.test.ts` holds **expected-failing** tests (`it.fails`). Each states the target behaviour and fails
 today, so the suite stays green while the gap exists. When a gap is closed, its test must be flipped to a normal `it`.

@@ -228,6 +228,17 @@ describe("P1 and corpus-4 records stay honest", () => {
   });
 });
 
+describe("decision M and community directories stay within bounds", () => {
+  it("records the differentiation premise as a hypothesis and keeps it inside the existing engine", () => {
+    const rm = read("docs/ROADMAP.md"); expect(rm).toMatch(/### M\. Differentiated vulnerability discovery/); expect(rm).toMatch(/to investigate, not an established fact/);
+    const pe = read("docs/adaptive-priority-engine-design.md"); expect(pe).toMatch(/requirements on THIS engine, not a separate one/); expect(pe).toMatch(/\*\*v1 stays frozen and unchanged\.\*\*/);
+  });
+  it("treats community directories as untrusted indexes with no access enabled", () => {
+    const d = read("docs/discovery-intake-design.md"); expect(d).toMatch(/Status: NOT ASSESSED/); expect(d).toMatch(/No scraping, polling, protection bypass or adapter/);
+    expect(read("docs/backlog.md")).toMatch(/### T-137: Assess community bounty directory/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

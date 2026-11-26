@@ -62,6 +62,13 @@ Facts never silently mix derivation kinds.
 | Control Room and dossiers | an architecture view generated from stored facts, with evidence spans |
 | Domain packs (MD) | the same entity kinds (component, entry point, boundary, asset, flow, interaction, unknown) with domain-specific builders. The interfaces are domain-neutral; the Solidity builder is the first implementation |
 
+## 3.1 Differentiation (ROADMAP decision M)
+- **Why P6 and P4 matter most.** The model's strategic value is in what generic tools describe poorly: cross-contract interactions,
+  multi-transaction state transitions, value flows and upgradeability (P4–P6).
+- **Ordering.** Those steps are prioritised by **measured research value**, and only after P2–P3 are reviewed.
+- **Scale.** Component and class identities from the model are the unit at which saturation, duplicate risk and per-class performance
+  are measured (T-052, T-144).
+
 ## 4. Build order (after T-149 approval; each step with development fixtures and mutation coverage)
 
 | Step | Content |

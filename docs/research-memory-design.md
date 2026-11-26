@@ -38,6 +38,13 @@
 | Which component contributed | `hypothesis_contributions(hypothesis_id, component_kind, component_id, component_version, role)` | role: originated, contributed_evidence, challenged, adjudicated. It lets APEX, Weirdness and specialists share credit without separate memories. Its shape is to be confirmed with T-151. |
 | Counterexamples | `hypothesis_evaluations.artifact_sha256` → `research_blobs` | Holds the trace, scenario parameters and reproduction recipe, for example the EVM run in `eval/adjudications/`. |
 
+### 2.1 Differentiation (ROADMAP decision M)
+- **Known findings and duplicate risk.** Known findings (audit reports, public disclosures, contest reports) are stored as
+  `external_references` with provenance and permitted use, linked to component and class where the report allows. A duplicate outcome
+  points at one. The **duplicate rate** per class and per program is then a query over shared records, not a separate store.
+- **Per-class performance** (precision, recall, misses, duplicate rate) is derived from outcomes and adjudications only, never from
+  unadjudicated leads.
+
 ## 3. Database rules (to be enforced by triggers and checks, tested as the restricted role)
 - Append-only on every new table, reusing `research_reject_mutation()`.
 - `confirmed` requires the conditions above. `missed` requires `generator_kind='human'` and at least one `missed_in_runs` row.

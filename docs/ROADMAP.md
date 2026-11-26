@@ -54,6 +54,13 @@ Recorded 2026-11-26 at the owner's direction. Each is a requirement on future wo
 ### A. Multi-source bounty discovery
 Initial permanent sources, in priority order: **(1) Immunefi (highest priority), (2) Code4rena, (3) Sherlock, (4) official GitHub organisations and repositories.**
 To investigate for later integration: Cantina, HackenProof, official project bounty pages, other legitimate bounty and security-contest platforms.
+**Community bounty directories and aggregators** (for example `bug-bounty-board.vercel.app`, `bugbounty.fyi`) are **untrusted discovery indexes only** (2026-11-26). Rules:
+- A listing is a lead to an official program, never a source of scope, rewards or repository identity.
+- Every opportunity found through one is verified against the official program before it can enter research.
+- No scraping, polling or adapter without a recorded terms review and owner approval.
+- Such a directory is never adopted as hosting or infrastructure.
+
+Assessment task: T-137.
 Every source gets its **own adapter** with: source verification, provenance, rate limits, health status, failure handling and deduplication.
 Official access methods and terms are verified **before** implementation (the 2026-11-26 findings are in `discovery-sources-official-research.md`: Immunefi's terms forbid automated access to the site and its JSON list is undocumented, so permission is needed first).
 
@@ -95,6 +102,30 @@ The long-term architecture extends beyond smart contracts to Web application, AP
 
 ### L. How the capabilities work together (unified sequencing)
 The Priority Engine decides where to research; the shared research architecture manages the work and preserves evidence; the structural analyzer and specialists understand the code; APEX explores unusual execution paths and generates novel hypotheses; the Weirdness Engine seeks contradictions and rare conditions; independent challenge tries to refute findings; the learning system improves future research and prioritisation; reporting produces professional evidence-backed results; the Control Room makes the operation observable. They are one system, not disconnected projects.
+
+### M. Differentiated vulnerability discovery (strategic principle; its premise is a HYPOTHESIS, recorded 2026-11-26)
+**Principle.** AgentSmith optimises for **differentiated, independently confirmed vulnerability discoveries**, not for the number of programs
+scanned, hypotheses generated or alerts produced.
+
+**Strategic hypothesis (to investigate, not an established fact).** Generic bug-bounty hunting is becoming more competitive, through
+duplicates, AI-assisted research and changing payout economics. Specialist depth, reputation and access to less-explored opportunities may
+therefore be a stronger advantage. It is tested with AgentSmith's own measured outcomes (duplicate rate, confirmed findings per unit of
+cost, per class) and with sourced evidence, never assumed.
+
+**What it means for priorities**, carried by the existing designs rather than a new system:
+
+| Priority | Carried by |
+|---|---|
+| Deep capability in difficult classes | 5.5 specialists, APEX |
+| Cross-contract and multi-transaction behaviour | 5.3 P6, 5.6, APEX |
+| Unexplored components and meaningful code changes | T-052, T-053 |
+| Known findings and duplicate risk | T-144 duplicates and external references, T-054 |
+| Saturation per component and per vulnerability class | T-052 |
+| Where specialist capability is differentiated | per-class performance from sealed corpora and confirmed outcomes, T-054 |
+| The north-star measure (confirmed discoveries per unit of time and cost) and precision, recall and duplicate rate per class | 5.8, T-057 |
+| Credibility through reproducible evidence and high-quality reports | 5.6, 5.7 |
+
+The integration points are recorded in `unified-research-workflow.md` section 7.1 and `adaptive-priority-engine-design.md` section 13.
 
 ### G. Safety and approval boundaries (permanent)
 - Passive discovery does not authorise active testing; current program scope and rules are verified before any active research; no unauthorised testing.

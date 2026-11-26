@@ -35,6 +35,12 @@ APEX is a **dedicated workstream under 5.5 Specialist Research Intelligence**, w
 | 7 | **Counterexample and Validation Engine** | Attempt to refute hypotheses, produce reproducible counterexamples, validate invariant violations | execution validators; compiler-backed ground truth harness (`eval/ground-truth`) | invariant representation (T-152), executable counterexamples under a real compiler and EVM, minimisation |
 | 8 | **Durable Discovery Memory** | Preserve explored paths, successful strategies, false positives, confirmed vulnerabilities and missed findings | 5.1 research state | schema for paths/strategies/coverage; learning interface; contamination controls |
 
+### 3.1 Differentiation (ROADMAP decision M)
+APEX exists for differentiated discoveries: difficult classes, cross-contract and multi-transaction paths, and less-explored components.
+- **How it is judged:** by its **independently confirmed, non-duplicate** discoveries per unit of cost, relative to the deterministic
+  stack and to established tools on sealed evidence. Never by hypothesis volume.
+- **Where its state lives:** it reads and writes only the shared protocol model and research memory.
+
 ## 4. Integration requirements (binding)
 1. **One shared representation.** APEX uses the 5.3/5.4 protocol model and 5.1 records; a private parallel model is a defect.
 2. **Provenance of origin.** Every hypothesis records which component originated it (`apex/<capability>@version`, a specialist, the Weirdness Engine, a human, a tool) and which components contributed evidence. The store's generator identity is the starting point; any extension (for example an origin chain) is decided in T-151 and needs a reviewed migration.

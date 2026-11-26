@@ -61,6 +61,39 @@ manual import / paste ───┘          │
   - A Control Room panel reads observations.
   - Conduct policy (T-136): identifying user agent, robots.txt, caps, no evasion.
 
+### 2.1 Community bounty directories (untrusted discovery indexes)
+**Example:** `https://bug-bounty-board.vercel.app/` (added 2026-11-26, T-137). Class: aggregator, **secondary**, like `bugbounty.fyi` in
+T-131.
+
+**Status: NOT ASSESSED.** The host is not reachable from this environment (DNS refused by the network allowlist, 2026-11-26), and
+nothing about it is assumed.
+
+| To establish (T-137) | How (permitted only) |
+|---|---|
+| Who runs it; coverage (which platforms and programs; listing count) | read its own about or FAQ pages **once**, by a human or through an approved one-off fetch; or the owner pastes them (`operator_supplied`) |
+| Data sources and how listings are obtained (scraped, submitted, API) | as above |
+| Update frequency; last-updated indications | as above |
+| Whether listings link to official program pages and repositories | sample a few listings by hand |
+| API, export, RSS or documented endpoint | its documentation |
+| Terms, licence, robots and automated-access statements | its terms and robots.txt |
+
+**Coverage comparison method** (once assessed):
+- For each platform it lists, compare with our sources:
+  - Immunefi (blocked, manual import);
+  - Code4rena and Sherlock (GitHub organisations);
+  - official GitHub organisations;
+  - Cantina, HackenProof and project pages (terms pending);
+  - the 13-platform scout inventory (T-131).
+- Record what it adds (programs or platforms we lack) and what it misses.
+- The comparison is a table of **claims with observation provenance**, not a fetched dataset.
+
+**Rules (permanent):**
+- A directory listing is a lead to an official program, never a source of scope, rewards or repository identity.
+- The opportunity is created only from the **official** program (or with `operator_supplied` provenance) and verified before research
+  (`program_scope_versions.verified_at`).
+- No scraping, polling, protection bypass or adapter.
+- It is never used as hosting.
+
 ## 3. What proceeds independently vs waits
 
 | Work | Independent of T-149 approval? |

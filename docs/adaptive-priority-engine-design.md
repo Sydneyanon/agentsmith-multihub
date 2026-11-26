@@ -70,3 +70,30 @@ Implemented on fixtures only (`apps/api/src/priority/`): deterministic additive 
 ## 12. Open owner decisions
 1. The exploration share, outcome categories, calibration gating and audit-data policy are decided (section 10).
 2. Still open: the preregistered evidence threshold for T-056 (to be proposed with its justification when outcome data exists), and which audit sources to ingest first.
+
+## 13. Differentiation (ROADMAP decision M, 2026-11-26): requirements on THIS engine, not a separate one
+**Objective.** The engine's objective is **differentiated, independently confirmed discoveries per unit of research time and cost**. It is
+never programs scanned, hypotheses generated or alerts raised. The premise that generic hunting is saturating is a **hypothesis**; this
+engine helps test it.
+
+**New signals.** They become features of a future **policy version** (v2 or later), preregistered and compared with frozen v1 under
+T-057. **v1 stays frozen and unchanged.**
+
+| Signal | Source (shared records only) | Direction |
+|---|---|---|
+| Duplicate risk | known findings in `external_references` (audit reports, public disclosures, contest reports) with provenance and permitted use; prior `duplicate` outcomes on the same component and class (T-144) | lowers priority for component × class pairs already reported |
+| Class-level saturation | `research_coverage` per component and vulnerability class (T-052), plus usable audit coverage | lowers priority only where that class was examined at the current content hash |
+| Unexplored and changed code | P1 component hashes; T-053 change events | raises priority |
+| Specialist advantage | measured precision and recall per class on sealed corpora, and confirmed outcomes per class | raises priority where AgentSmith has demonstrated depth; never where it is weak or unmeasured, which is flagged instead |
+| Difficult-class potential | presence, in the protocol model, of structures where generic tooling is known to be weak: cross-contract interactions, multi-transaction state, upgradeability, value flows (P4–P6) | raises priority **only** once those P-steps exist and the relevant specialist is measured |
+| Competition and exposure (claims) | program and contest age, known prior audits, public participant counts where a source states them | recorded as **claims with provenance**, never inferred |
+
+**Metrics reported by the engine's evaluation (T-057) and by 5.8:**
+- confirmed discoveries per unit of time and cost;
+- duplicate rate;
+- precision, recall, false positives and misses **per vulnerability class**;
+- time to discovery and cost per confirmed finding;
+- coverage per component and per class.
+
+**Guard against vanity.** A policy that raises scanned volume or lead count without raising confirmed, non-duplicate discoveries per
+cost on held-out evidence is **not** an improvement.
