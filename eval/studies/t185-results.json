@@ -1,0 +1,347 @@
+{
+ "study": "T-185",
+ "corpora": "dev, corpus 1-3 (development data); corpus 4 excluded",
+ "generated": "deterministic",
+ "dev": {
+  "current": {
+   "total": {
+    "tp": 17,
+    "fp": 0,
+    "fn": 0
+   },
+   "initializer": {
+    "tp": 1,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   }
+  },
+  "D3_p3_one_time_rule": {
+   "total": {
+    "tp": 17,
+    "fp": 0,
+    "fn": 0
+   },
+   "initializer": {
+    "tp": 1,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   }
+  },
+  "D4a_drop_name_only": {
+   "total": {
+    "tp": 15,
+    "fp": 0,
+    "fn": 2
+   },
+   "initializer": {
+    "tp": 1,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 3,
+    "fp": 0,
+    "fn": 2
+   }
+  },
+  "D4b_drop_name_only_plus_p3_open_writers": {
+   "total": {
+    "tp": 15,
+    "fp": 0,
+    "fn": 2
+   },
+   "initializer": {
+    "tp": 1,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 3,
+    "fp": 0,
+    "fn": 2
+   }
+  },
+  "name_only_findings": [
+   "Config.setFeeOpen",
+   "Misc.setImpl",
+   "ModArg.setOtherWrongArg"
+  ],
+  "D3_disagreements": {
+   "specialistOnly": [],
+   "p3Only": []
+  }
+ },
+ "heldout": {
+  "current": {
+   "total": {
+    "tp": 18,
+    "fp": 0,
+    "fn": 0
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 6,
+    "fp": 0,
+    "fn": 0
+   }
+  },
+  "D3_p3_one_time_rule": {
+   "total": {
+    "tp": 18,
+    "fp": 0,
+    "fn": 0
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 6,
+    "fp": 0,
+    "fn": 0
+   }
+  },
+  "D4a_drop_name_only": {
+   "total": {
+    "tp": 16,
+    "fp": 0,
+    "fn": 2
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 4,
+    "fp": 0,
+    "fn": 2
+   }
+  },
+  "D4b_drop_name_only_plus_p3_open_writers": {
+   "total": {
+    "tp": 16,
+    "fp": 0,
+    "fn": 2
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 0
+   },
+   "accessControl": {
+    "tp": 4,
+    "fp": 0,
+    "fn": 2
+   }
+  },
+  "name_only_findings": [
+   "AcFeeA.setFee",
+   "DcStoreA.setLogic"
+  ],
+  "D3_disagreements": {
+   "specialistOnly": [],
+   "p3Only": []
+  }
+ },
+ "heldout2": {
+  "current": {
+   "total": {
+    "tp": 31,
+    "fp": 8,
+    "fn": 6
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 3
+   },
+   "accessControl": {
+    "tp": 11,
+    "fp": 2,
+    "fn": 0
+   }
+  },
+  "D3_p3_one_time_rule": {
+   "total": {
+    "tp": 30,
+    "fp": 8,
+    "fn": 7
+   },
+   "initializer": {
+    "tp": 1,
+    "fp": 0,
+    "fn": 4
+   },
+   "accessControl": {
+    "tp": 11,
+    "fp": 2,
+    "fn": 0
+   }
+  },
+  "D4a_drop_name_only": {
+   "total": {
+    "tp": 25,
+    "fp": 7,
+    "fn": 12
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 3
+   },
+   "accessControl": {
+    "tp": 5,
+    "fp": 1,
+    "fn": 6
+   }
+  },
+  "D4b_drop_name_only_plus_p3_open_writers": {
+   "total": {
+    "tp": 25,
+    "fp": 7,
+    "fn": 12
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 3
+   },
+   "accessControl": {
+    "tp": 5,
+    "fp": 1,
+    "fn": 6
+   }
+  },
+  "name_only_findings": [
+   "Conduit.setLogic",
+   "Dock.setSink",
+   "Minter.halt",
+   "RoleBoard.unpause",
+   "Tap.setFlow",
+   "Tap.setFlowLoose",
+   "Throttle.setLimit"
+  ],
+  "D3_disagreements": {
+   "specialistOnly": [
+    "Vesting.init"
+   ],
+   "p3Only": []
+  }
+ },
+ "heldout3": {
+  "current": {
+   "total": {
+    "tp": 20,
+    "fp": 1,
+    "fn": 11
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 4
+   },
+   "accessControl": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   }
+  },
+  "D3_p3_one_time_rule": {
+   "total": {
+    "tp": 20,
+    "fp": 1,
+    "fn": 11
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 4
+   },
+   "accessControl": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   }
+  },
+  "D4a_drop_name_only": {
+   "total": {
+    "tp": 17,
+    "fp": 1,
+    "fn": 14
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 4
+   },
+   "accessControl": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 3
+   }
+  },
+  "D4b_drop_name_only_plus_p3_open_writers": {
+   "total": {
+    "tp": 17,
+    "fp": 1,
+    "fn": 14
+   },
+   "initializer": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 4
+   },
+   "accessControl": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 3
+   }
+  },
+  "name_only_findings": [
+   "GasRebatePool.registerOrder",
+   "GasRebatePool.settle",
+   "OpsTimelock.setDelay",
+   "ProtocolFeeRouter.setStakingSink",
+   "YieldController.setVaultStrategy"
+  ],
+  "D3_disagreements": {
+   "specialistOnly": [],
+   "p3Only": []
+  }
+ },
+ "not-so-smart-contracts@020dbdb (no labels)": {
+  "findings": {
+   "current": 34,
+   "D3": 31,
+   "D4a": 33,
+   "D4b": 33
+  },
+  "name_only_findings": [
+   "LedgerChannel.settleVC"
+  ],
+  "D3_disagreements": {
+   "specialistOnly": [
+    "WalletLibrary.initMultiowned",
+    "WalletLibrary.initDaylimit",
+    "WalletLibrary.initWallet"
+   ],
+   "p3Only": []
+  }
+ }
+}

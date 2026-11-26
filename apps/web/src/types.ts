@@ -11,7 +11,7 @@ export interface ProjectSummary {
   evaluations: number; reviews: number;
 }
 export interface StepRow {
-  id: string; step_key: string; role: string; sequence: number; status: string; attempt: number; error: string | null;
+  id: string; step_key: string; role: string; sequence: number; status: string; attempt: number; error: { message: string; retryable: boolean | null } | null;
   started_at: string | null; completed_at: string | null; lease_owner: string | null; lease_expires_at: string | null; lease_live: boolean;
 }
 export interface SnapshotBrief { id: string; repository: string; commit_sha: string; ref_name: string | null; sealed_at: string | null; file_count: number | null; total_bytes: number | string | null; manifest_sha256: string | null; spans: number; hypotheses: number }

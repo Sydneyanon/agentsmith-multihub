@@ -64,7 +64,7 @@ function renderProject(ctx: Ctx, id: string): HTMLElement {
     const slots = stageStates(d);
     const steps = h("table", { class: "table" }, h("thead", {}, h("tr", {}, ...["#", "Step", "Role", "Status", "Attempt", "Finished"].map((t) => h("th", { scope: "col" }, t)))),
       h("tbody", {}, ...d.steps.map((s) => h("tr", {}, h("td", {}, String(s.sequence)), h("td", {}, stepLabel(s.step_key)), h("td", { class: "muted" }, s.role),
-        h("td", {}, badge(word(STEP_STATUS, s.status)), s.status === "running" && !s.lease_live ? chip("lease expired", "amber") : null, s.error ? h("div", { class: "small tone-red-text" }, s.error) : null),
+        h("td", {}, badge(word(STEP_STATUS, s.status)), s.status === "running" && !s.lease_live ? chip("lease expired", "amber") : null, s.error ? h("div", { class: "small tone-red-text" }, s.error.message, s.error.retryable === false ? " (not retryable)" : "") : null),
         h("td", {}, String(s.attempt)), h("td", { class: "muted small" }, relativeTime(s.completed_at))))));
     const snaps = d.snapshot_records.length === 0
       ? empty("No repository snapshots", "Repository acquisition does not exist yet. Snapshots are created by Task 5.2.", "Task 5.2")

@@ -966,7 +966,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Acceptance criteria | Per-corpus diff of findings (dev, corpora 1–3, real repository); no corpus-4 use; a recommendation, not a change. |
 | Required tests | Diff script; no product change. |
 | Security considerations | None. |
-| Approval required | Study: none beyond implementation approval; any findings-changing swap needs owner approval. |
+| Approval required | Study: none beyond implementation approval; any findings-changing swap needs owner approval. | **Status 2026-11-26: study approved and done** (`docs/t185-consistency-study.md`); proposed follow-ups D3-a, D3-b, D4-a each need an implementation go-ahead.
 
 ### T-186: Control Room CR1: live refresh, honest states, lanes, P1–P3 view, discovery panel (web only)
 | Field | |

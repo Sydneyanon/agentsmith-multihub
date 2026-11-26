@@ -243,6 +243,17 @@ describe.skipIf(skipIntegration)("hub research API over real Postgres", () => {
       expect(stepStates.slice(0, 5)).toEqual(Array(5).fill("succeeded"));
       expect(body.progress.current_step).toBeTruthy();
     });
+    it("A33: a failed step's error is shaped; credentials, addresses and opaque strings never leave the API", async () => {
+      const secret = "Q".repeat(44);
+      const { runId, stepIds } = await seedRun(db.pool, ["resolve_source"], "failed");
+      await db.ownerPool.query("UPDATE workflow_steps SET status = 'failed', attempt = 3, completed_at = now(), error = $2::jsonb WHERE id = $1",
+        [stepIds[0], JSON.stringify({ message: `GET https://u:${secret}@api.github.com/repos/x?token=${secret} failed via 10.2.3.4:443`, retryable: false, stack: "at secret.ts:1", upstream_body: secret })]);
+      const res = await app.inject({ method: "GET", url: `/v1/research/projects/${runId}`, headers: AUTH });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().steps[0].error).toEqual({ message: expect.stringContaining("https://api.github.com/repos/x"), retryable: false });
+      for (const leak of [secret, "10.2.3.4", "at secret.ts", "upstream_body"]) expect(res.body).not.toContain(leak);
+      expect((await get(`/v1/research/projects/${seeded.finished.runId}`)).body.steps.every((s: any) => s.error === null)).toBe(true);
+    });
   });
 
   describe("snapshots and the repository explorer", () => {

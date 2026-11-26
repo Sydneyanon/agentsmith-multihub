@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import { buildDossier } from "./analysis/solidity/pipeline.js";
 import { ResearchStore, decodeUtf8Strict, splitLines } from "./research-state.js";
+import { shapeError } from "./engine-status.js";
 
 /**
  * Read-only API for the private hub dashboard (docs/dashboard-api.md). Everything here is a bounded, parameterised
@@ -179,7 +180,8 @@ export function registerResearchRoutes(app: FastifyInstance, pool: Pool | undefi
     return {
       ...shapeProject(run.rows[0]!, counts.get(id) ?? {}),
       correlation_id: meta.rows[0]!.correlation_id, created_by: meta.rows[0]!.created_by, notes: meta.rows[0]!.notes, source_reference: meta.rows[0]!.source_reference,
-      steps: steps.rows,
+      // A33: a worker-written error can quote URLs, hosts or upstream messages; only the shaped message leaves the API
+      steps: steps.rows.map((s) => ({ ...s, error: s.error == null ? null : shapeError(s.error) })),
       snapshot_records: snapshots.rows,
       legacy: {
         note: "Output of the legacy passive pipeline (regex leads, template hypotheses, checklist). It is not research-state evidence and carries no independent review.",
