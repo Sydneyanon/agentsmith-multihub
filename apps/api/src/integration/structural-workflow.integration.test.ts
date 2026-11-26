@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { AuthFailureLimiter, registerBearerAuth } from "../auth.js";
+import { registerResearchRoutes } from "../research-api.js";
 import { ACQUIRE_STEP_KEY, createRepositoryResearchRun, processAcquireRepositoryStep } from "../acquisition/step.js";
 import { FakeSource } from "../acquisition/testing/fake-source.js";
 import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fixture.js";
@@ -81,5 +84,22 @@ describe.skipIf(skipIntegration)("structural analysis inside the repository_rese
     const fake = { id: "00000000-0000-0000-0000-000000000000", workflow_run_id: runId, step_key: ANALYZE_STEP_KEY, role: "structural_analyst", input: {}, attempt: 1 } as unknown as ClaimedStep;
     await expect(processAnalyzeStructureStep({ pool: db.pool, worker: new WorkflowWorker(db.pool, "x", 60, 3), workerId: "x" }, fake)).rejects.toThrow(/sealed snapshot/);
     await retire(runId);
+  });
+
+  it("serves the dossier through the bearer-protected API, built from stored records, and refuses without authentication", async () => {
+    const snapshotId = (await db.pool.query("SELECT id FROM repo_snapshots ORDER BY created_at DESC LIMIT 1")).rows[0].id as string;
+    const token = "d".repeat(20) + "abcdefghijklmnopqrstuvwxyz0123456789"; const app = Fastify({ logger: false });
+    registerBearerAuth(app, token, new AuthFailureLimiter({ perClientMax: 1000, globalMax: 100000, windowMs: 60_000 })); registerResearchRoutes(app, db.pool);
+    try {
+      const auth = { authorization: `Bearer ${token}` };
+      expect((await app.inject({ method: "GET", url: `/v1/research/snapshots/${snapshotId}/dossier` })).statusCode).toBe(401);
+      const ok = await app.inject({ method: "GET", url: `/v1/research/snapshots/${snapshotId}/dossier`, headers: auth });
+      expect(ok.statusCode).toBe(200);
+      const body = ok.json() as { content_sha256: string; entries: unknown[]; snapshot: { verified: boolean } };
+      expect(body.snapshot.verified).toBe(true); expect(body.entries.length).toBeGreaterThan(5);
+      expect(body.content_sha256).toBe((await buildDossier(db.pool, new ResearchStore(db.pool), snapshotId)).content_sha256);
+      expect((await app.inject({ method: "GET", url: "/v1/research/snapshots/not-a-uuid/dossier", headers: auth })).statusCode).toBe(400);
+      expect((await app.inject({ method: "GET", url: "/v1/research/snapshots/00000000-0000-0000-0000-000000000000/dossier", headers: auth })).statusCode).toBe(404);
+    } finally { await app.close(); }
   });
 });

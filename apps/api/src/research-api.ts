@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import { z } from "zod";
+import { buildDossier } from "./analysis/solidity/pipeline.js";
 import { ResearchStore, decodeUtf8Strict, splitLines } from "./research-state.js";
 
 /**
@@ -301,6 +302,17 @@ export function registerResearchRoutes(app: FastifyInstance, pool: Pool | undefi
         spans: spanCount.get(row.path) ?? 0, hypotheses_by_status: byPath.get(row.path) ?? {},
       })),
     };
+  });
+
+  /** The research dossier of a sealed snapshot, assembled ONLY from stored records with every cited span re-verified; refuses (409) rather than show unverifiable evidence. */
+  app.get("/v1/research/snapshots/:id/dossier", async (request, reply) => {
+    const db = guard(reply); if (!db) return;
+    const params = z.object({ id: uuid }).safeParse(request.params);
+    if (!params.success) return invalidId(reply);
+    const { id } = params.data;
+    if (!(await db.pool.query("SELECT 1 FROM repo_snapshots WHERE id = $1", [id])).rowCount) return notFound(reply);
+    try { return await buildDossier(db.pool, new ResearchStore(db.pool), id); }
+    catch { return reply.code(409).send({ error: "dossier_unverifiable", message: "a cited span could not be verified, so no dossier is shown" }); }
   });
 
   // -------------------------------------------------------------- hypotheses

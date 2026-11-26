@@ -408,6 +408,8 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Approval required | Owner, per step. |
 
 ### T-140: Fresh held-out corpus (successor to the burned one)
+
+**Status 2026-11-26: done for corpus 2** (frozen, scored once, recorded). A third corpus is needed before the next measurement because corpus 2 was used for tuning after the first run.
 | Field | |
 |---|---|
 | Phase | 5.8 |
@@ -419,6 +421,8 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Approval required | None. |
 
 ### T-141: Compile-and-execute ground truth for labels (Foundry)
+
+**Status 2026-11-26: done for reentrancy** with solcjs and a JS EVM instead of Foundry (Foundry's binaries and the compiler host are blocked here). Validator agrees 19/19; disputed labels settled. Other classes still unverified by execution.
 | Field | |
 |---|---|
 | Phase | 5.4B |
@@ -430,6 +434,8 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Approval required | Install of Foundry and pinned compilers; owner approval. |
 
 ### T-142: Path-sensitive independent challenge for access control, initializers and delegatecall
+
+**Status 2026-11-26: implemented** (unprivileged-caller execution for access control, selfdestruct, delegatecall and initializers; failing-call execution for unchecked calls). tx.origin still has no independent method.
 | Field | |
 |---|---|
 | Phase | 5.6 |
@@ -441,6 +447,8 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Approval required | None. |
 
 ### T-143: Wire the structural pipeline into the `repository_research` workflow (idle by default)
+
+**Status 2026-11-26: implemented, off by default** (`structuralAnalysis` run option and `STRUCTURAL_ANALYSIS_ENABLED` worker switch). Not activated; no real-repository run yet.
 | Field | |
 |---|---|
 | Phase | 5.3-5.7 |
