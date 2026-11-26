@@ -235,12 +235,16 @@ export function validateReentrancy(ix: ProgramIndex, entry: FunctionDef): SimOut
       for (const l of ledgers) { it.writeVar(l, ["attacker"], credit * ETHER); it.writeVar(l, ["victim"], 10n * ETHER); }
       it.w.balance = (credit + 10n) * ETHER;
     };
-    // honest baseline: the same entry call made twice in sequence, no callbacks
-    const base = new Interp(ix, contract, { reenter: [], maxDepth: 0, callbacks: false }); seed(base);
+    // honest baseline: the SAME two calls (entry, then `next`; and the reverse order) executed sequentially with no re-entrancy; a call that
+    // reverts is skipped. Re-entering a different function only counts as an exploit if it beats every honest ordering of those calls.
     let honest = 0n;
     try {
-      for (let i = 0; i < 2; i++) { const snap = base.w.clone(); try { base.runFunction(entry, contract, args, "attacker", 0n); } catch (e) { if (e instanceof Revert) base.w.restore(snap); else throw e; } }
-      honest = base.w.received;
+      const orders: Array<Array<[FunctionDef, Value[]]>> = [[[entry, args], [next, next === entry ? args : nextArgs]], [[next, next === entry ? args : nextArgs], [entry, args]]];
+      for (const order of orders) {
+        const base = new Interp(ix, contract, { reenter: [], maxDepth: 0, callbacks: false }); seed(base);
+        for (const [fnc, a] of order) { const snap = base.w.clone(); try { base.runFunction(fnc, contract, a, "attacker", 0n); } catch (e) { if (e instanceof Revert) base.w.restore(snap); else throw e; } }
+        if (base.w.received > honest) honest = base.w.received;
+      }
     } catch (e) { if (e instanceof Unsupported) { inconclusive = e.why; continue; } throw e; }
     // re-entrant run
     const sim = new Interp(ix, contract, { reenter: Array.from({ length: depth }, () => ({ fn: next, args: next === entry ? args : nextArgs })), maxDepth: depth, callbacks: true }); seed(sim);
