@@ -32,8 +32,8 @@ fail with the same error. The same query restricted to non-superuser roles succe
 **Fix.** The fault injection now terminates only backends of non-superuser roles: every connection the worker and API hold. A new
 assertion requires that at least one connection was actually terminated, so the test cannot pass by terminating nothing.
 
-**Status: cause identified with high confidence, not fully proven** (the backend's identity was not logged). Kept open until the
-reruns below and later verify runs stay clean.
+**Status: cause identified with high confidence, not fully proven** (the backend's identity was not logged). Kept **open (monitoring)**: the fix is in place and 40 reruns plus a full verify are clean, but the original trigger (a superuser
+backend right after crash recovery) is rare, so a clean rerun record cannot by itself prove the cause.
 
 ## Issue B: discovery "records a material change as an 'updated' event, ignores churn in pushed_at, ..."
 
@@ -57,6 +57,6 @@ nondeterministic.
 |---|---|---|---|
 | 25 owner-role reruns while investigating | cfdee08, the two fixes landing part-way | 23 passed; run 5 failed because the investigation reset the test password mid-run (excluded, self-inflicted); run 7 = Issue B | not run |
 | Full `npm run verify` after both fixes | working tree on 41bc0ff | 239/239 | 239/239 |
-| 20 + 20 reruns after both fixes | working tree on 41bc0ff | see commit message / report | see commit message / report |
+| 20 + 20 reruns after both fixes (alternating) | e3c1739 (same test code) | **20/20 passed (239/239 each)** | **20/20 passed (239/239 each)** |
 
 Owner-role and restricted-role results are always reported separately.
