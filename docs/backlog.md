@@ -1,0 +1,308 @@
+# Implementation backlog
+
+Source of truth for scope is `docs/ROADMAP.md`; this file lists small, independently reviewable tasks. **Listing a task approves nothing**: each task needs its own go-ahead, and the "Approval" field names what extra approval it needs.
+Tasks are design-first where architecture is involved, to prevent drift. Status of all tasks: **not started** (2026-11-26) unless stated.
+
+## Recommended next implementation task
+**T-040 Unified opportunity model: design (documentation only).** Reason: every other discovery task (more sources, URL intake, dedupe, priority engine, Control Room, the 5.2 hand-off) depends on one shared identity for project, repository, commit, scope and provenance.
+Today's table is GitHub-only and keyed `github:owner/repo`; adding Immunefi, Code4rena, Sherlock or pasted URLs on top of it would create exactly the disconnected duplicate pipelines the roadmap forbids. It needs no spending, no environment access and no migration,
+so it can proceed now. In parallel, the single most valuable **owner-side** action is T-010 (live GitHub shape check), because 5.0 and 5.2 are both unverified without it.
+
+## Tasks
+### T-010: Live GitHub response-shape check (discovery)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | none |
+| Scope | One read-only unauthenticated GET of `/orgs/code-423n4/repos?...` from a permitted environment; compare fields to `github-org.ts`; record status, timestamp, rate-limit header, field validation. No body kept. No code change unless the shape differs. |
+| Acceptance criteria | A short evidence record in docs; any shape mismatch becomes a separate fix task. |
+| Required tests | None new (existing adapter tests extended only if shape differs). |
+| Security considerations | No token; no writes; no production source or run. |
+| Approval required | Owner runs it or approves an environment allowing `api.github.com`. |
+
+### T-011: First live repository acquisition (one small public repository)
+| Field | |
+|---|---|
+| Phase | 5.2 |
+| Dependencies | T-010; owner chooses target and `GITHUB_TOKEN` policy |
+| Scope | Run acquisition against one owner-chosen small public repository from a permitted environment against a disposable database; record commit SHA, tree, counts, memory, duration. |
+| Acceptance criteria | Sealed snapshot whose manifest matches GitHub's tree; real response shapes confirmed or deviations recorded. |
+| Required tests | Evidence record; fixtures added for any new shape. |
+| Security considerations | Disposable database only; passive; hosts `api.github.com`, `codeload.github.com` only. |
+| Approval required | Owner approval for target, hosts and environment. |
+
+### T-020: Source-adapter contract and registry (design + refactor plan)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | none |
+| Scope | Document the adapter interface (config schema, URL builder with per-adapter fixed host allowlist, parser, source-verification hook, rate-limit declaration, health reporting). No code. |
+| Acceptance criteria | Design doc reviewed; lists the one migration needed to widen the adapter set and the per-adapter host constant refactor. |
+| Required tests | n/a (design). |
+| Security considerations | Host allowlists are code constants, never configuration. |
+| Approval required | None (documentation). |
+
+### T-021: Source health and failure back-off
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-020 |
+| Scope | Use `consecutive_failures` for exponential back-off and a derived health state (healthy/degraded/failing/disabled) exposed read-only by the API. |
+| Acceptance criteria | A failing source is retried less often; health is computed from stored observations only. |
+| Required tests | Integration tests for back-off and health states; mutation spec entries. |
+| Security considerations | No new outbound capability. |
+| Approval required | None for code; migration only if a column is needed (separate approval). |
+
+### T-022: Immunefi permission and terms resolution
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | none |
+| Scope | Owner (or Claude drafting for the owner) asks Immunefi in writing whether `public-api/bounties.json` may be polled and at what rate; read the full Terms of Use. |
+| Acceptance criteria | A written answer recorded in `discovery-sources-official-research.md`; adapter allowed only if permission is explicit. |
+| Required tests | n/a |
+| Security considerations | No automated access to immunefi.com until resolved. |
+| Approval required | Owner contacts Immunefi; no external contact by the agent. |
+
+### T-023: Code4rena and Sherlock source verification
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-010 |
+| Scope | Verify official GitHub organisations and repository naming (including `-findings` vs code repositories, judging repositories); record verification signals; read platform terms/docs when reachable. |
+| Acceptance criteria | Verified source records with provenance; adapter config presets that exclude findings/judging repositories unless intended. |
+| Required tests | Fixture tests of name filters. |
+| Security considerations | Official-ness needs corroboration plus human confirmation. |
+| Approval required | Owner confirms official organisations. |
+
+### T-024: Cantina, HackenProof, official project bounty pages: terms and interface research
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | hosts reachable or owner supplies text |
+| Scope | Read official terms/docs for each; classify permitted access (API, feed, manual only). |
+| Acceptance criteria | A verified/unverified table per source; no adapter. |
+| Required tests | n/a |
+| Security considerations | No scraping. |
+| Approval required | None for research; any adapter needs approval. |
+
+### T-030: URL intake design: extraction, verification and pasted-text fallback
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-040 (draft) |
+| Scope | Design how a pasted URL becomes provenance-carrying fields; what is fetched, when access fails, and how pasted text is accepted and marked as operator-supplied. |
+| Acceptance criteria | Design doc; defines per-kind extractors (X, GitHub, Immunefi, Code4rena, Sherlock, project page, disclosure) and the never-fabricate rule. |
+| Required tests | n/a (design). |
+| Security considerations | SSRF-pinned fetch only; X never crawled; no login bypass. |
+| Approval required | None (documentation). |
+
+### T-031: URL classifier: platform-specific kinds (no network)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-030 |
+| Scope | Extend `resolveSourceReference` with kinds for Immunefi, Code4rena, Sherlock pages and canonical forms; pure function. |
+| Acceptance criteria | Known URLs classify and canonicalise deterministically; unknown remain `web_page`; hostile URLs still rejected. |
+| Required tests | Table-driven unit tests; mutation spec. |
+| Security considerations | No fetch; SSRF rules unchanged. |
+| Approval required | None. |
+
+### T-032: Pasted-text intake path
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-030 |
+| Scope | Accept operator-pasted text with its claimed source URL, store as an operator-supplied snapshot (hash, time, actor), never labelled as retrieved. |
+| Acceptance criteria | Intake stores text with provenance 'operator-supplied'; extraction treats it as unverified. |
+| Required tests | Integration tests incl. labelling; mutation: text cannot be marked fetched. |
+| Security considerations | Untrusted text bounded and sanitised. |
+| Approval required | Migration likely: separate approval. |
+
+### T-040: Unified opportunity model: design
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | none |
+| Scope | Design how opportunity, program, project identity, repository identity, commit SHA, scope, reward, deadlines, eligibility, testing restrictions, snapshots and change history relate; how today's `bounty_opportunities` migrates. |
+| Acceptance criteria | Design doc with schema sketch, identity-resolution rules and cross-source dedupe; reviewed. No migration. |
+| Required tests | n/a (design). |
+| Security considerations | Official-ness never inferred from one source; scope is a claim until confirmed. |
+| Approval required | None (documentation); the later migration needs approval. |
+
+### T-041: Unified opportunity model: migration draft and tests
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-040 approved |
+| Scope | Write migration `0009` and store functions per the approved design; tested on disposable databases only. |
+| Acceptance criteria | Migration applies and rolls back cleanly; existing discovery data maps over; append-only rules preserved. |
+| Required tests | Real-Postgres tests incl. restricted role; mutation spec. |
+| Security considerations | Least-privilege grants updated in `runtime-grants.json`. |
+| Approval required | Explicit approval before writing; separate approval before any production apply. |
+
+### T-042: Cross-source project identity and dedupe
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-041 |
+| Scope | Resolve the same project seen via several sources to one identity using repository identity and verified links. |
+| Acceptance criteria | Two sources for one project yield one research pipeline; conflicts are surfaced, not merged silently. |
+| Required tests | Fixture-based tests for merges and false-merge prevention. |
+| Security considerations | Never merge on name similarity alone. |
+| Approval required | None beyond T-041. |
+
+### T-050: Adaptive Research Priority Engine: design
+| Field | |
+|---|---|
+| Phase | cross-phase |
+| Dependencies | T-040 |
+| Scope | Define the feature set, how each feature is recorded, how scores are explained, how outcomes feed back, and the limits of what can be claimed. |
+| Acceptance criteria | Design doc; explicitly forbids invented probabilities; separates v1 (transparent weights) from learned adaptation. |
+| Required tests | n/a (design). |
+| Security considerations | Budget caps respected; no model spend. |
+| Approval required | None (documentation). |
+
+### T-051: Priority scoring v1 (transparent features)
+| Field | |
+|---|---|
+| Phase | cross-phase |
+| Dependencies | T-050 approved, T-041 |
+| Scope | Replace the 5.0 placeholder scorer with the v1 feature scorer; every point stored with its reason. |
+| Acceptance criteria | Deterministic scores with per-feature reasons; no probability language. |
+| Required tests | Unit tests per feature; mutation spec. |
+| Security considerations | No behaviour adaptation. |
+| Approval required | Approval of the design. |
+
+### T-060: Fly Managed Postgres role verification
+| Field | |
+|---|---|
+| Phase | 5.0/ops |
+| Dependencies | owner approves a disposable cluster (cost) |
+| Scope | On a throwaway cluster test creating a Writer user, the role guard, the grants script and TRUNCATE rights. |
+| Acceptance criteria | Documented answer to: can least-privilege roles be built on MPG, and which design. |
+| Required tests | Evidence record; script change if needed. |
+| Security considerations | No production cluster touched. |
+| Approval required | Owner approval (costs money). |
+
+### T-061: Separate human-decision integrity
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-060 |
+| Scope | Make human decision events writable only through a separate role/function. |
+| Acceptance criteria | A compromised runtime role cannot forge a human event. |
+| Required tests | Restricted-role tests attempting forgery. |
+| Security considerations | Closes limitation recorded in PR #20 review. |
+| Approval required | Approval; role change in production needs separate approval. |
+
+### T-062: Worker deployment design (no activation)
+| Field | |
+|---|---|
+| Phase | ops |
+| Dependencies | T-060 |
+| Scope | Process group, no public ports, egress allowlist, runtime role, cost estimate from Fly's own pricing page. |
+| Acceptance criteria | Design reviewed; minimum monthly cost stated by the owner from Fly pricing. |
+| Required tests | n/a |
+| Security considerations | Never starts a worker. |
+| Approval required | Owner approves billing before any activation. |
+
+### T-063: Genuine Docker build pipeline
+| Field | |
+|---|---|
+| Phase | ops |
+| Dependencies | a reachable builder |
+| Scope | Replace the Docker-less artifact with a Dockerfile-built image and verify equivalence. |
+| Acceptance criteria | Digest-pinned build from the exact commit; smoke 31/31. |
+| Required tests | Existing image smoke. |
+| Security considerations | Supply-chain: pinned base digest. |
+| Approval required | Approval for any paid service. |
+
+### T-070: Independent human review of PR #20
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | none |
+| Scope | A human (or external) security review of migration 0008, the guard trigger, events, scheduler and the 5.2 hand-off. |
+| Acceptance criteria | Findings recorded and fixed or accepted. |
+| Required tests | As findings require. |
+| Security considerations | n/a |
+| Approval required | Owner arranges the reviewer. |
+
+### T-080: Phase 5.3 design: intelligence mapping and attack-surface analysis
+| Field | |
+|---|---|
+| Phase | 5.3 |
+| Dependencies | T-011 |
+| Scope | Design inputs/outputs, evidence rules, how it replaces the legacy regex mapper, language scope. |
+| Acceptance criteria | Design doc approved by the owner; no code. |
+| Required tests | n/a (design). |
+| Security considerations | Read-only analysis; no execution of repository code. |
+| Approval required | Owner approval to start the phase. |
+
+### T-090: Control Room design: event and heartbeat sources
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | T-040 |
+| Scope | Specify which real records feed each panel (discovery health, opportunities, acquisition, priorities, runs, tools/agents, reviews, findings, cost); define the 'refuse to render unbacked data' test. |
+| Acceptance criteria | Design doc listing, per panel, its source table or the missing source. |
+| Required tests | n/a (design). |
+| Security considerations | Read-only; token-protected API. |
+| Approval required | None (documentation). |
+
+### T-091: Control Room: discovery health panel (read-only)
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | T-021, T-090 |
+| Scope | API endpoint and UI panel showing source health, last observations and failures from stored rows. |
+| Acceptance criteria | Idle/stale/unknown are labelled; nothing shown without a stored record. |
+| Required tests | API integration tests; UI test refusing unbacked values. |
+| Security considerations | Bearer-protected; no new write path. |
+| Approval required | None beyond normal review. |
+
+### T-100: Grok rediscovery benchmark: reference confirmation
+| Field | |
+|---|---|
+| Phase | 5.8 |
+| Dependencies | owner |
+| Scope | Owner supplies and confirms the Immunefi program, finding, repository and commit Grok found; Alchemix V3 rounding/index remains a candidate until then. |
+| Acceptance criteria | A confirmed reference record, stored **sealed and hidden** from the pipeline (hash recorded, content withheld from any research input). |
+| Required tests | n/a |
+| Security considerations | Reference must not enter any research context before sealing. |
+| Approval required | Owner provides and confirms. |
+
+### T-101: Blind rediscovery benchmark protocol
+| Field | |
+|---|---|
+| Phase | 5.8 |
+| Dependencies | T-100, T-080 |
+| Scope | Define the blinding, sealing of AgentSmith's hypotheses and evidence before the reveal, and scoring (root cause, impact, reproducibility, evidence quality, time, cost). |
+| Acceptance criteria | Protocol doc; framed as a known-positive capability test, not proof of novelty. |
+| Required tests | Protocol checks that the reference is absent from inputs. |
+| Security considerations | No active testing; local repository reading only unless scope is verified. |
+| Approval required | Owner approval before any run; model spend only through the gateway with approval. |
+
+### T-110: Fix stale dashboard text about acquisition
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | none |
+| Scope | One-line UI string still says acquisition is built in Task 5.2 and unavailable. |
+| Acceptance criteria | Text states the real status (implemented, not live-verified). |
+| Required tests | UI test of the string. |
+| Security considerations | None. |
+| Approval required | None. |
+
+### T-120: Weirdness Engine definition workshop
+| Field | |
+|---|---|
+| Phase | 5.5A |
+| Dependencies | none |
+| Scope | Owner and Claude write the definition (scope, inputs, outputs). |
+| Acceptance criteria | Definition committed to the plan. |
+| Required tests | n/a |
+| Security considerations | None. |
+| Approval required | Owner participation. |
+
