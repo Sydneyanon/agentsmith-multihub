@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
 import { resolveSourceReference } from "./source-resolver.js";
 import { outboundFetch } from "./net/outbound.js";
+import { MONITOR_STEP_KEY, ensureDueMonitorRuns, processMonitorSourceStep } from "./discovery/step.js";
 import { LeaseLostError, httpStatusError } from "./step-errors.js";
 import { defaultLog, runWorkerLoop, type LogFn, type WorkerLoopOptions } from "./worker-loop.js";
 
@@ -1012,7 +1013,7 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
 const INTAKE_STEP_KEYS = [
   "resolve_source", "identify_project", "locate_official_repositories", "establish_authorization",
   "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief",
-  ACQUIRE_STEP_KEY,
+  ACQUIRE_STEP_KEY, MONITOR_STEP_KEY,
 ] as const;
 
 async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep, acquire: Omit<AcquireStepContext, "pool" | "worker">): Promise<void> {
@@ -1025,6 +1026,7 @@ async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: Clai
   else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
   else if (step.step_key === "prepare_research_brief") await processResearchBrief(pool, worker, step);
   else if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ pool, worker, ...acquire }, step);
+  else if (step.step_key === MONITOR_STEP_KEY) await processMonitorSourceStep({ pool, worker }, step);
   else throw new Error(`No handler registered for step: ${step.step_key}`);
 }
 
@@ -1046,6 +1048,11 @@ export async function runIntakeWorker(
 ): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
   const loopOptions = typeof options === "number" ? { pollMs: options } : options;
+  // Discovery is double-gated: this switch AND at least one source a human has enabled. With either off, nothing is ever fetched.
+  const scheduler = process.env.DISCOVERY_ENABLED === "true"
+    ? setInterval(() => { ensureDueMonitorRuns(pool).catch((error: unknown) => defaultLog("error", "discovery_schedule_failed", { error: error instanceof Error ? error.message : String(error) })); }, 60_000)
+    : undefined;
+  signal.addEventListener("abort", () => { if (scheduler) clearInterval(scheduler); }, { once: true });
   await runWorkerLoop({
     reapExhaustedLeases: () => worker.reapExhaustedLeases(),
     claimNext: () => worker.claimNext(INTAKE_STEP_KEYS),

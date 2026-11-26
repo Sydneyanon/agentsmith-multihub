@@ -15,7 +15,7 @@ Two roles:
 | DML | all | only what `db/runtime-grants.json` lists |
 | `evict_research_blob()` | yes | **no** |
 
-`db/runtime-grants.json` is the single reviewable list (INSERT on 16 tables, UPDATE on 4 mutable tables plus row-lock-only `hypotheses`, SELECT on read tables/views, no access to `schema_migrations`). `scripts/apply-runtime-grants.ts` (run as the owner, `DIRECT_DATABASE_URL` + `RUNTIME_ROLE`) revokes everything the role holds then grants exactly the manifest; it also removes `CREATE` on the schema from `PUBLIC` and `EXECUTE` on application functions from `PUBLIC`. It creates no role and sets no password. It refuses to run if the manifest and database disagree (a new table without a manifest entry fails closed) or if the role has elevated attributes.
+`db/runtime-grants.json` is the single reviewable list (INSERT on 20 tables, UPDATE on 6 mutable tables plus row-lock-only `hypotheses`, SELECT on read tables/views, no access to `schema_migrations`). `scripts/apply-runtime-grants.ts` (run as the owner, `DIRECT_DATABASE_URL` + `RUNTIME_ROLE`) revokes everything the role holds then grants exactly the manifest; it also removes `CREATE` on the schema from `PUBLIC` and `EXECUTE` on application functions from `PUBLIC`. It creates no role and sets no password. It refuses to run if the manifest and database disagree (a new table without a manifest entry fails closed) or if the role has elevated attributes.
 
 Notes on specific grants:
 - `hypotheses` has UPDATE only because `hypothesis_evidence_guard()` runs `SELECT … FOR UPDATE` on it as the invoking role. Real updates are rejected by the `hypotheses_immutable` trigger, which the runtime role cannot disable.

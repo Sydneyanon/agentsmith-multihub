@@ -312,9 +312,10 @@ describe.skipIf(skipIntegration)("repository acquisition over real Postgres", ()
     });
   });
 
-  it("adds no migration and no table: it uses the Task 5.1 schema as it is", () => {
-    const migrations = readdirSync(join(process.cwd(), "db", "migrations")).filter((f) => f.endsWith(".sql"));
-    expect(migrations).toHaveLength(7);
-    expect(migrations[migrations.length - 1]).toBe("0007_research_state.sql");
+  it("adds no migration and no table of its own: it uses the Task 5.1 schema as it is (0001-0007 are unchanged; later migrations belong to later phases)", () => {
+    const migrations = readdirSync(join(process.cwd(), "db", "migrations")).filter((f) => f.endsWith(".sql")).sort();
+    expect(migrations.slice(0, 7).map((f) => f.slice(0, 4))).toEqual(["0001", "0002", "0003", "0004", "0005", "0006", "0007"]);
+    expect(migrations[6]).toBe("0007_research_state.sql");
+    expect(migrations).toEqual([...migrations.slice(0, 7), "0008_discovery.sql"]); // the only migration added after 5.2 is 5.0's, which creates no acquisition table
   });
 });

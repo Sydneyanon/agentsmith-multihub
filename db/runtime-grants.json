@@ -20,8 +20,22 @@
    "SELECT",
    "INSERT"
   ],
+  "bounty_opportunities": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
   "budget_policies": [
    "SELECT"
+  ],
+  "discovery_observations": [
+   "SELECT",
+   "INSERT"
+  ],
+  "discovery_sources": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
   ],
   "evaluation_evidence": [
    "SELECT",
@@ -74,6 +88,10 @@
    "SELECT"
   ],
   "model_usage_events": [
+   "SELECT",
+   "INSERT"
+  ],
+  "opportunity_events": [
    "SELECT",
    "INSERT"
   ],
