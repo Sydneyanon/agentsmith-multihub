@@ -51,7 +51,9 @@ describe("the canonical roadmap keeps every phase, status and permanent boundary
   it("preserves the Immunefi scout position honestly and keeps the integrity issue visible", () => {
     const scout = read("docs/immunefi-scout.md");
     expect(roadmap).toContain("Discovery precedes scanning");
-    expect(scout).toMatch(/\*\*No\.\*\* No file, commit message or code mentioned Immunefi/);
+    expect(scout).toMatch(/source files themselves are not available to me/);
+    expect(scout).toMatch(/public-api\/bounties\.json/);
+    expect(read("docs/opportunity-model-design.md")).toMatch(/design only\. No migration is written/);
     expect(scout).toMatch(/no automated access to immunefi\.com or its JSON file is built or run/i);
     expect(scout).toMatch(/not tamper-proof/);
     expect(roadmap).toMatch(/\| S1 \|[^\n]*not tamper-proof/);

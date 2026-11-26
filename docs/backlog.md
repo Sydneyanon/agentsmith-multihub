@@ -120,6 +120,8 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Approval required | Migration likely: separate approval. |
 
 ### T-040: Unified opportunity model: design
+**Status: design drafted 2026-11-26 in `docs/opportunity-model-design.md`; awaiting owner review. Documentation only; T-041 (migration draft) is not started.**
+
 | Field | |
 |---|---|
 | Phase | 5.0 |
@@ -306,16 +308,16 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Security considerations | None. |
 | Approval required | Owner participation. |
 
-### T-130: Recover the earlier Immunefi scout's method
+### T-130: Obtain the earlier scout's source (Hunt engine)
 | Field | |
 |---|---|
 | Phase | 5.0 |
 | Dependencies | owner |
-| Scope | Owner points to where the scout's source, prompts, notes or session transcript live (possibly on the owner's server or in a private repository outside this task's scope). Review it read-only and record: endpoint/page used, authentication, fields, change detection, storage, repository identification, closed/paused handling, dedupe. |
-| Acceptance criteria | `immunefi-scout.md` section 1 is updated from the primary source, replacing every "not established" with a verified fact or "does not exist". |
+| Scope | The scout's method is recovered from history (`immunefi-scout.md` section 1) but its source (`huntd/scout.py`, `huntd/sources.py`, tests, fixtures) is not in any repository I can see. Owner says where it lives (their server, a private repository, or the earlier session's tarball) and approves read-only access. The agent will not read credentials, the admin token or secrets while doing so. |
+| Acceptance criteria | The design notes in `immunefi-scout.md` are confirmed or corrected against the real source; fixtures usable for adapter tests are identified. |
 | Required tests | n/a (evidence record) |
-| Security considerations | Do not copy credentials or tokens from the scout; no new access to private repositories without approval. |
-| Approval required | Owner supplies access. |
+| Security considerations | Do not copy tokens, passwords or keys; read only the named source files. |
+| Approval required | Owner supplies or approves access. |
 
 ### T-131: Platform-source registry (inventory, not adapters)
 | Field | |
@@ -371,3 +373,25 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Required tests | Import fixture test. |
 | Security considerations | The board is a sanitised projection and is not a source of truth; no findings data exists in it. |
 | Approval required | Owner approval. |
+
+### T-136: Adapter conduct policy (all sources)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-020 |
+| Scope | Write the policy every adapter must meet: honest identifying user agent, RFC 9309 robots.txt handling, response-size caps, conditional requests, fixed per-source rate, no evasion, kill switch. Reuse the Hunt engine's design where it fits. |
+| Acceptance criteria | A reviewed policy and a checklist each adapter design must pass. |
+| Required tests | n/a (policy); later enforced by adapter tests. |
+| Security considerations | A source's terms override convenience; absence of a robots rule is not permission. |
+| Approval required | None (documentation). |
+
+### T-138: Decide the single owner of discovery (Hunt engine vs MultiHub)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-130 |
+| Scope | The Hunt engine (Python, sqlite, deployed separately) already scouts and keeps a target backlog; MultiHub 5.0 is the permanent architecture. Decide: migrate its discovery into MultiHub, keep it as a feeder through an import path, or retire it. Meanwhile decide whether to pause its Immunefi source (S4). No second Immunefi poller is added. |
+| Acceptance criteria | A recorded owner decision and, if feeding, an import contract that preserves provenance. |
+| Required tests | n/a |
+| Security considerations | The Hunt service and its configuration are not modified by MultiHub work without approval. |
+| Approval required | Owner. |
