@@ -107,6 +107,22 @@ describe("APEX, the Priority Engine and multi-domain commitments are preserved w
   });
 });
 
+describe("this cycle's decisions are recorded without overclaiming", () => {
+  const pe = read("docs/adaptive-priority-engine-design.md"); const mem = read("docs/research-memory-gaps.md"); const pa = read("docs/apex-prior-art.md");
+  it("records the adopted Priority Engine policies", () => {
+    expect(pe).toMatch(/20 percent of research capacity is reserved for exploration and 80 percent/);
+    expect(pe).toMatch(/Only confirmed outcomes are successful discovery labels/); expect(pe).toMatch(/\*\*preregister\*\*/);
+    expect(pe).toMatch(/An audit report is never proof that a repository or project is saturated/);
+  });
+  it("keeps the research-memory review a proposal and the confirmed rule strict", () => {
+    expect(mem).toMatch(/No migration is written or applied/); expect(mem).toMatch(/`confirmed` requires at least one `supports` evaluation from an evaluator different from the generator/);
+    expect(mem).toMatch(/Nothing here creates a separate memory per specialist or engine/);
+  });
+  it("labels the prior-art first pass as provisional and claims no novelty", () => {
+    expect(pa).toMatch(/no paper was read directly/); expect(pa).toMatch(/no capability is rated "potentially novel"/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

@@ -11,7 +11,7 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-143 as listed below (T-137 and T-144 to T-149 are unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -158,7 +158,7 @@ Used: T-010 to T-143 as listed below (T-137 and T-144 to T-149 are unused and re
 | Approval required | None beyond T-041. |
 
 ### T-050: Adaptive Research Priority Engine: detailed design
-**Status 2026-11-26: design draft written (`docs/adaptive-priority-engine-design.md`), awaiting owner review. Documentation only. Expands the original T-050; no duplicate task exists.**
+**Status 2026-11-26: design written and the owner's initial policies adopted (exploration 20/80 configurable; five outcome categories, only confirmed are discovery labels; no adaptive weights or probabilities before preregistered evidence; audit data only with provenance and permitted use, never as project saturation) in `docs/adaptive-priority-engine-design.md` section 10. Expands the original T-050; no duplicate task exists.**
 
 | Field | |
 |---|---|
@@ -171,6 +171,8 @@ Used: T-010 to T-143 as listed below (T-137 and T-144 to T-149 are unused and re
 | Approval required | None (documentation); owner review of the open decisions. |
 
 ### T-051: Transparent deterministic priority scoring v1
+**Status 2026-11-26: implemented on fixtures only (`apps/api/src/priority/`, 12 property tests). Not connected to real data; steers nothing.**
+
 | Field | |
 |---|---|
 | Phase | cross-phase |
@@ -231,7 +233,7 @@ Used: T-010 to T-143 as listed below (T-137 and T-144 to T-149 are unused and re
 | Phase | cross-phase / 5.8 |
 | Dependencies | T-057 baselines, independently confirmed outcomes from 5.6/5.8 |
 | Scope | Store outcomes with confirmation levels; adaptive weight updates and, only when evidence allows, calibration. |
-| Acceptance criteria | Learning uses only independently confirmed outcomes; unverified or self-generated findings are excluded by construction; calibration curves computed on unseen data before any probability is reported. |
+| Acceptance criteria | A **preregistered** plan, written before outcome data is examined, stating: the evidence threshold and its justification (diverse targets and classes, independently adjudicated only); the calibration method; the held-out evaluation design; and the comparison against the frozen deterministic policy `priority-policy/1`. Learning uses only `confirmed` outcomes; refuted, inconclusive, duplicate and missed outcomes are evidence, never success labels; calibrated estimates are reported only if they beat the frozen policy on held-out data. |
 | Required tests | Tests that unverified outcomes cannot enter training; held-out replay showing the learner's ranking improves. |
 | Security considerations | None. |
 | Approval required | Owner approval of the minimum evidence threshold. |
@@ -685,6 +687,17 @@ Used: T-010 to T-143 as listed below (T-137 and T-144 to T-149 are unused and re
 | Required tests | The evaluation harness; reproducibility reruns. |
 | Security considerations | No active testing of live systems. |
 | Approval required | Owner approval. |
+
+### T-144: Research outcomes and coverage records
+| Field | |
+|---|---|
+| Phase | 5.1 / cross-phase |
+| Dependencies | `docs/research-memory-gaps.md` reviewed |
+| Scope | Append-only `hypothesis_outcomes` (five categories, database rule for confirmed), missed findings via outcome `missed`, `research_coverage` keyed by component content hash, class and method, an optional counterexample artifact on evaluations, and a step-output cost convention. Contribution provenance deferred to T-151. |
+| Acceptance criteria | Confirmed cannot be recorded without an independent supporting evaluation and a human adjudication; coverage distinguishes examined, abstained, not modelled and out of scope; the Priority Engine and the Control Room read these records instead of private copies. |
+| Required tests | Real-Postgres tests incl. restricted role; mutation spec. |
+| Security considerations | Append-only; least-privilege grants. |
+| Approval required | Design approval, then migration approval. |
 
 ## Multi-domain series (reserved T-170 to T-179; proposed, not authorised; see `docs/multi-domain-research.md`)
 

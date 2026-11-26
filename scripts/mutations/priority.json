@@ -1,0 +1,47 @@
+{
+ "command": "npx vitest run apps/api/src/priority",
+ "mutations": [
+  {
+   "name": "score: researched coverage ignores the component's current version",
+   "file": "apps/api/src/priority/score.ts",
+   "old": "!k.researchedAtHashes.includes(k.contentSha256)",
+   "new": "k.researchedAtHashes.length === 0"
+  },
+  {
+   "name": "score: audit claims without provenance are used",
+   "file": "apps/api/src/priority/score.ts",
+   "old": "o.audits.filter((a) => a.provenanceVerified && a.permittedUse)",
+   "new": "o.audits"
+  },
+  {
+   "name": "score: unknown reward is guessed instead of flagged",
+   "file": "apps/api/src/priority/score.ts",
+   "old": "if (o.maxRewardUsd === null) { flags.push(\"reward unknown\");",
+   "new": "if (o.maxRewardUsd === null) {"
+  },
+  {
+   "name": "score: freshness is unbounded",
+   "file": "apps/api/src/priority/score.ts",
+   "old": "add(\"freshness\", o.publishedAt ?? \"unknown\", w.freshness, fresh,",
+   "new": "add(\"freshness\", o.publishedAt ?? \"unknown\", w.freshness, fresh * 10,"
+  },
+  {
+   "name": "allocate: no exploration slots",
+   "file": "apps/api/src/priority/score.ts",
+   "old": "const exploreSlots = Math.min(Math.round(slots * policy.explorationShare), slots);",
+   "new": "const exploreSlots = 0;"
+  },
+  {
+   "name": "outcomes: confirmed accepted without human adjudication",
+   "file": "apps/api/src/priority/outcomes.ts",
+   "old": "!(o.independentlyValidated && o.humanAdjudicated)",
+   "new": "!o.independentlyValidated"
+  },
+  {
+   "name": "outcomes: missed findings counted as discovery labels",
+   "file": "apps/api/src/priority/outcomes.ts",
+   "old": "if (o.category === \"confirmed\") discoveryLabels.push(o);",
+   "new": "if (o.category === \"confirmed\" || o.category === \"missed\") discoveryLabels.push(o);"
+  }
+ ]
+}

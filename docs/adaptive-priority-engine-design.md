@@ -54,8 +54,15 @@ Inputs: discovery events and the unified opportunity model (5.0), acquisition co
 ## 9. Sequencing
 Start T-050 now (this document). Build T-051 early alongside the unified opportunity model, on fixtures. T-052/T-053 follow the coverage model and commit events; T-054/T-055 add economics and exploration; T-056/T-057 need real outcomes and the 5.8 corpora; T-058 connects live systems. Dependencies and acceptance criteria are in `docs/backlog.md`.
 
-## 10. Open owner decisions
-1. The exploration share (proposed 20 percent).
-2. Which outcome confirmation levels count as learning ground truth (proposed: independently reviewed or externally confirmed only).
-3. Minimum evidence before adaptive weights or calibrated probabilities are enabled.
-4. Whether prior third-party audit data may be ingested (terms and reliability), and from where.
+## 10. Adopted policies (owner decisions, 2026-11-26)
+1. **Exploration allocation:** 20 percent of research capacity is reserved for exploration and 80 percent for exploitation of the strongest current opportunities. The ratio is a configurable policy value (`apps/api/src/priority/policy.ts`, `explorationShare`), changed only through a recorded decision citing evidence of whether exploration produced useful discoveries.
+2. **Outcome categories (ground truth):** five distinct categories are kept: **confirmed** (independently validated **and** human-adjudicated), **refuted** (evidence shows the hypothesis is wrong), **inconclusive** (insufficient evidence), **duplicate** (already known or previously reported), **missed finding** (independently discovered after the original investigation). **Only confirmed outcomes are successful discovery labels.** Refuted, inconclusive, duplicate and missed outcomes are kept as evidence and are never collapsed into confirmed. Implemented as a tested code-level policy (`apps/api/src/priority/outcomes.ts`); storage is proposed in `docs/research-memory-gaps.md` (T-144).
+3. **Adaptive weights and probability calibration:** scoring stays transparent and deterministic. No adaptive weights and no probability estimates until sufficient, diverse, independently adjudicated evidence exists. T-056 must **preregister**, before looking at outcome data: the evidence threshold and its justification (no convenient number without a reason), the calibration method, the held-out evaluation design, and the comparison against the frozen deterministic policy (`priority-policy/1`). Learning that does not beat the frozen policy on held-out data is not adopted.
+4. **Third-party audit data:** permitted where provenance and permitted use are established; otherwise ignored and flagged. The engine distinguishes claimed audit coverage, vulnerability classes examined, specific verified findings and AgentSmith's own commit-specific research. **An audit report is never proof that a repository or project is saturated.** Coverage is tracked at commit, component, contract, function and vulnerability-class level; in v1 an audit counts fully only for the exact commit it names, and only together with components AgentSmith has researched at their current version.
+
+## 11. T-051 status
+Implemented on fixtures only (`apps/api/src/priority/`): deterministic additive scoring with a named, reasoned contribution per feature, policy version and input hash; flags instead of guesses for unknowns; version-aware coverage and audit handling as in section 10; seeded, reproducible 20/80 allocation. Tested by property tests over synthetic opportunities (`priority.test.ts`). **Not connected to real discovery or acquisition data, not used to steer anything, no learning.**
+
+## 12. Open owner decisions
+1. The exploration share, outcome categories, calibration gating and audit-data policy are decided (section 10).
+2. Still open: the preregistered evidence threshold for T-056 (to be proposed with its justification when outcome data exists), and which audit sources to ingest first.
