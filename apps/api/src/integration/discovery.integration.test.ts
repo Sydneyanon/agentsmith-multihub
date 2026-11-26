@@ -181,6 +181,8 @@ describe.skipIf(skipIntegration)("bounty discovery over real Postgres", () => {
       for (const state of ["approved", "queued", "dismissed"]) await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = $2 WHERE id = $1", [oppId, state])).rejects.toThrow(/requires a recorded human/);
       await approveOpportunity(db.pool, oppId, { repository: (await db.ownerPool.query("SELECT repository_candidates->0->>'repository' AS r FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!.r }, "operator");
       await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'discovered' WHERE id = $1", [oppId])).rejects.toThrow(/cannot be reverted/);
+      // A human event of a DIFFERENT type is not enough: 'dismissed' needs a human 'dismissed' event, not the human 'queued' one.
+      await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'dismissed' WHERE id = $1", [oppId])).rejects.toThrow(/requires a recorded human dismissed/);
       expect((await db.ownerPool.query("SELECT state FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!.state).toBe("queued");
     });
 
@@ -266,6 +268,10 @@ describe.skipIf(skipIntegration)("bounty discovery over real Postgres", () => {
         expect(list.sources.find((s) => s.source_key === "api-src")!.enabled).toBe(false);
         const check = await app.inject({ method: "POST", url: "/v1/discovery/sources/api-src/check", headers: auth });
         expect(check.json()).toEqual({ outcome: "skipped", reason: "disabled" }); // a disabled source is not fetched, even on a human 'check now'
+        // A human 'check now' cannot hammer the source: inside 60 s of the last attempt it is refused before any request is made.
+        await db.ownerPool.query("UPDATE discovery_sources SET enabled = true, last_attempt_at = now() WHERE source_key = 'api-src'");
+        expect((await app.inject({ method: "POST", url: "/v1/discovery/sources/api-src/check", headers: auth })).json()).toEqual({ outcome: "skipped", reason: "too_soon" });
+        await db.ownerPool.query("UPDATE discovery_sources SET enabled = false WHERE source_key = 'api-src'");
         expect((await app.inject({ method: "POST", url: "/v1/discovery/sources/nope-nope/enable", headers: auth })).statusCode).toBe(404);
         expect((await app.inject({ method: "GET", url: "/v1/discovery/opportunities/not-a-uuid", headers: auth })).statusCode).toBe(400);
         expect((await app.inject({ method: "GET", url: "/v1/discovery/opportunities/00000000-0000-0000-0000-000000000000", headers: auth })).statusCode).toBe(404);
