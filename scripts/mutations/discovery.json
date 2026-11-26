@@ -52,7 +52,7 @@
   {
    "name": "monitor: archived repositories are not closed",
    "file": "apps/api/src/discovery/monitor.ts",
-   "old": "if (item.closed && existing.state !== \"closed\" && existing.state !== \"dismissed\") {",
+   "old": "if (item.closed && !alreadyClosed) {",
    "new": "if (false) {"
   },
   {
@@ -166,8 +166,8 @@
   {
    "name": "monitor: forced check ignores the minimum gap",
    "file": "apps/api/src/discovery/monitor.ts",
-   "old": "if (options.force && gap > 0 &&",
-   "new": "if (false && gap > 0 &&"
+   "old": "if (options.force && gap > 0) {",
+   "new": "if (false) {"
   },
   {
    "name": "api: check-now passes no minimum gap",

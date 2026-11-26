@@ -38,9 +38,9 @@ describe("github_org_repos adapter (documented GET /orgs/{org}/repos shape)", ()
   });
   it("skips forks, private repositories, other owners, names without the date prefix, and repositories the key rules would refuse", () => {
     const { items } = parseOrgRepos([
-      repo({ name: "2026-11-fork", full_name: "code-423n4/2026-11-fork", fork: true }),
-      repo({ name: "2026-11-private", full_name: "code-423n4/2026-11-private", private: true }),
-      repo({ name: "2026-11-other", full_name: "someone-else/2026-11-other" }),
+      repo({ name: "2026-11-fork", full_name: "code-423n4/2026-11-fork", html_url: "https://github.com/code-423n4/2026-11-fork", fork: true }),
+      repo({ name: "2026-11-private", full_name: "code-423n4/2026-11-private", html_url: "https://github.com/code-423n4/2026-11-private", private: true }),
+      repo({ name: "2026-11-other", full_name: "someone-else/2026-11-other", html_url: "https://github.com/someone-else/2026-11-other" }),
       repo({ name: "docs", full_name: "code-423n4/docs" }),
       repo({ name: "2026-13-badmonth", full_name: "code-423n4/2026-13-badmonth" }),
       repo({ name: "2026-10-ok", full_name: "code-423n4/2026-10-ok", html_url: "https://github.com/code-423n4/2026-10-ok" }),
