@@ -17,6 +17,11 @@ read-only. Prices were read live on 2026-11-27 from each provider's public prici
 minutes and the app is now suspended. Fly's Free plan gives a one-time $1 credit that expires after 7 days. After that, no new
 resources can be created until a card is added.
 
+**Update 2026-11-27 (later):** the owner added a card. The Fly API now reports `billingStatus: CURRENT`, `isCreditCardSaved: true`,
+`billable: true`. The app is `deployed` (no longer suspended); the machine was started by a user action at 22:22:53Z and still runs
+Release 1. Read-only checks: `/health/live` 200, `/health/ready` 200 (database wake about 4 s), `/v1/*` 401 without the token. The
+5-minute trial stop should no longer apply; auto-stop when idle is still configured. Nothing was deployed or changed by this check.
+
 ## 2. Fly pricing that applies (fly.io/docs/about/pricing, /about/free-plan, /postgres/developer-plan)
 - **Machines** (base prices quoted for Ashburn; **Sydney carries a 1.269× markup** in Fly's own price table):
   - shared-cpu-1x 256 MB: $2.19/month always-on, so **$2.78 in syd**;
