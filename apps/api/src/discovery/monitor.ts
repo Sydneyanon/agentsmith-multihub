@@ -15,6 +15,8 @@ export type MonitorOptions = {
   timeoutMs?: number;
   /** Ignore the minimum interval (an explicit human "check now"). Never ignores `enabled`. */
   force?: boolean;
+  /** With `force`, still refuse when the last attempt was fewer than this many seconds ago (a human cannot hammer the source). Default 0. */
+  minForceGapSeconds?: number;
 };
 
 export type MonitorResult =
@@ -59,6 +61,9 @@ export async function monitorSource(options: MonitorOptions): Promise<MonitorRes
   if (!src) throw new DiscoveryError("unknown_source", `no source named ${options.sourceKey}`);
   if (!src.enabled) return { outcome: "skipped", reason: "disabled" };
   if (!options.force && src.last_attempt_at && now().getTime() - src.last_attempt_at.getTime() < src.min_interval_seconds * 1000) return { outcome: "skipped", reason: "too_soon" };
+
+  const gap = options.minForceGapSeconds ?? 0;
+  if (options.force && gap > 0 && src.last_attempt_at && now().getTime() - src.last_attempt_at.getTime() < gap * 1000) return { outcome: "skipped", reason: "too_soon" };
 
   const record = async (fields: { url: string; status: number | null; outcome: "ok" | "not_modified" | "failed"; error?: string; sha?: string; bytes?: number; items?: number }, client?: PoolClient): Promise<string> => {
     const db = client ?? pool;
@@ -141,7 +146,9 @@ export async function monitorSource(options: MonitorOptions): Promise<MonitorRes
         await client.query(`UPDATE bounty_opportunities SET last_seen_at = now() WHERE id = $1`, [existing.id]);
       }
       if (item.closed && existing.state !== "closed" && existing.state !== "dismissed") {
-        await client.query(`UPDATE bounty_opportunities SET state = 'closed', priority_score = 0, updated_at = now() WHERE id = $1`, [existing.id]);
+        // A queued (or approved) opportunity keeps its state so the link to its research run is not lost; the closure is still recorded.
+        const keepsState = existing.state === "queued" || existing.state === "approved";
+        await client.query(`UPDATE bounty_opportunities SET ${keepsState ? "" : "state = 'closed', "}priority_score = 0, updated_at = now() WHERE id = $1`, [existing.id]);
         await client.query(`INSERT INTO opportunity_events (opportunity_id, event_type, actor_kind, actor_id, observation_id, payload) VALUES ($1,'closed','monitor',$2,$3,'{}'::jsonb)`, [existing.id, src.source_key, observationId]);
         closed += 1;
       }

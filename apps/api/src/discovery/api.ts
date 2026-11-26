@@ -44,7 +44,7 @@ export function registerDiscoveryRoutes(app: FastifyInstance, pool: Pool | undef
     if (need(reply)) return reply;
     try {
       const key = z.string().regex(SOURCE_KEY).parse((request.params as { key: string }).key);
-      return await monitorSource({ pool: pool!, sourceKey: key, force: true });
+      return await monitorSource({ pool: pool!, sourceKey: key, force: true, minForceGapSeconds: 60 });
     } catch (error) { return fail(reply, error); }
   });
 

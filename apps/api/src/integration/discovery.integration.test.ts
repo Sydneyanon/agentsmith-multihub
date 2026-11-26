@@ -177,6 +177,35 @@ describe.skipIf(skipIntegration)("bounty discovery over real Postgres", () => {
       await expect(approveOpportunity(db.pool, "00000000-0000-0000-0000-000000000000", { repository: "a/b" }, "operator")).rejects.toMatchObject({ code: "not_found" });
     });
 
+    it("the projection cannot claim a human decision the event log lacks, and a decision cannot be reverted (database rule)", async () => {
+      for (const state of ["approved", "queued", "dismissed"]) await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = $2 WHERE id = $1", [oppId, state])).rejects.toThrow(/requires a recorded human/);
+      await approveOpportunity(db.pool, oppId, { repository: (await db.ownerPool.query("SELECT repository_candidates->0->>'repository' AS r FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!.r }, "operator");
+      await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'discovered' WHERE id = $1", [oppId])).rejects.toThrow(/cannot be reverted/);
+      expect((await db.ownerPool.query("SELECT state FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!.state).toBe("queued");
+    });
+
+    it("an upstream archive of a queued opportunity records the closure but keeps it queued, so approval stays idempotent", async () => {
+      const name = `2026-11-q${n}`;
+      const repository = `code-423n4/${name}`;
+      await approveOpportunity(db.pool, oppId, { repository }, "operator");
+      const s = script([json([repo(name, { archived: true })])]);
+      expect(await run(s.fetcher, { force: true })).toMatchObject({ closed: 1 });
+      const o = (await db.ownerPool.query("SELECT state, priority_score FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!;
+      expect(o).toMatchObject({ state: "queued", priority_score: 0 });
+      expect((await getOpportunity(db.pool, oppId))!.events.map((e) => e.event_type)).toEqual(["discovered", "approved", "queued", "updated", "closed"]);
+      expect((await approveOpportunity(db.pool, oppId, { repository }, "operator")).reused).toBe(true);
+    });
+
+    it("a human 'check now' still respects a minimum gap when one is given", async () => {
+      const s = script([json([repo(`2026-11-g${n}`)])]);
+      // beforeEach has just run a pass, so a forced check inside the gap is refused without any request...
+      expect(await run(s.fetcher, { force: true, minForceGapSeconds: 60 })).toEqual({ outcome: "skipped", reason: "too_soon" });
+      expect(s.calls).toHaveLength(0);
+      // ...while a plain forced check (no gap) proceeds.
+      expect((await run(s.fetcher, { force: true })).outcome).toBe("ok");
+      expect(s.calls).toHaveLength(1);
+    });
+
     it("a monitor can never make a human decision (database rule)", async () => {
       await expect(db.ownerPool.query("INSERT INTO opportunity_events (opportunity_id, event_type, actor_kind, actor_id) VALUES ($1,'approved','monitor','x')", [oppId])).rejects.toThrow();
     });

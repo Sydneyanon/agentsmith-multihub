@@ -138,6 +138,42 @@
    "file": "apps/api/src/worker-runtime.ts",
    "old": "process.env.DISCOVERY_ENABLED === \"true\"",
    "new": "process.env.DISCOVERY_ENABLED !== \"false\""
+  },
+  {
+   "name": "db: projection may claim a human decision without an event",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "IF NEW.state IN ('approved','queued','dismissed') AND NOT EXISTS (",
+   "new": "IF false AND NOT EXISTS ("
+  },
+  {
+   "name": "db: a human decision may be reverted to discovered",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "IF OLD.state IN ('approved','queued','dismissed') AND NEW.state = 'discovered' THEN",
+   "new": "IF false THEN"
+  },
+  {
+   "name": "db: the event type is not matched to the state",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "e.event_type = NEW.state AND e.actor_kind = 'human'",
+   "new": "e.actor_kind = 'human'"
+  },
+  {
+   "name": "monitor: closure clobbers a queued opportunity",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "existing.state === \"queued\" || existing.state === \"approved\"",
+   "new": "false"
+  },
+  {
+   "name": "monitor: forced check ignores the minimum gap",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (options.force && gap > 0 &&",
+   "new": "if (false && gap > 0 &&"
+  },
+  {
+   "name": "api: check-now passes no minimum gap",
+   "file": "apps/api/src/discovery/api.ts",
+   "old": ", minForceGapSeconds: 60",
+   "new": ""
   }
  ]
 }

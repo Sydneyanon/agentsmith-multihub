@@ -75,3 +75,22 @@ CREATE TABLE opportunity_events (
 CREATE INDEX opportunity_events_opportunity_idx ON opportunity_events (opportunity_id, seq);
 CREATE TRIGGER opportunity_events_immutable BEFORE UPDATE OR DELETE ON opportunity_events
   FOR EACH ROW EXECUTE FUNCTION research_reject_mutation();
+
+-- The projection may not claim a human decision that the append-only log does not contain. Without this, any role allowed to UPDATE
+-- bounty_opportunities (the monitor) could mark an opportunity approved/queued/dismissed with no human event behind it, and a human
+-- decision cannot be silently reversed to 'discovered'.
+CREATE FUNCTION bounty_opportunity_guard_state() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    IF NEW.state IN ('approved','queued','dismissed') AND NOT EXISTS (
+      SELECT 1 FROM opportunity_events e WHERE e.opportunity_id = NEW.id AND e.event_type = NEW.state AND e.actor_kind = 'human') THEN
+      RAISE EXCEPTION 'state % requires a recorded human % event', NEW.state, NEW.state USING ERRCODE = 'check_violation';
+    END IF;
+    IF OLD.state IN ('approved','queued','dismissed') AND NEW.state = 'discovered' THEN
+      RAISE EXCEPTION 'a human decision cannot be reverted to discovered' USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER bounty_opportunities_guard_state BEFORE UPDATE ON bounty_opportunities
+  FOR EACH ROW EXECUTE FUNCTION bounty_opportunity_guard_state();
