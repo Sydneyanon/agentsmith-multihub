@@ -49,9 +49,9 @@ describe("stale statements are corrected", () => {
 
 describe("the release plan is a plan, not a record", () => {
   const rel = read("docs/first-production-release-plan.md");
-  it("says nothing was executed and keeps the engine idle", () => {
-    expect(rel).toMatch(/NOT EXECUTED/);
-    expect(rel).toMatch(/Nothing in this document has been executed/);
+  it("records exactly what was deployed and keeps the engine idle", () => {
+    expect(rel).toMatch(/RELEASE 1 DEPLOYED 2026-11-26/);
+    expect(rel).toMatch(/\*\*Release 1 was deployed on 2026-11-26\*\*/);
     expect(rel).toMatch(/\*\*Idle engine:\*\*/);
   });
   it("names exact rollback target, migrations, permissions and the open blockers", () => {
@@ -60,6 +60,13 @@ describe("the release plan is a plan, not a record", () => {
     expect(rel).toMatch(/## 2\. Migrations\n\*\*None\.\*\*/);
     expect(rel).toMatch(/a0c96e3/);
     expect(rel).toMatch(/Real Docker build never performed/);
+  });
+  it("records the deployed digest, the accepted owner-role risk and the trial-machine limitation honestly", () => {
+    expect(rel).toMatch(/## 10\. Release 1 deployment record/);
+    expect(rel).toMatch(/sha256:c0eaf87d35e26af4bae688e9209959f263fb92d6a6d623901bb87f706048f577/);
+    expect(rel).toMatch(/not tamper-proof database protection/);
+    expect(rel).toMatch(/Trial machine stopping/);
+    expect(rel).toMatch(/NOT TESTED by me/);
   });
   it("lists the approvals it needs", () => { expect((rel.match(/\*\*\[approval\]\*\*/g) ?? []).length).toBeGreaterThanOrEqual(5); });
 });

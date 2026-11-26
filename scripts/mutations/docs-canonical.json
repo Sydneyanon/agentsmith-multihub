@@ -32,10 +32,10 @@
    "new": "# This names the existing app. This file names"
   },
   {
-   "name": "release plan claims execution",
+   "name": "release record drops the owner-role limitation",
    "file": "docs/first-production-release-plan.md",
-   "old": "**Nothing in this document has been executed.**",
-   "new": "This was executed."
+   "old": "not tamper-proof database protection",
+   "new": "fully protected"
   },
   {
    "name": "rollback digest removed",

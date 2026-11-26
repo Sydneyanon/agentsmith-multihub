@@ -1,6 +1,6 @@
-# First controlled production release of the secure foundation (PREPARED, NOT EXECUTED)
+# First controlled production release of the secure foundation (RELEASE 1 DEPLOYED 2026-11-26; sections 0-9 are the plan, section 10 the record)
 
-Status as of 2026-11-25. **Nothing in this document has been executed.** No PR is merged, nothing is deployed, no production migration, role, credential or DNS change has been made, and `hunt.agentsmithdesk.xyz` has not been touched. Every step marked **[approval]** needs the owner's explicit, separate approval at the time.
+Status as of 2026-11-26: **Release 1 was deployed on 2026-11-26** with the owner's explicit approval of the exact image digest (record in section 10). Sections 0-9 are the plan as approved and are kept as written; where they say "pending" or "not executed", section 10 supersedes them. No PR is merged; no production migration, secret, role, credential or DNS change was made; `hunt.agentsmithdesk.xyz` was only read.
 
 Goal: put the reviewed security fixes (review findings 1-5) and the foundation PRs they sit on into production at `https://hub.agentsmithdesk.xyz`, with the research engine **idle**, preserving production data, with a tested rollback. Task 5.3 is not part of this and is not required.
 
@@ -148,3 +148,37 @@ Trigger: any stop condition in section 6, or the owner's call. Procedure **[appr
 
 ## 9. Not part of release 1
 Worker process, `GITHUB_TOKEN`, model gateway, Task 5.3, DNS changes, token rotation, `HUB_TRUSTED_PROXY_CIDRS`, runtime DB role stages 2-4, merging PRs.
+
+## 10. Release 1 deployment record (2026-11-26)
+**Approved and deployed:** commit `7eed70f6c7f304bb9df5bc213783b588a1b6b7bc`, image `registry.fly.io/agentsmith-hub@sha256:c0eaf87d35e26af4bae688e9209959f263fb92d6a6d623901bb87f706048f577` (tag `rc-7eed70f6c7f3`, Docker-less build, not a genuine Dockerfile build; see 5d). Command (exactly as approved): `fly deploy --config fly.hub.toml --app agentsmith-hub --image registry.fly.io/agentsmith-hub@sha256:c0eaf87d... --ha=false`, started 03:57:56Z, machine update succeeded and healthy at 03:58:15Z (about 20 s). Fly release **3**, id `B4kyPlJaaLqkxH0vR4x3nOja5`, status complete; app version 3, status `deployed`; one machine `2870320f99dd68`, region `syd`, health check `servicecheck-00-http-8080` passing.
+
+**Pre-deployment checks (all passed):** the tag resolved to the approved digest; app was `agentsmith-hub`; state captured (version 2, release 2 id `1RNM1g3ppxjNQH98b6QbNleM`, image `hub-b5bc4b548c2e`); the rollback image `sha256:69978a78...` is present in the registry; no migration differences between the deployed and the candidate commit and no non-comment difference in `fly.hub.toml`; the production `API_BEARER_TOKEN` passes the new startup validation (checked **inside the machine, printing only pass/fail**; the token was never read out, printed or stored).
+
+**Post-deployment verification (unauthenticated, from the development environment):**
+| Check | Result |
+|---|---|
+| Fly reports the exact approved digest | PASS |
+| Machine started and health check passing | PASS |
+| `/health/live` 200 | PASS |
+| `/health/ready` 200 (`postgres: ok`) | PASS |
+| HTTPS certificate valid | PASS as reported by Fly (`fly certs show`: Issued, Let's Encrypt, expires in about 2 months). **Not independently handshake-verified:** this environment's proxy re-terminates TLS. |
+| `/` redirects to `/hub/` (302, empty body) | PASS |
+| Security headers present: HSTS (no includeSubDomains), strict CSP with no `unsafe-inline`/`unsafe-eval`, `nosniff`, `no-referrer`, `same-origin` CORP | PASS |
+| Unauthenticated `/v1/research/overview` and `/v1/workflows` 401 | PASS |
+| Unauthenticated malformed JSON `POST /v1/intake` 401 (not 400) | PASS |
+| Foreign `Host` and the default `agentsmith-hub.fly.dev` hostname 421 | PASS |
+| Hunt unaffected (`hunt.agentsmithdesk.xyz`: HTTP 200, 79,441 bytes, body sha256 identical before and after, `Server: Caddy`) | PASS (read-only GETs) |
+| Logs contain no secrets (last 100 lines: 0 `Bearer`, 0 authorization values, 0 long token-like strings, 0 credentialed database URLs) | PASS (limited to the 100 lines Fly returns) |
+| Startup role warning present (`database runtime role is not least-privilege: role owns 108 relation(s)...`) | PASS (expected, evidence of R1) |
+| No unexpected database changes: read-only counts in all 32 tables identical before and after (non-empty: `budget_policies` 9, `schema_migrations` 7); migration ledger still 7 rows, last `0007_research_state.sql` (checksum `2ec89f696c90...`) | PASS |
+| Secrets, DNS, Hunt, infrastructure untouched | PASS: only `fly deploy --image` was run against the app; secrets list unchanged in name (`API_BEARER_TOKEN`, `DATABASE_URL`, digests `abd50322e5d030dc`, `ad6c38468611a6f0` recorded for future comparison); one app, one machine; no worker; no DNS or database change |
+| Authenticated login, wrong-token burst, valid token not locked out, dashboard data | **NOT TESTED by me** (the owner holds the token and will test from an iPhone) |
+
+**Outstanding limitations (explicit):**
+1. **R1: the application still runs as the database owner role `schema_admin`** (temporarily accepted by the owner). This is **not tamper-proof database protection**: a compromised application could disable the append-only triggers and rewrite or delete data. The startup log states it on every boot.
+2. **The Fly organisation is on a trial: the machine log says "Trial machine stopping. To run for longer than 5m0s, add a credit card" and the machine stopped itself 5 minutes after waking before this deployment.** The hub will therefore stop after about 5 minutes of running and restart on the next request (auto-start); the in-memory throttle resets on every stop. This is a billing state of the account that this work did not change; resolving it needs the owner.
+3. The image is a Docker-less build; no CI; the SSRF client and acquisition code are present but idle (no worker); the shared-gateway throttle bucket means about 10 invalid requests in 5 minutes make wrong-token attempts read 429 (the valid token is never throttled).
+4. The authenticated checks are the owner's.
+
+**Rollback (not needed):** `fly deploy --config fly.hub.toml --app agentsmith-hub --image registry.fly.io/agentsmith-hub@sha256:69978a782c724de2ef37a974aeb32cf909ac968d6de3e8fdc5e5aa07f28e02a8 --ha=false`; no database action.
+
