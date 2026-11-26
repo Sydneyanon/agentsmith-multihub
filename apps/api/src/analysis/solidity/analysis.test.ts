@@ -213,3 +213,99 @@ describe("pre-0.5 Solidity idioms found by the first real-repository run", () =>
     expect(names(`contract A { address creator; modifier onlyowner { if (msg.sender == creator) _; } function setFee(uint f) onlyowner public { fee = f; } uint fee; }`)).toEqual([]);
   });
 });
+
+describe("deployed-contract dispatch context (failure class A, development fixtures)", () => {
+  // An upgrade entry point declared in an abstract base calls a virtual authorisation hook; only the deployed contract's override decides.
+  const UPGRADE_BASE = `pragma solidity ^0.8.20;
+abstract contract Upgradable {
+  address public implementation;
+  function upgradeAndRun(address next, bytes calldata data) external {
+    _authorize(next);
+    implementation = next;
+    (bool ok, ) = next.delegatecall(data);
+    require(ok);
+  }
+  function _authorize(address next) internal virtual;
+}`;
+  it("an override with an owner check protects the inherited entry point: no finding", () => {
+    const r = one(`${UPGRADE_BASE}
+contract Guarded is Upgradable { address public owner; constructor() { owner = msg.sender; }
+  function _authorize(address) internal view override { require(msg.sender == owner, "owner"); } }`);
+    expect(r.findings.filter((f) => f.function === "upgradeAndRun")).toEqual([]);
+  });
+  it("an empty override leaves it open: delegatecall finding in the deployed contract's context", () => {
+    const r = one(`${UPGRADE_BASE}
+contract Open is Upgradable { function _authorize(address) internal override {} }`);
+    const f = r.findings.find((x) => x.function === "upgradeAndRun" && x.class === "delegatecall");
+    expect(f).toBeTruthy(); expect(f!.contract).toBe("Open");
+  });
+  it("two deployed contracts with different overrides are judged separately, and one statement is reported once", () => {
+    const r = one(`${UPGRADE_BASE}
+contract Guarded is Upgradable { address public owner; constructor() { owner = msg.sender; }
+  function _authorize(address) internal view override { require(msg.sender == owner, "owner"); } }
+contract OpenA is Upgradable { function _authorize(address) internal override {} }
+contract OpenB is Upgradable { function _authorize(address) internal override {} }`);
+    const hits = r.findings.filter((x) => x.function === "upgradeAndRun" && x.class === "delegatecall");
+    expect(hits).toHaveLength(1); expect(["OpenA", "OpenB"]).toContain(hits[0]!.contract);
+  });
+  it("a modifier in a base calls a virtual check: the deployed override decides", () => {
+    const base = `pragma solidity ^0.8.20;
+abstract contract Gate { modifier gated() { _check(); _; } function _check() internal view virtual; }
+abstract contract Kill is Gate { function shutdown(address payable to) external gated { selfdestruct(to); } }`;
+    expect(one(`${base}\ncontract K1 is Kill { address public admin; constructor() { admin = msg.sender; } function _check() internal view override { require(msg.sender == admin); } }`).findings.filter((f) => f.class === "selfdestruct")).toEqual([]);
+    expect(one(`${base}\ncontract K2 is Kill { function _check() internal view override {} }`).findings.filter((f) => f.class === "selfdestruct")).toHaveLength(1);
+  });
+  it("dispatch survives a second hop: a base helper calling a virtual check reaches the deployed override", () => {
+    const base = `pragma solidity ^0.8.20;
+abstract contract Vault2 { function _gate() internal view { _check(); } function _check() internal view virtual;
+  function sweep(address payable to) external { _gate(); selfdestruct(to); } }`;
+    expect(one(`${base}\ncontract S1 is Vault2 { address public admin; constructor() { admin = msg.sender; } function _check() internal view override { require(msg.sender == admin); } }`).findings.filter((f) => f.class === "selfdestruct")).toEqual([]);
+    expect(one(`${base}\ncontract S2 is Vault2 { function _check() internal view override {} }`).findings.filter((f) => f.class === "selfdestruct")).toHaveLength(1);
+  });
+  it("an abstract contract that nothing deploys is still analysed on its own", () => {
+    const r = one(`pragma solidity ^0.8.20;\nabstract contract Lonely { function kill(address payable to) external { selfdestruct(to); } }`);
+    expect(r.findings.some((f) => f.class === "selfdestruct" && f.contract === "Lonely")).toBe(true);
+  });
+});
+
+describe("reentrancy validator: consistent seeding and no refutation of unexplored targets (development fixtures)", () => {
+  const run = (text: string, fn: string) => { const ix = new ProgramIndex([{ path: "v.sol", text }]); const entry = ix.findFunctions([...ix.contracts.keys()].at(-1)!, fn)[0]!; return validateReentrancy(ix, entry); };
+  const POOL = (zeroFirst: boolean) => `pragma solidity ^0.8.20;
+abstract contract Book { mapping(address => uint256) internal owed; uint256 internal outstanding;
+  function _book(address who, uint256 amt) internal { owed[who] += amt; outstanding += amt; } }
+contract Pool is Book {
+  function claim() external {
+    uint256 amt = owed[msg.sender]; require(amt > 0);
+    ${zeroFirst ? "owed[msg.sender] = 0; outstanding -= amt;" : ""}
+    (bool ok, ) = msg.sender.call{value: amt}(""); require(ok);
+    ${zeroFirst ? "" : "owed[msg.sender] = 0; outstanding -= amt;"}
+  }
+}`;
+  it("a total updated alongside the ledger is seeded consistently, so the real drain is validated (not refuted by a false underflow)", () => {
+    const r = run(POOL(false), "claim"); expect(r.verdict).toBe("validated");
+  });
+  it("the safe twin that zeroes before the call is refuted", () => {
+    expect(run(POOL(true), "claim").verdict).toBe("refuted");
+  });
+  it("a share pool with a payable deposit is not refuted while re-entry into deposit is unexplored", () => {
+    const r = run(`pragma solidity ^0.8.20;
+contract Shares { mapping(address => uint256) public units; uint256 public supply;
+  function put() external payable { uint256 before = address(this).balance - msg.value; uint256 u = supply == 0 || before == 0 ? msg.value : msg.value * supply / before; units[msg.sender] += u; supply += u; }
+  function take(uint256 u) external { uint256 amt = u * address(this).balance / supply; (bool ok, ) = msg.sender.call{value: amt}(""); require(ok); units[msg.sender] -= u; supply -= u; }
+}`, "take");
+    expect(r.verdict).toBe("inconclusive"); expect(r.reason).toMatch(/payable function\(s\) put is not modelled/);
+  });
+});
+
+describe("interpreter: named return variables (development fixture)", () => {
+  it("a named return variable is a local that starts at zero and is returned implicitly", () => {
+    const text = `pragma solidity ^0.8.20;
+contract Named { mapping(address => uint256) public bal;
+  function quote(uint256 x) public pure returns (uint256 out) { out = x * 2; }
+  function pull() external returns (uint256 amount) { amount = quote(bal[msg.sender]) / 2; bal[msg.sender] = 0; (bool ok, ) = msg.sender.call{value: amount}(""); require(ok); }
+}`;
+    const ix = new ProgramIndex([{ path: "n.sol", text }]);
+    const r = validateReentrancy(ix, ix.findFunctions("Named", "pull")[0]!);
+    expect(r.reason).not.toMatch(/unknown identifier/); expect(r.verdict).toBe("refuted");
+  });
+});

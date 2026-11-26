@@ -58,6 +58,27 @@ export class ProgramIndex {
     return null;
   }
   isContractLike(name: string): boolean { return this.contracts.has(name); }
+  /**
+   * The externally callable, state-changing surface of a DEPLOYABLE contract: the most-derived definition of every function in its
+   * linearisation, each returned as a view whose `contract` is the deployed contract, so it is analysed with the deployed contract's
+   * virtual dispatch (a base's `upgradeTo` calling `_authorizeUpgrade` reaches the override this contract really has).
+   */
+  deployedEntryPoints(contract: string): FunctionDef[] {
+    const seen = new Set<string>(); const out: FunctionDef[] = [];
+    for (const c of this.linearize(contract)) for (const f of c.functions) {
+      if (!(f.kind === "function" || f.kind === "receive" || f.kind === "fallback")) continue;
+      const sig = f.kind === "function" ? `${f.name}/${f.params.map((p) => p.type).join(",")}` : f.kind;
+      if (seen.has(sig)) continue; seen.add(sig);
+      if ((f.visibility === "external" || f.visibility === "public") && f.body && f.mutability !== "view" && f.mutability !== "pure") out.push(f.contract === contract ? f : { ...f, contract });
+    }
+    return out;
+  }
+  /** contracts that some deployable (non-abstract) contract in the snapshot inherits from */
+  inheritedByDeployable(): Set<string> {
+    const out = new Set<string>();
+    for (const c of this.contracts.values()) if (c.kind === "contract") for (const b of this.linearize(c.name).slice(1)) out.add(b.name);
+    return out;
+  }
   /** every external/public function declared on the contract itself (inherited ones are analysed in their own contract) */
   entryPoints(contract: string): FunctionDef[] {
     const c = this.contracts.get(contract); if (!c) return [];

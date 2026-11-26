@@ -144,6 +144,18 @@ describe("the T-041 review, coverage and replay work stay within their approvals
   });
 });
 
+describe("ground truth and evaluation discipline", () => {
+  it("adjudications never edit frozen labels and keep human sign-off visible", () => {
+    const a = read("eval/adjudications/README.md"); expect(a).toMatch(/the label is \*\*never edited\*\*/);
+    const r = JSON.parse(read("eval/adjudications/heldout3-reentrancy.json")) as { records: Array<{ outcome: { corpusLabelsChanged: boolean }; adjudicator: { humanSignOff: string } }> };
+    for (const x of r.records) { expect(x.outcome.corpusLabelsChanged).toBe(false); expect(x.adjudicator.humanSignOff).toMatch(/pending|signed/); }
+  });
+  it("re-scores of inspected corpora are labelled development evidence, and corpus 4 is sealed and unscored", () => {
+    expect(read("docs/analyzer-failure-classes.md")).toMatch(/\*\*development evidence, not a held-out\s+measurement\*\*/);
+    expect(read("eval/heldout4/FROZEN.md")).toMatch(/NOT YET SCORED/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

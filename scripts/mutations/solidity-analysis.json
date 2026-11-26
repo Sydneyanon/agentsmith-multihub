@@ -28,8 +28,8 @@
   {
    "name": "trace: internal helpers are not inlined (first call site)",
    "file": "apps/api/src/analysis/solidity/trace.ts",
-   "old": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee) { this.inline(callee, callee.contract, e, ctx, usage); return; }",
-   "new": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee && false) { this.inline(callee, callee.contract, e, ctx, usage); return; }"
+   "old": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee) { this.inline(callee, ctx.contract, e, ctx, usage); return; }",
+   "new": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee && false) { this.inline(callee, ctx.contract, e, ctx, usage); return; }"
   },
   {
    "name": "trace: a helper's returned success flag is never resolved by its caller",
@@ -162,6 +162,60 @@
    "file": "apps/api/src/analysis/solidity/trace.ts",
    "old": "return isCaller(al.expr) || (al.expr.k === \"id\" && this.aliasIsCaller(al.expr.name, al.ctx));",
    "new": "return false;"
+  },
+  {
+   "name": "A: internal calls switch to the callee's declaring contract",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (callee) { this.inline(callee, ctx.contract, e, ctx, usage); return; }\n      for (const a of e.args)",
+   "new": "if (callee) { this.inline(callee, callee.contract, e, ctx, usage); return; }\n      for (const a of e.args)"
+  },
+  {
+   "name": "A: modifiers run in their declaring contract",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "const mctx: Ctx = { ...this.newCtx(def, ctx.contract,",
+   "new": "const mctx: Ctx = { ...this.newCtx(def, def.contract,"
+  },
+  {
+   "name": "A: inherited functions keep the base as context",
+   "file": "apps/api/src/analysis/solidity/index.ts",
+   "old": "out.push(f.contract === contract ? f : { ...f, contract });",
+   "new": "out.push(f);"
+  },
+  {
+   "name": "A: abstract bases analysed standalone even when deployed through a child",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "if (c.kind === \"abstract\" && inherited.has(c.name)) continue;",
+   "new": "if (false) continue;"
+  },
+  {
+   "name": "A: duplicate findings across deployed contexts",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "if (seen.has(k)) continue; seen.add(k); out.push(f);",
+   "new": "out.push(f);"
+  },
+  {
+   "name": "V1: aggregates not seeded",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "for (const a of aggregates) it.writeVar(a, [], (credit + 10n) * ETHER);",
+   "new": ""
+  },
+  {
+   "name": "V2: unexplored payable targets ignored",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "if (payableTargets.length) return",
+   "new": "if (false) return"
+  },
+  {
+   "name": "V2: every payable target blocks refutation",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "g.mutability === \"payable\" && pricesFromStale(g)",
+   "new": "g.mutability === \"payable\""
+  },
+  {
+   "name": "V3: named returns not modelled",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "for (const r of fn.returns) if (r.name && !locals.has(r.name)) locals.set(r.name, this.defaultFor(r.type));",
+   "new": ""
   }
  ]
 }

@@ -11,7 +11,7 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-148 as listed below (T-137 and T-149 are unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -702,6 +702,54 @@ Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and re
 | Required tests | Real-Postgres tests incl. restricted role; mutation spec. |
 | Security considerations | Append-only; least-privilege grants. |
 | Approval required | Design approval, then migration approval. |
+
+### T-145: Ground-truth disputes and adjudication records
+**Status 2026-11-26: first record done** (`eval/adjudications/heldout3-reentrancy.json`): two corpus-3 labels upheld by EVM execution and an independent assessor; validator refutations overturned; labels never edited; human sign-off pending.
+| Field | |
+|---|---|
+| Phase | 5.8 / cross-phase |
+| Dependencies | `eval/ground-truth` |
+| Scope | Disputed labels are adjudicated with recorded evidence (compiler-backed execution, independent assessment) and kept separate from the original labels; results can be reported both ways. Becomes a durable record type in T-144. |
+| Acceptance criteria | No frozen label is edited; every adjudication names its evidence, adjudicator and human sign-off state. |
+| Required tests | Registry verification of adjudication evidence hashes (with T-144). |
+| Security considerations | None beyond provenance. |
+| Approval required | Owner sign-off of each adjudication before it counts as human-adjudicated. |
+
+### T-146: Analyzer failure classes B to H (development only)
+**Status 2026-11-26: class A and validator defects V1-V3 implemented with development fixtures; B-H designed in `docs/analyzer-failure-classes.md`.**
+| Field | |
+|---|---|
+| Phase | 5.4 / 5.6 |
+| Dependencies | T-145 |
+| Scope | Assembly storage slots, transitive authority, proxy surface, storage-layout collision, unlocked implementations, value guards mistaken for one-time guards, name-gated initializer detection; cross-function payable re-entry in the validator. |
+| Acceptance criteria | Each class has new development fixtures written for the class (not copied from corpus 3) that fail before and pass after; dev corpus and corpora 1-2 do not regress; mutation spec kills every new guard. |
+| Required tests | Fixtures, development re-scores labelled as such, mutation spec. |
+| Security considerations | Passive analysis only. |
+| Approval required | None (development); the measurement is T-147. |
+
+### T-147: Corpus-4 evaluation gate
+**Status 2026-11-26: corpus sealed (`eval/heldout4`, 59 contracts, 79 labels, 12 ambiguous; b9df4e5); not scored.**
+| Field | |
+|---|---|
+| Phase | 5.8 |
+| Dependencies | T-146 candidate registered in `eval/candidates.json` before scoring |
+| Scope | Score the registered candidate, candidate 2 and the baseline once each on corpus 4; report clear and ambiguous labels and abstentions separately. |
+| Acceptance criteria | Scored once, raw results unedited, registry updated with result hashes. |
+| Required tests | `eval/verify-frozen.sh`. |
+| Security considerations | None. |
+| Approval required | Owner go-ahead to score. |
+
+### T-148: Frozen-candidate registry
+**Status 2026-11-26: done** (`eval/candidates.json`, `eval/candidates.sh`, `eval/CANDIDATES.md`; e57852b): candidates identified by commit, tree, analyzer and harness hashes; verified and tags restored in a tagless fresh clone. Residual risk (squash-merge) documented with owner options.
+| Field | |
+|---|---|
+| Phase | 5.8 |
+| Dependencies | none |
+| Scope | Durable identity of frozen analyzer candidates and their scored results without remote tags. |
+| Acceptance criteria | A fresh clone without tags verifies every candidate, result and corpus manifest and restores the tags. |
+| Required tests | `eval/verify-frozen.sh` in a fresh clone. |
+| Security considerations | None. |
+| Approval required | Owner choice among the residual-risk options in `eval/CANDIDATES.md`. |
 
 ## Multi-domain series (reserved T-170 to T-179; proposed, not authorised; see `docs/multi-domain-research.md`)
 

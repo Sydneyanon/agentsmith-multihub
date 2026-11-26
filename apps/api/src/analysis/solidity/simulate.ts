@@ -1,4 +1,5 @@
 import type { ProgramIndex } from "./index.js";
+import { Tracer } from "./trace.js";
 import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
 
 /**
@@ -177,12 +178,14 @@ export class Interp {
   runFunction(fn: FunctionDef, contract: string, args: Value[], sender: string, value: bigint): Value {
     if (!fn.body) throw new Unsupported(`${fn.name} has no body`);
     const locals = new Map<string, Value>(); fn.params.forEach((p, i) => { if (p.name) locals.set(p.name, args[i] ?? null); });
+    // named return variables are ordinary locals that start at their type's default (`returns (uint256 assets)`)
+    for (const r of fn.returns) if (r.name && !locals.has(r.name)) locals.set(r.name, this.defaultFor(r.type));
     const frame: Frame = { fn, contract, sender, value, locals, unchecked: this.ix.wrapsArithmetic.get(fn.file) ?? false };
     return this.withModifiers(frame, 0);
   }
   withModifiers(frame: Frame, i: number): Value {
     const mods = frame.fn.kind === "constructor" ? [] : frame.fn.modifiers;
-    if (i >= mods.length) { const r = this.block(frame.fn.body ?? [], frame); return r.kind === "return" ? r.value : null; }
+    if (i >= mods.length) { const r = this.block(frame.fn.body ?? [], frame); if (r.kind === "return") return r.value; const named = frame.fn.returns.filter((x) => x.name); return named.length === 1 ? (frame.locals.get(named[0]!.name!) ?? null) : null; }
     const use = mods[i]!; const def = this.ix.findModifier(frame.contract, use.name);
     if (!def || !def.body) throw new Unsupported(`modifier ${use.name} is not defined in the analysed files`);
     const mframe: Frame = { fn: def, contract: frame.contract, sender: frame.sender, value: frame.value, locals: new Map(), unchecked: frame.unchecked };
@@ -220,6 +223,27 @@ export class Interp {
   }
 }
 
+function walkStmts(stmts: Stmt[], f: (e: Expr) => void): void {
+  const walk = (e: Expr | null | undefined): void => {
+    if (!e) return; f(e);
+    switch (e.k) {
+      case "member": walk(e.obj); break; case "index": walk(e.obj); walk(e.idx); break;
+      case "call": walk(e.fn); e.args.forEach(walk); Object.values(e.opts).forEach(walk); break;
+      case "unary": walk(e.e); break; case "binary": case "assign": walk(e.l); walk(e.r); break;
+      case "update": case "delete": walk(e.e); break; case "ternary": walk(e.c); walk(e.a); walk(e.b); break;
+      case "tuple": e.items.forEach(walk); break; case "new": e.args.forEach(walk); break;
+    }
+  };
+  for (const s of stmts) {
+    switch (s.k) {
+      case "expr": walk(s.e); break; case "decl": walk(s.init); break;
+      case "if": walk(s.cond); walkStmts(s.then, f); walkStmts(s.els, f); break;
+      case "loop": walk(s.cond); walkStmts(s.body, f); break; case "block": walkStmts(s.body, f); break;
+      case "return": walk(s.e); break; case "try": walk(s.call); walkStmts(s.body, f); s.catches.forEach((c) => walkStmts(c, f)); break;
+    }
+  }
+}
+
 const fmt = (v: bigint) => (v % ETHER === 0n ? `${v / ETHER} ether` : `${v} wei`);
 
 export function sampleArgs(fn: FunctionDef, amounts: bigint[]): Value[] | null {
@@ -242,11 +266,39 @@ export function validateReentrancy(ix: ProgramIndex, entry: FunctionDef): SimOut
   // accounting variables: mappings keyed by address holding uints
   const ledgers: string[] = []; for (const c of ix.linearize(contract)) for (const v of c.stateVars) if (/^mapping\s*\(\s*address\s*=>\s*u?int/.test(v.type)) ledgers.push(v.name);
   void holder;
+  // Aggregates kept alongside the ledgers (a total supply, a total escrowed ...): a uint state variable updated with += or -= in the same
+  // function body as a ledger entry. Seeding the ledgers without them gives an inconsistent world (an honest withdrawal underflows the
+  // total, a share price divides by a zero supply), and a refutation from such a world is an artefact of the model, not of the contract.
+  const aggregates = new Set<string>();
+  for (const c of ix.linearize(contract)) for (const fnc of [...c.functions, ...c.modifiers]) {
+    if (!fnc.body) continue; let ledgerTouched = false; const scalars = new Set<string>();
+    const visit = (e: Expr): void => {
+      if (e.k === "assign" && (e.op === "+=" || e.op === "-=")) {
+        let root: Expr = e.l; while (root.k === "index" || root.k === "member") root = root.obj;
+        if (root.k === "id" && ledgers.includes(root.name) && e.l.k === "index") ledgerTouched = true;
+        else if (e.l.k === "id") { const v = ix.stateVar(contract, e.l.name); if (v && /^u?int/.test(v.type) && !v.constant && !v.immutable) scalars.add(e.l.name); }
+      }
+    };
+    walkStmts(fnc.body, visit);
+    if (ledgerTouched) for (const v of scalars) aggregates.add(v);
+  }
+  // Payable functions are possible re-entry targets the bounded search does not run (re-entering with value needs the attacker's later exit
+  // to realise a gain). While such a target exists, "no exploit found" is NOT a refutation.
+  // Only targets that PRICE from state the entry leaves stale count (an exchange rate from the ether balance or from an aggregate the entry
+  // updates): re-depositing into a plain per-account ledger cannot gain, because the outer write overwrites the attacker's own credit.
+  const entryWrites = new Set(new Tracer(ix).run(entry).events.filter((e) => e.k === "write").map((e) => (e as { variable: string }).variable));
+  const pricesFromStale = (g: FunctionDef): boolean => {
+    let readsBalance = false; if (g.body) walkStmts(g.body, (e) => { if (e.k === "member" && e.name === "balance" && exprText(e.obj).replace(/\s/g, "") === "address(this)") readsBalance = true; });
+    const reads = new Tracer(ix).run(g).events.flatMap((e) => e.k === "read" ? [(e as { variable: string }).variable] : e.k === "guard" ? (e as { reads: string[] }).reads : []);
+    return readsBalance || reads.some((r) => aggregates.has(r) && entryWrites.has(r));
+  };
+  const payableTargets = ix.entryPoints(contract).filter((g) => g !== entry && g.mutability === "payable" && pricesFromStale(g)).map((g) => g.name);
   for (const credit of [1n, 2n]) for (const amount of [1n, 2n]) for (const depth of [1]) for (const next of [entry, ...others]) {
     const args = sampleArgs(entry, [amount * ETHER]); const nextArgs = sampleArgs(next, [amount * ETHER]); if (!args || !nextArgs) continue;
     scenarios++;
     const seed = (it: Interp) => {
       for (const l of ledgers) { it.writeVar(l, ["attacker"], credit * ETHER); it.writeVar(l, ["victim"], 10n * ETHER); }
+      for (const a of aggregates) it.writeVar(a, [], (credit + 10n) * ETHER);
       it.w.balance = (credit + 10n) * ETHER;
     };
     // honest baseline: the SAME two calls (entry, then `next`; and the reverse order) executed sequentially with no re-entrancy; a call that
@@ -278,5 +330,6 @@ export function validateReentrancy(ix: ProgramIndex, entry: FunctionDef): SimOut
   if (inconclusive && scenarios === 0) return { verdict: "inconclusive", reason: `not modelled: ${inconclusive}`, trace: [], scenarios, detail: {} };
   if (scenarios === 0) return { verdict: "inconclusive", reason: "the entry function's parameters could not be modelled", trace: [], scenarios, detail: {} };
   if (inconclusive) return { verdict: "inconclusive", reason: `some scenarios could not be modelled (${inconclusive}); the rest found no exploit`, trace: [], scenarios, detail: {} };
+  if (payableTargets.length) return { verdict: "inconclusive", reason: `no exploit in ${scenarios} bounded scenarios (${[...reasonsRefuted].join("; ")}), but re-entry into the payable function(s) ${payableTargets.join(", ")} is not modelled, so this is not a refutation`, trace: [], scenarios, detail: { unexploredPayableTargets: payableTargets.join(",") } };
   return { verdict: "refuted", reason: `no exploit in ${scenarios} bounded scenarios: ${[...reasonsRefuted].join("; ")}`, trace: [], scenarios, detail: {} };
 }

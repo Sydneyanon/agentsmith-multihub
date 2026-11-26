@@ -97,3 +97,13 @@ compiler-backed EVM check yet.
 - **The sample is small.** With 31 vulnerable labels, a one-label change moves recall by about 3 points.
 
 **After this run the corpus is no longer held-out** for any change made in response to it. No analyzer change was made in this cycle.
+
+## Update: ground-truth adjudication and development changes (2026-11-26, later)
+- **Adjudication** (`eval/adjudications/`): both disputed corpus-3 reentrancy labels are **upheld**. The evidence is EVM execution of
+  the unchanged contracts plus an independent assessor who saw no labels. The validator's two refutations were artefacts of its model.
+  The corpus-3 label metrics above are unchanged. The validator line is corrected: of its 3 refutations, only 1 was right.
+- **Development changes** (`docs/analyzer-failure-classes.md`): failure class A, and validator defects V1–V3. The re-scores
+  `heldout2-after-cycle4-*` and `heldout3-after-cycle4-*` are **DEVELOPMENT evidence, not held-out**:
+  - corpus 3: TP 18, FP 1, FN 13 (FP 2 → 1);
+  - corpus 2, corpus 1 and the dev corpus: unchanged.
+- **Corpus 4** (`eval/heldout4`) is sealed and unscored. It is the next held-out gate.

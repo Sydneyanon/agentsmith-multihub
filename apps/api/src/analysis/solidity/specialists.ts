@@ -46,6 +46,11 @@ export class Analyzer {
   constructor(readonly ix: ProgramIndex) {}
 
   trace(fn: FunctionDef): TraceResult { let t = this.traces.get(fn); if (!t) { t = new Tracer(this.ix).run(fn); this.traces.set(fn, t); } return t; }
+  private readonly views = new Map<string, FunctionDef>();
+  /** one stable view object per (function definition, deployed contract), so traces are cached per dispatch context */
+  private view(fn: FunctionDef): FunctionDef {
+    const k = `${fn.file}:${fn.startLine}:${fn.name}@${fn.contract}`; let v = this.views.get(k); if (!v) { v = fn; this.views.set(k, v); } return v;
+  }
 
   /** state variables that act as the authority in some check in this contract or its bases (owner, admins mapping, role tables ...) */
   authVars(contract: string): Set<string> {
@@ -85,13 +90,22 @@ export class Analyzer {
 
   analyze(): Finding[] {
     const out: Finding[] = [];
+    // Deployable contracts are analysed with their whole callable surface, inherited functions included, in their own dispatch context.
+    // A base that some deployable contract inherits is analysed only through it (on its own it is never deployed with that code);
+    // an abstract contract nobody inherits in the snapshot is still analysed standalone so nothing is silently skipped.
+    const inherited = this.ix.inheritedByDeployable();
+    const seen = new Set<string>();
     for (const c of [...this.ix.contracts.values()].sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name))) {
       if (c.kind === "interface" || c.kind === "library") continue;
-      for (const fn of this.ix.entryPoints(c.name)) {
-        const tr = this.trace(fn); const ev = tr.events;
-        out.push(...this.reentrancy(fn, tr), ...this.accessControl(fn, tr), ...this.initializer(fn, tr), ...this.delegatecall(fn, tr),
-          ...this.uncheckedCall(fn, tr), ...this.selfdestruct(fn, tr), ...this.txOrigin(fn, tr));
-        void ev;
+      if (c.kind === "abstract" && inherited.has(c.name)) continue;
+      const fns = c.kind === "contract" ? this.ix.deployedEntryPoints(c.name) : this.ix.entryPoints(c.name);
+      for (const raw of fns) {
+        const fn = this.view(raw); const tr = this.trace(fn);
+        for (const f of [...this.reentrancy(fn, tr), ...this.accessControl(fn, tr), ...this.initializer(fn, tr), ...this.delegatecall(fn, tr),
+          ...this.uncheckedCall(fn, tr), ...this.selfdestruct(fn, tr), ...this.txOrigin(fn, tr)]) {
+          // the same statement found through several deployed contracts is reported once (the first context, in sorted order)
+          const k = `${f.file}:${f.line}:${f.class}:${f.function}`; if (seen.has(k)) continue; seen.add(k); out.push(f);
+        }
       }
     }
     return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.class.localeCompare(b.class) || a.function.localeCompare(b.function));

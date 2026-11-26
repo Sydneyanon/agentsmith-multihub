@@ -94,7 +94,8 @@ export class Tracer {
     if (i >= uses.length) { if (fn.body) this.stmts(fn.body, ctx); return; }
     const use = uses[i]!; const def = this.ix.findModifier(ctx.contract, use.name);
     if (def && def.body) {
-      const mctx: Ctx = { ...this.newCtx(def, def.contract, [...ctx.chain, { fn: `modifier ${def.name}`, contract: def.contract, file: def.file, line: use.line }], ctx.tainted, ctx.depth + 1, ctx.stack), branch: { ...ctx.branch } };
+      // the modifier body runs in the DEPLOYED contract's context (virtual dispatch and state resolve there), not the declaring base's
+      const mctx: Ctx = { ...this.newCtx(def, ctx.contract, [...ctx.chain, { fn: `modifier ${def.name}`, contract: def.contract, file: def.file, line: use.line }], ctx.tainted, ctx.depth + 1, ctx.stack), branch: { ...ctx.branch } };
       mctx.params = new Map(def.params.filter((p) => p.name).map((p) => [p.name!, p.type]));
       // a modifier parameter stands for the argument it was given: onlyBy(owner) compares the caller with `owner`, an authority
       def.params.forEach((p, k) => { const a = use.args[k]; if (!p.name || !a) return; if (this.isAuthority(a, ctx)) mctx.authLocals.add(p.name); if (this.tainted(a, ctx)) mctx.tainted.add(p.name); });
@@ -354,8 +355,10 @@ export class Tracer {
       if (n === "revert") return;
       if (n === "selfdestruct" || n === "suicide") { for (const a of e.args) this.expr(a, ctx, "use"); this.events.push({ ...this.base(ctx, e.line), k: "destruct", text: exprText(e) }); return; }
       if (["keccak256", "sha256", "ecrecover", "addmod", "mulmod", "blockhash", "gasleft", "payable"].includes(n) || ELEMENTARY.test(n) || this.ix.isContractLike(n)) { for (const a of e.args) this.expr(a, ctx, "use"); return; }
+      // an internal call is dispatched on the deployed contract: the most-derived override is found from ctx.contract and the callee keeps
+      // running in that context, so a base function calling a virtual hook reaches the override the deployed contract actually has
       const callee = this.ix.findFunction(ctx.contract, n, e.args.length);
-      if (callee) { this.inline(callee, callee.contract, e, ctx, usage); return; }
+      if (callee) { this.inline(callee, ctx.contract, e, ctx, usage); return; }
       for (const a of e.args) this.expr(a, ctx, "use"); this.unknowns.push(`${ctx.file}:${e.line}: call to unresolved function ${n}`); return;
     }
     if (fn.k === "member") {
