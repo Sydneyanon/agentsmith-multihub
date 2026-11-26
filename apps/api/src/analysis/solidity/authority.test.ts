@@ -162,6 +162,35 @@ contract Named { address public treasury; uint256 public x; function set(uint256
   it("is deterministic and part of the content-addressed model (protocol-model/3)", () => {
     const T = `pragma solidity ^0.8.20;\ncontract Owned { address public owner; constructor() { owner = msg.sender; } function t(address n) external { require(msg.sender == owner); owner = n; } }`;
     const a = buildProtocolModel([{ path: "a.sol", text: T }]); const b = buildProtocolModel([{ path: "a.sol", text: T }]);
-    expect(a.sha256).toBe(b.sha256); expect(a.model.schema).toBe("protocol-model/3"); expect(a.model.builder).toBe("solidity-p3/1"); expect(a.model.authority.version).toBe("authority/1");
+    expect(a.sha256).toBe(b.sha256); expect(a.model.schema).toBe("protocol-model/3"); expect(a.model.builder).toBe("solidity-p3/2"); expect(a.model.authority.version).toBe("authority/1");
+  });
+});
+
+describe("P3 closeout: one guard-side rule everywhere (P1 flag, P2 roles, P3 facts, specialists)", () => {
+  const T = `pragma solidity ^0.8.20;
+contract Child { address public immutable factory; constructor() { factory = msg.sender; } function retire(address payable to) external { require(msg.sender == factory); selfdestruct(to); } }
+contract Factory { address public factory; function make() external returns (Child c) { c = new Child(); } function retire(Child c, address payable to) external { c.retire(to); } }`;
+  const m = buildProtocolModel([{ path: "a.sol", text: T }]).model;
+  it("P1's callerGuarded agrees with P3: a callee-side check does not guard the outer entry point", () => {
+    expect(m.functions.find((f) => f.id === "Factory.retire(Child,address payable)")!.callerGuarded).toBe(false);
+    expect(m.functions.find((f) => f.id === "Child.retire(address payable)")!.callerGuarded).toBe(true);
+  });
+  it("P2 does not make the parent's same-named variable an authority because the CHILD checks its own `factory`", () => {
+    const roles = m.stateRoles.byComponent.find((c) => c.component === "Factory")!.variables;
+    expect(roles.find((v) => v.variable === "factory")!.roles.some((r) => r.rule === "authorising-guard-read")).toBe(false);
+  });
+  it("an internal helper that writes the owner is not an open writer on its own; its callers decide (D5)", () => {
+    const I = `pragma solidity ^0.8.20;
+contract Init { address public owner; bool private done; modifier onlyOwner() { require(msg.sender == owner); _; }
+  function _setOwner(address o) internal { owner = o; }
+  function initialize(address o) external { require(!done); done = true; _setOwner(o); }
+  function transferOwnership(address o) external onlyOwner { _setOwner(o); }
+  function grab() external { _setOwner(msg.sender); } }`;
+    const a = buildProtocolModel([{ path: "i.sol", text: I }]).model.authority.byComponent.find((c) => c.component === "Init")!;
+    expect(a.unguardedAuthorityWrites.map((w) => w.fn)).toEqual(["Init.grab()"]);
+    const ws = a.roles.find((r) => r.variable === "owner")!.writers;
+    expect(ws.some((w) => w.fn.startsWith("Init._setOwner"))).toBe(false);
+    expect(ws.find((w) => w.fn === "Init.initialize(address)")!.control).toBe("one-time-initialiser");
+    expect(ws.find((w) => w.fn === "Init.transferOwnership(address)")!.control).toBe("guarded");
   });
 });

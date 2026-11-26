@@ -148,8 +148,8 @@
   {
    "name": "specialists (via shared state roles): authorities are not derived from authorising guards",
    "file": "apps/api/src/analysis/solidity/state-roles.ts",
-   "old": "      for (const g of tr.events) if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads) {",
-   "new": "      for (const g of [] as typeof tr.events) if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads) {"
+   "old": "      for (const g of tr.events) if (g.k === \"guard\" && g.auth && !g.assumed && (g.contract === c.name",
+   "new": "      for (const g of [] as typeof tr.events) if (g.k === \"guard\" && g.auth && !g.assumed && (g.contract === c.name"
   },
   {
    "name": "specialists: name-based leads fire with no notion of privilege",

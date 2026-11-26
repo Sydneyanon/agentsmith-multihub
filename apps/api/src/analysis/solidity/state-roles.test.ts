@@ -84,7 +84,7 @@ contract Odd { address public x; function f(bytes calldata d) external { require
   it("is deterministic and part of the content-addressed protocol model (protocol-model/2)", () => {
     expect(JSON.stringify(rolesOf(BANK, "Bank"))).toBe(JSON.stringify(rs));
     const a = buildProtocolModel([{ path: "r.sol", text: BANK }]); const b = buildProtocolModel([{ path: "r.sol", text: BANK }]);
-    expect(a.sha256).toBe(b.sha256); expect(a.model.schema).toBe("protocol-model/3"); expect(a.model.builder).toBe("solidity-p3/1");
+    expect(a.sha256).toBe(b.sha256); expect(a.model.schema).toBe("protocol-model/3"); expect(a.model.builder).toBe("solidity-p3/2");
     expect(a.model.stateRoles.byComponent.find((c) => c.component === "Bank")!.variables).toEqual(rs);
   });
 });

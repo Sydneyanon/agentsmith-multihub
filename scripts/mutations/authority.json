@@ -90,6 +90,24 @@
    "file": "apps/api/src/analysis/solidity/authority.ts",
    "old": "!authorityVars.has(r) && isUnsetCheck(g, r) && ev.some(",
    "new": "!authorityVars.has(r) && ev.some("
+  },
+  {
+   "name": "closeout-D1-callerGuarded-counts-callee-side",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "e.auth && guardSide(ix, c.name, e) !== \"callee-side\"",
+   "new": "e.auth"
+  },
+  {
+   "name": "closeout-D2-authority-role-from-callee-guard",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "(g.contract === c.name || g.contract === contract || ix.contracts.get(g.contract)?.kind === \"library\")",
+   "new": "true"
+  },
+  {
+   "name": "closeout-D5-internal-functions-as-writers",
+   "file": "apps/api/src/analysis/solidity/protocol-model.ts",
+   "old": "fns.filter((f) => f.kind === \"constructor\" || f.visibility === \"public\" || f.visibility === \"external\")",
+   "new": "fns"
   }
  ]
 }

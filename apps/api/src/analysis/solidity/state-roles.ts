@@ -82,7 +82,9 @@ export function stateVariableRoles(ix: ProgramIndex, trace: (f: FunctionDef) => 
       if (!f.body) continue;
       const tr = trace(f);
       // authority: read by an authorising guard (polarity from the trace, so one-shot `require(!claimed[msg.sender])` does not qualify)
-      for (const g of tr.events) if (g.k === "guard" && g.auth && !g.assumed) for (const r of g.reads) { const v = sv(r); if (v && !v.constant && !v.immutable) add(r, { role: "authority", basis: "inferred", strength: "strong", rule: "authorising-guard-read", evidence: [{ file: g.file, line: g.line }] }); }
+      // only checks that run in THIS contract (or a library it uses) say anything about this contract's authorities; a check inside a
+      // contract it calls reads THAT contract's variables (the shared guard-side rule, authority.ts)
+      for (const g of tr.events) if (g.k === "guard" && g.auth && !g.assumed && (g.contract === c.name || g.contract === contract || ix.contracts.get(g.contract)?.kind === "library")) for (const r of g.reads) { const v = sv(r); if (v && !v.constant && !v.immutable) add(r, { role: "authority", basis: "inferred", strength: "strong", rule: "authorising-guard-read", evidence: [{ file: g.file, line: g.line }] }); }
       // implementation pointer: a storage variable used as a delegatecall target (a direct fact of the code)
       for (const e of tr.events) if (e.k === "call" && e.low === "delegatecall" && e.targetTaint === "state" && e.targetVar && sv(e.targetVar)) add(e.targetVar, { role: "implementation_pointer", basis: "established", strength: "strong", rule: "delegatecall-target", evidence: [{ file: e.file, line: e.line }] });
       // lock: a SCALAR bool/uint flag that a guard reads, that is SET BY ASSIGNMENT before an external call and RESET after it

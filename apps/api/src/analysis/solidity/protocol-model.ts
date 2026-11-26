@@ -3,7 +3,7 @@ import { ProgramIndex } from "./index.js";
 import type { ContractDef, FunctionDef } from "./parser.js";
 import { Analyzer } from "./specialists.js";
 import { STATE_ROLES_VERSION, type VariableRoles } from "./state-roles.js";
-import { AUTHORITY_VERSION, authorityFacts, type AuthorityFacts } from "./authority.js";
+import { AUTHORITY_VERSION, authorityFacts, guardSide, type AuthorityFacts } from "./authority.js";
 
 /**
  * Protocol model v1, step P1 (docs/protocol-model-p1-p3-plan.md; conforms to T-149, docs/unified-research-workflow.md).
@@ -14,8 +14,8 @@ import { AUTHORITY_VERSION, authorityFacts, type AuthorityFacts } from "./author
  * P1 deliberately contains NO roles, assets, value flows, trust boundaries or transitions (P2+ are not approved).
  */
 export const PROTOCOL_MODEL_SCHEMA = "protocol-model/3";
-/** p3: adds privileged roles and trust boundaries (authority.ts); P1 and P2 content unchanged */
-export const PROTOCOL_MODEL_BUILDER = "solidity-p3/1";
+/** p3: adds privileged roles and trust boundaries (authority.ts); P1 and P2 content unchanged. p3/2 (P3 closeout): one guard-side rule in P1 callerGuarded and P2 authority roles; P3 writers only from the callable surface and constructors */
+export const PROTOCOL_MODEL_BUILDER = "solidity-p3/2";
 
 export type Evidence = { file: string; lineStart: number; lineEnd: number; fileSha256: string };
 export type Derivation = "syntactic" | `inferred:${string}`;
@@ -83,7 +83,9 @@ export function buildProtocolModel(sources: ReadonlyArray<{ path: string; text: 
       if (!f.body || !(f.kind === "function" || f.kind === "receive" || f.kind === "fallback" || f.kind === "constructor")) continue;
       const s = sig(f); if (seen.has(s)) continue; seen.add(s); fns.push(f.contract === c.name ? f : { ...f, contract: c.name });
     }
-    authorityInputs.set(c.name, fns.map((f) => ({ id: `${c.name}.${sig(f)}`, f })));
+    // P3 describes who can reach a write, so its inputs are the callable surface and the constructors. An internal or private function
+    // is reached only through its callers, whose traces inline it: analysing it alone would report its writes as open (P3 closeout D5).
+    authorityInputs.set(c.name, fns.filter((f) => f.kind === "constructor" || f.visibility === "public" || f.visibility === "external").map((f) => ({ id: `${c.name}.${sig(f)}`, f })));
     for (const f of fns) {
       const declaredIn = ix.contracts.has(f.contract) && ix.contracts.get(f.contract)!.functions.some((x) => x.startLine === f.startLine && x.file === f.file) ? f.contract : (ix.linearize(c.name).find((k) => k.functions.some((x) => x.startLine === f.startLine && x.file === f.file && x.name === f.name))?.name ?? f.contract);
       const id = `${c.name}.${sig(f)}`;
@@ -91,7 +93,8 @@ export function buildProtocolModel(sources: ReadonlyArray<{ path: string; text: 
       const entryPoint = f.kind !== "constructor" && (f.visibility === "external" || f.visibility === "public") && f.mutability !== "view" && f.mutability !== "pure";
       functions.push({
         id, component: c.name, declaredIn, name: f.name, kind: f.kind, visibility: f.visibility, mutability: f.mutability, modifiers: f.modifiers.map((m) => m.name),
-        entryPoint, callerGuarded: t.events.some((e) => e.k === "guard" && e.auth),
+        // the same guard-side rule as P3 and the specialists: a check inside a contract this one calls does not guard this function
+        entryPoint, callerGuarded: t.events.some((e) => e.k === "guard" && e.auth && guardSide(ix, c.name, e) !== "callee-side"),
         stateWrites: [...new Set(t.events.flatMap((e) => (e.k === "write" && !e.variable.startsWith("<") ? [e.variable] : [])))].sort(),
         evidence: ev(f.file, f.startLine, f.endLine), derivation: "inferred:deployed-context-trace",
       });

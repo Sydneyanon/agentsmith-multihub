@@ -1,0 +1,49 @@
+{
+ "substrate": "0.8.28+commit.7893614a.Emscripten.clang, evm shanghai (pre-Cancun)",
+ "cases": [
+  {
+   "file": "VaultFactory.sol",
+   "sha256": "2893eff1aa75bfa6ee1697899282514cef391c0b3b3c78ba87cb6c192f62e3fc",
+   "entry": "VaultFactory.retireVault",
+   "caller": "unrelated account",
+   "directCallToVaultRetire": "reverts",
+   "viaFactory": "succeeds",
+   "vaultBalanceBefore": "10 ETH",
+   "vaultBalanceAfter": "0 ETH",
+   "treasuryReceived": "10 ETH",
+   "vaultCodeAfter": "present"
+  },
+  {
+   "file": "ManagedVaultFactory.sol",
+   "sha256": "a5cfe8e7390a96917b4986e8774ce482fceedd9ec61152f43e4c6686724bfefb",
+   "entry": "ManagedVaultFactory.retireVault",
+   "caller": "unrelated account",
+   "directCallToVaultRetire": "reverts",
+   "viaFactory": "reverts",
+   "vaultBalanceBefore": "10 ETH",
+   "vaultBalanceAfter": "10 ETH",
+   "treasuryReceived": "0 ETH",
+   "vaultCodeAfter": "present"
+  },
+  {
+   "file": "YieldController.sol",
+   "sha256": "585853ef7c92f248550b43633f11692cfc9b6ccd2a2ad8be04e5590011d14ff8",
+   "entry": "YieldController.setVaultStrategy then harvestAndEarn",
+   "caller": "unrelated account with its own strategy contract",
+   "setVaultStrategy": "succeeds",
+   "harvestAndEarn": "succeeds",
+   "attackerStrategyBalance": "10 ETH",
+   "vaultBalanceAfter": "0 ETH"
+  },
+  {
+   "file": "StrategyController.sol",
+   "sha256": "ffd60ea980f2470ded0e6cd19100172dc9adacc3abcafb1a8df67f36eb4893f4",
+   "entry": "StrategyController.setVaultStrategy then harvestAndEarn",
+   "caller": "unrelated account with its own strategy contract",
+   "setVaultStrategy": "reverts",
+   "harvestAndEarn": "reverts",
+   "attackerStrategyBalance": "0 ETH",
+   "vaultBalanceAfter": "10 ETH"
+  }
+ ]
+}

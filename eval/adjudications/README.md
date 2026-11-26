@@ -12,6 +12,7 @@ the adjudicated reading clearly marked.
 | Record | Subject | Outcome | Human sign-off |
 |---|---|---|---|
 | `heldout3-reentrancy.json` | corpus 3: `EtherShareVault.redeem`, `MerchantEscrow.release` (reentrancy) | **Labels upheld**: both are exploitable, shown by EVM execution and by an independent assessor. The validator's refutations are **overturned** as artefacts of its model. | pending |
+| `heldout3-crosscontract-ground-truth.json` | corpus 3: `VaultFactory.retireVault`, `YieldController.setVaultStrategy` and their safe twins (the P3 gains). Not a disputed label: an execution record, `eval/ground-truth/crosscontract-heldout3.mjs` | **Labels reproduced** by offline EVM execution: both exploitable, both twins safe. Development evidence, not a discovery | none |
 
 **Consequence for corpus 3's recorded results:**
 - The label metrics are unchanged.

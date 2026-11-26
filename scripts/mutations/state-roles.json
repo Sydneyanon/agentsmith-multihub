@@ -64,8 +64,8 @@
   {
    "name": "P2: guard-read authority loses polarity check",
    "file": "apps/api/src/analysis/solidity/state-roles.ts",
-   "old": "if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads)",
-   "new": "if (g.k === \"guard\") for (const r of g.reads)"
+   "old": "if (g.k === \"guard\" && g.auth && !g.assumed && (g.contract === c.name",
+   "new": "if (g.k === \"guard\" && (g.contract === c.name"
   },
   {
    "name": "P2: evidence lines dropped",

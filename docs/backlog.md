@@ -11,7 +11,7 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room; see the series at the end). A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -900,3 +900,125 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Security considerations | None. |
 | Approval required | Owner decision. |
 
+## Evaluation and Control Room series (T-180 to T-190; proposed, not authorised; see `docs/evaluation-protocol.md` and `docs/control-room-plan.md`)
+
+### T-180: Corpus-5 selection brief and inclusion rules
+| Field | |
+|---|---|
+| Phase | evaluation |
+| Dependencies | P3 closeout |
+| Scope | Write the brief for an independent selector: sources (public audit/contest reports with fixes), inclusion and control rules, class quotas, pinning and ground-truth mapping format (`docs/evaluation-protocol.md` §5). Documentation only. |
+| Acceptance criteria | Owner-reviewed brief; rules fixed before any repository is named; nothing acquired. |
+| Required tests | n/a (design). |
+| Security considerations | No credentials; public sources only. |
+| Approval required | Design review (part of A22). |
+
+### T-181: Corpus-5 independent selection, acquisition and seal
+| Field | |
+|---|---|
+| Phase | evaluation |
+| Dependencies | T-180 |
+| Scope | Selector (not the analyzer's author) picks and maps findings; read-only public acquisition via the 5.2 path; manifest committed before any candidate is registered. |
+| Acceptance criteria | Sealed manifest with commit, tree and manifest SHA per entry; mapping kept from the analyzer side; no analyzer run on it. |
+| Required tests | Manifest verification in `eval/verify-frozen.sh`. |
+| Security considerations | Passive public reads only; no polling; no tokens in the repository. |
+| Approval required | **A22** (selection plus network reads for acquisition). |
+
+### T-182: Corpus-5 one-time scoring of registered candidates
+| Field | |
+|---|---|
+| Phase | evaluation |
+| Dependencies | T-181 |
+| Scope | Register candidate 3 (pre-P1) and the P3 closeout candidate (commit + tree); score each and the baseline once in clean worktrees; store raw results. |
+| Acceptance criteria | Results committed unmodified; candidates registered before the corpus is opened; no re-scoring. |
+| Required tests | Registry and result-hash verification. |
+| Security considerations | Offline analysis only. |
+| Approval required | **A23** (one-time scoring). |
+
+### T-183: Independent review of corpus-5 new leads
+| Field | |
+|---|---|
+| Phase | evaluation |
+| Dependencies | T-182 |
+| Scope | Every lead outside ground truth reviewed by someone other than the analyzer's author, blind to confidence; offline EVM evidence where possible; adjudication records. |
+| Acceptance criteria | Each lead classified confirmed / FP / inconclusive with reasons; human sign-off recorded for any confirmed one. |
+| Required tests | Adjudication record schema check. |
+| Security considerations | No live-chain or third-party testing; no disclosure or bounty submission without separate approval. |
+| Approval required | Reviewer assignment by the owner; sign-off by a named human. |
+
+### T-184: Corpus-5 evaluation report
+| Field | |
+|---|---|
+| Phase | evaluation |
+| Dependencies | T-183 |
+| Scope | Recall, precision, FP per kLOC, new findings per stage, missed classes, coverage, reproducibility, time and cost, computed from stored runs only. |
+| Acceptance criteria | Every number traceable to a stored file; stages compared; limits of sample size stated. |
+| Required tests | Report numbers recomputed by a script from stored results. |
+| Security considerations | None. |
+| Approval required | None beyond T-181–T-183. |
+
+### T-185: Specialist consistency study (P3 closeout D3, D4)
+| Field | |
+|---|---|
+| Phase | 5.3 |
+| Dependencies | P3 closeout |
+| Scope | Equivalence study, on development data only, of replacing the initializer specialist's one-time rule with P3's initialiser facts (D3) and reducing name gating (`PRIV_NAME`/`INIT_NAME`) using P3 open-writer facts (D4). |
+| Acceptance criteria | Per-corpus diff of findings (dev, corpora 1–3, real repository); no corpus-4 use; a recommendation, not a change. |
+| Required tests | Diff script; no product change. |
+| Security considerations | None. |
+| Approval required | Study: none beyond implementation approval; any findings-changing swap needs owner approval. |
+
+### T-186: Control Room CR1: live refresh, honest states, lanes, P1–P3 view, discovery panel (web only)
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | none |
+| Scope | `docs/control-room-plan.md` §4 CR1: visibility-aware 15 s polling, freshness and stale banners, legacy vs structural lanes by `workflow_type`, snapshot architecture view from the existing dossier endpoint, read-only discovery panel with a not-installed state. |
+| Acceptance criteria | Honesty rules §3 hold on an empty DB, a synthetic DB and with a failing API; no new dependency; CSP unchanged. |
+| Required tests | Web unit tests; layout probe; browser check at 390 px and desktop on the synthetic demo. |
+| Security considerations | Token stays tab-scoped; no data request before login. |
+| Approval required | **A24** (implementation on the branch). |
+
+### T-187: Control Room CR2: `GET /v1/engine/status` (read-only)
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | none |
+| Scope | Build identity, applied migrations, switches, data kind, worker presence (leases; `pg_stat_activity` application name if visible to the API role), queue by workflow type and step, last run/success/failure with shaped errors. |
+| Acceptance criteria | Empty DB shows idle with no worker; expired leases never shown as live; synthetic flag honoured; shaped errors only. |
+| Required tests | Route coverage (401), no-secret body test, idle, expired-lease and synthetic tests. |
+| Security considerations | No environment values, connection strings or raw error bodies in responses. |
+| Approval required | **A24**. |
+
+### T-188: Control Room CR3: release to the hub
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | T-186, T-187 |
+| Scope | One release of the reviewed branch, including review fixes 1–5, following `hub-production-plan.md` §7a; production checklist re-run. |
+| Acceptance criteria | Production shows the idle state truthfully; checklist passes; rollback target recorded. |
+| Required tests | Production verification checklist (§15). |
+| Security considerations | Production change; no secret printed; rollback rehearsed. |
+| Approval required | **A25** (merge and deploy). |
+
+### T-189: Control Room CR4: first live structural run
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | T-188 |
+| Scope | Activate one worker with the structural switch on; submit one public repository through intake; observe it through the Control Room. |
+| Acceptance criteria | Every stage visible with live/recorded distinction; snapshot identity and P1–P3 shown; hypotheses shown as unreviewed leads. |
+| Required tests | Observation record; no test against third-party systems. |
+| Security considerations | Read-only public GitHub access; no active testing. |
+| Approval required | **A26** (worker activation) plus network access for GitHub reads. |
+
+### T-190: Control Room CR5: worker heartbeat table (optional)
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | T-188 |
+| Scope | `worker_heartbeats` migration and worker writes, so an idle worker is visible. |
+| Acceptance criteria | Presence while idle shown with last-heartbeat age; migration reversible and tested on disposable DBs. |
+| Required tests | Migration test; heartbeat expiry test. |
+| Security considerations | Schema change. |
+| Approval required | **A27** (migration). |
