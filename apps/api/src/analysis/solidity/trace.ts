@@ -98,7 +98,8 @@ export class Tracer {
       mctx.params = new Map(def.params.filter((p) => p.name).map((p) => [p.name!, p.type]));
       // a modifier parameter stands for the argument it was given: onlyBy(owner) compares the caller with `owner`, an authority
       def.params.forEach((p, k) => { const a = use.args[k]; if (!p.name || !a) return; if (this.isAuthority(a, ctx)) mctx.authLocals.add(p.name); if (this.tainted(a, ctx)) mctx.tainted.add(p.name); });
-      mctx.onPlaceholder = () => this.runWithModifiers(fn, ctx, i + 1);
+      // `_` may sit inside a branch of the modifier (`if (msg.sender == owner) _;`): the body runs under that branch's protection
+      mctx.onPlaceholder = () => { const saved = ctx.branch; ctx.branch = { cond: saved.cond || mctx.branch.cond, prot: saved.prot || mctx.branch.prot, ret: saved.ret || mctx.branch.ret }; try { this.runWithModifiers(fn, ctx, i + 1); } finally { ctx.branch = saved; } };
       this.stmts(def.body, mctx);
       return;
     }
@@ -243,6 +244,12 @@ export class Tracer {
     }
   }
 
+  /** a helper parameter that stands for msg.sender at its call site (for example `_transfer(msg.sender, to, v)`) */
+  private aliasIsCaller(name: string, ctx: Ctx): boolean {
+    const al = ctx.aliases.get(name); if (!al) return false;
+    return isCaller(al.expr) || (al.expr.k === "id" && this.aliasIsCaller(al.expr.name, al.ctx));
+  }
+
   tainted(e: Expr, ctx: Ctx): boolean {
     return walkExpr(e, (x) => isCaller(x) || (x.k === "id" && ctx.tainted.has(x.name)));
   }
@@ -301,7 +308,7 @@ export class Tracer {
     while (cur.k === "index" || cur.k === "member") {
       if (cur.k === "index" && cur.idx) {
         key = key ? exprText(cur.idx) + "," + key : exprText(cur.idx);
-        if (walkExpr(cur.idx, isCaller)) keyedByCaller = true;
+        if (walkExpr(cur.idx, (x) => isCaller(x) || (x.k === "id" && this.aliasIsCaller(x.name, ctx)))) keyedByCaller = true;
         if (walkExpr(cur.idx, (x) => x.k === "id" && ctx.params.has(x.name))) keyedByParam = true;
       }
       cur = cur.obj;

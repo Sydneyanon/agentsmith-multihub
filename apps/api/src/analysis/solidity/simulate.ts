@@ -100,7 +100,7 @@ export class Interp {
       default: throw new Unsupported(`expression ${e.k}`);
     }
   }
-  truthy(v: Value): boolean { if (typeof v === "boolean") return v; if (typeof v === "bigint") return v !== 0n; throw new Unsupported("condition is not boolean"); }
+  truthy(v: Value): boolean { if (typeof v === "boolean") return v; if (Array.isArray(v) && typeof v[0] === "boolean") return v[0]; /* pre-0.5 `call` returned only the success flag */ if (typeof v === "bigint") return v !== 0n; throw new Unsupported("condition is not boolean"); }
   defaultOfTarget(t: Expr): Value { let c: Expr = t; while (c.k === "index") c = c.obj; return c.k === "id" ? this.defaultFor(this.ix.stateVar(this.contract, c.name)?.type ?? "") : null; }
 
   store(t: Expr, v: Value, f: Frame): void {

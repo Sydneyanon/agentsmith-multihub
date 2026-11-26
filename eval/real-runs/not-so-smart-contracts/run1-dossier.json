@@ -1,0 +1,2586 @@
+{
+  "snapshot": {
+    "id": "73278c2c-9357-4991-96ce-7a834a40d8db",
+    "repository": "crytic/not-so-smart-contracts",
+    "commit_sha": "020dbdbde3e0c2e8de5f3944e7455e438b0995d5",
+    "file_count": 47,
+    "manifest_sha256": "b0d4fb23c8487a77a609f1f60f1ef7da294ede37adcd8457b9b6a36575b838f4",
+    "verified": true
+  },
+  "summary": {
+    "unreviewed": 59,
+    "weakened_by_static_check": 3
+  },
+  "entries": [
+    {
+      "hypothesis_id": "01d31097-dd68-463a-b9bd-c33e443aa791",
+      "class": "access-control",
+      "function": "Alice.set",
+      "claim": "Alice.set changes the state variable val (privileged-looking function name \"set\") (incorrect_interface/Alice.sol:8) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "7-7",
+          "role": "context",
+          "text": "function set(int new_val){",
+          "verified": true
+        },
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "8-8",
+          "role": "primary",
+          "text": "val = new_val;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs set to completion and reaches incorrect_interface/Alice.sol:8: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls set(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "51998152-91b2-419f-a3b9-1a37baa58582",
+      "class": "access-control",
+      "function": "Alice.set_fixed",
+      "claim": "Alice.set_fixed changes the state variable val (privileged-looking function name \"set_fixed\") (incorrect_interface/Alice.sol:12) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "11-11",
+          "role": "context",
+          "text": "function set_fixed(int new_val){",
+          "verified": true
+        },
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "12-12",
+          "role": "primary",
+          "text": "val = new_val;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs set_fixed to completion and reaches incorrect_interface/Alice.sol:12: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls set_fixed(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "0ce839d4-fee5-47e4-bf1c-140b415636c1",
+      "class": "access-control",
+      "function": "Bob.set",
+      "claim": "Bob.set changes the state variable val (privileged-looking function name \"set\") (incorrect_interface/Alice.sol:8) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "11-11",
+          "role": "supporting",
+          "text": "function set_fixed(int new_val){",
+          "verified": true
+        },
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "8-8",
+          "role": "primary",
+          "text": "val = new_val;",
+          "verified": true
+        },
+        {
+          "path": "incorrect_interface/Bob.sol",
+          "lines": "10-10",
+          "role": "context",
+          "text": "function set(Alice c){",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of set cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "12b41684-52d5-44ba-afd8-219d3cd5c049",
+      "class": "access-control",
+      "function": "Bob.set_fixed",
+      "claim": "Bob.set_fixed changes the state variable val (privileged-looking function name \"set_fixed\") (incorrect_interface/Alice.sol:12) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "12-12",
+          "role": "primary",
+          "text": "val = new_val;",
+          "verified": true
+        },
+        {
+          "path": "incorrect_interface/Alice.sol",
+          "lines": "15-15",
+          "role": "supporting",
+          "text": "function(){",
+          "verified": true
+        },
+        {
+          "path": "incorrect_interface/Bob.sol",
+          "lines": "14-14",
+          "role": "context",
+          "text": "function set_fixed(Alice c){",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of set_fixed cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "cd0b899d-4710-4c41-b52a-dd0d0c866f11",
+      "class": "access-control",
+      "function": "C.C",
+      "claim": "C.C writes the authority variable owner (variable shadowing/inherited_state.sol:11) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "variable shadowing/inherited_state.sol",
+          "lines": "10-10",
+          "role": "context",
+          "text": "function C() {",
+          "verified": true
+        },
+        {
+          "path": "variable shadowing/inherited_state.sol",
+          "lines": "11-11",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs C to completion and reaches variable shadowing/inherited_state.sol:11: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls C(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "4cded5c0-d542-452f-aeaf-b55f61ee49d8",
+      "class": "access-control",
+      "function": "CEOThrone.Stake",
+      "claim": "CEOThrone.Stake writes the authority variable owner (honeypots/KOTH/KOTH.sol:22) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/KOTH/KOTH.sol",
+          "lines": "19-19",
+          "role": "context",
+          "text": "function Stake() public payable {",
+          "verified": true
+        },
+        {
+          "path": "honeypots/KOTH/KOTH.sol",
+          "lines": "22-22",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs Stake to completion and reaches honeypots/KOTH/KOTH.sol:22: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls Stake(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "30a8fa4b-059f-4f8e-89b1-a37f45f7dd73",
+      "class": "unchecked-call",
+      "function": "",
+      "claim": "KingOfTheEtherThrone. ignores the success flag of a low-level send to msg.sender (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:101) inside claimThrone.",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "101-101",
+          "role": "primary",
+          "text": "msg.sender.send(valuePaid);",
+          "verified": true
+        },
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "91-91",
+          "role": "supporting",
+          "text": "claimThrone(string(msg.data));",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "none: function not found."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "294cfc1e-3323-4e7f-a6d8-6b722a31e0ff",
+      "class": "access-control",
+      "function": "KingOfTheEtherThrone.KingOfTheEtherThrone",
+      "claim": "KingOfTheEtherThrone.KingOfTheEtherThrone writes the authority variable wizardAddress (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:66) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "65-65",
+          "role": "context",
+          "text": "function KingOfTheEtherThrone() {",
+          "verified": true
+        },
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "66-66",
+          "role": "primary",
+          "text": "wizardAddress = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call Monarch."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "96b4b99c-87a1-4f2e-bd5f-ea71d23620af",
+      "class": "unchecked-call",
+      "function": "KingOfTheEtherThrone.claimThrone",
+      "claim": "KingOfTheEtherThrone.claimThrone ignores the success flag of a low-level send to msg.sender (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:101).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "101-101",
+          "role": "primary",
+          "text": "msg.sender.send(valuePaid);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: not modelled: parameters of claimThrone cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "0991c68b-9da9-4267-aa87-ef0ebc923d93",
+      "class": "unchecked-call",
+      "function": "KingOfTheEtherThrone.sweepCommission",
+      "claim": "KingOfTheEtherThrone.sweepCommission ignores the success flag of a low-level send to wizardAddress (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:162).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "162-162",
+          "role": "primary",
+          "text": "wizardAddress.send(amount);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "c6e5c88e-482c-43b6-b707-b4c8daa30adc",
+      "class": "access-control",
+      "function": "KingOfTheEtherThrone.transferOwnership",
+      "claim": "KingOfTheEtherThrone.transferOwnership writes the authority variable wizardAddress (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:167) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "166-166",
+          "role": "context",
+          "text": "function transferOwnership(address newOwner) onlywizard {",
+          "verified": true
+        },
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "167-167",
+          "role": "primary",
+          "text": "wizardAddress = newOwner;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "weakens",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller completes the call but the sensitive statement is not executed on that path. This weakens (does not eliminate) the lead: the model is a bounded abstraction."
+        }
+      ],
+      "status": "weakened_by_static_check",
+      "static_outcome": "weakens",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "395bf0fa-977b-4f80-a586-a40470eafca3",
+      "class": "reentrancy",
+      "function": "LedgerChannel.LCOpenTimeout",
+      "claim": "LedgerChannel.LCOpenTimeout makes an external call that hands control to Channels[_lcID].token (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:422) and only afterwards updates Channels[_lcID] (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:428), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "422-422",
+          "role": "primary",
+          "text": "require(Channels[_lcID].token.transfer(Channels[_lcID].partyAddresses[0], Channels[_lcID].erc20Balances[0]),\"CreateChannel: token transfer failure\");",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "428-428",
+          "role": "supporting",
+          "text": "delete Channels[_lcID];",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (index base Channels[_lcID].partyAddresses); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "c0982a5d-2db1-43ae-a182-a85be6164449",
+      "class": "access-control",
+      "function": "LedgerChannel.byzantineCloseChannel",
+      "claim": "LedgerChannel.byzantineCloseChannel sends ether to the caller-supplied address channel.partyAddresses[0] (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:790) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "748-748",
+          "role": "context",
+          "text": "function byzantineCloseChannel(bytes32 _lcID) public {",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "790-790",
+          "role": "primary",
+          "text": "channel.partyAddresses[0].transfer(ethbalanceA);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: member channel.isOpen."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "03de2c3d-17d2-4c79-9f24-b5f146dcc57b",
+      "class": "access-control",
+      "function": "LedgerChannel.closeVirtualChannel",
+      "claim": "LedgerChannel.closeVirtualChannel writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:724) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "717-717",
+          "role": "context",
+          "text": "function closeVirtualChannel(bytes32 _lcID, bytes32 _vcID) public {",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "724-724",
+          "role": "primary",
+          "text": "Channels[_lcID].numOpenVC--;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: member Channels[_lcID].isOpen."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "39830aa8-f35f-4158-8cb7-95297b7e659a",
+      "class": "access-control",
+      "function": "LedgerChannel.consensusCloseChannel",
+      "claim": "LedgerChannel.consensusCloseChannel writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:523) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "487-487",
+          "role": "context",
+          "text": "function consensusCloseChannel(",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "523-523",
+          "role": "primary",
+          "text": "Channels[_lcID].isOpen = false;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of consensusCloseChannel cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "0180c6ee-b784-47bc-bbf0-83358dac373a",
+      "class": "access-control",
+      "function": "LedgerChannel.createChannel",
+      "claim": "LedgerChannel.createChannel writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:391) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "374-374",
+          "role": "context",
+          "text": "function createChannel(",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "391-391",
+          "role": "primary",
+          "text": "Channels[_lcID].partyAddresses[0] = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: index base Channels[_lcID].partyAddresses."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "01756456-130d-4786-98b6-3d798608d4f4",
+      "class": "reentrancy",
+      "function": "LedgerChannel.deposit",
+      "claim": "LedgerChannel.deposit makes an external call that hands control to Channels[_lcID].token (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:465) and only afterwards updates Channels[_lcID,2] (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:466), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "465-465",
+          "role": "primary",
+          "text": "require(Channels[_lcID].token.transferFrom(msg.sender, this, _balance),\"deposit: token transfer failure\");",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "466-466",
+          "role": "supporting",
+          "text": "Channels[_lcID].erc20Balances[2] += _balance;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (member Channels[_lcID].isOpen); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "0ecab101-2553-4cd2-8819-32a91d2c5cfa",
+      "class": "access-control",
+      "function": "LedgerChannel.deposit",
+      "claim": "LedgerChannel.deposit writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:466) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "457-457",
+          "role": "context",
+          "text": "function deposit(bytes32 _lcID, address recipient, uint256 _balance, bool isToken) public payable {",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "466-466",
+          "role": "primary",
+          "text": "Channels[_lcID].erc20Balances[2] += _balance;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: member Channels[_lcID].isOpen."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "15cc04f4-7185-49e5-8516-cba73e7f1061",
+      "class": "access-control",
+      "function": "LedgerChannel.settleVC",
+      "claim": "LedgerChannel.settleVC changes the state variable virtualChannels (privileged-looking function name \"settleVC\") (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:703) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "654-654",
+          "role": "context",
+          "text": "function settleVC(",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "703-703",
+          "role": "primary",
+          "text": "virtualChannels[_vcID].challenger = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of settleVC cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "d6f1de63-fd8b-447e-804c-e6a915bae228",
+      "class": "access-control",
+      "function": "Log.AddMessage",
+      "claim": "Log.AddMessage changes the state variable LastMsg (privileged-looking function name \"AddMessage\") (honeypots/PrivateBank/PrivateBank.sol:62) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/PrivateBank/PrivateBank.sol",
+          "lines": "59-59",
+          "role": "context",
+          "text": "function AddMessage(address _adr,uint _val,string _data)",
+          "verified": true
+        },
+        {
+          "path": "honeypots/PrivateBank/PrivateBank.sol",
+          "lines": "62-62",
+          "role": "primary",
+          "text": "LastMsg.Sender = _adr;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of AddMessage cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "0383c758-345d-4e79-9cec-216bbe93c8fe",
+      "class": "access-control",
+      "function": "ManagedAccount.ManagedAccount",
+      "claim": "ManagedAccount.ManagedAccount writes the authority variable owner (reentrancy/DAO_source_code/DAO.sol:185) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/DAO_source_code/DAO.sol",
+          "lines": "184-184",
+          "role": "context",
+          "text": "function ManagedAccount(address _owner, bool _payOwnerOnly) {",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/DAO_source_code/DAO.sol",
+          "lines": "185-185",
+          "role": "primary",
+          "text": "owner = _owner;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs ManagedAccount to completion and reaches reentrancy/DAO_source_code/DAO.sol:185: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls ManagedAccount(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "2b2bd30f-abc6-429b-aeda-2b6529094682",
+      "class": "access-control",
+      "function": "Missing.IamMissing",
+      "claim": "Missing.IamMissing writes the authority variable owner (wrong_constructor_name/incorrect_constructor.sol:16) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/incorrect_constructor.sol",
+          "lines": "13-13",
+          "role": "context",
+          "text": "function IamMissing()",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/incorrect_constructor.sol",
+          "lines": "16-16",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs IamMissing to completion and reaches wrong_constructor_name/incorrect_constructor.sol:16: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls IamMissing(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "398af2b5-480e-4476-a225-ce94003ec15f",
+      "class": "access-control",
+      "function": "NEW_YEARS_GIFT.SetPass",
+      "claim": "NEW_YEARS_GIFT.SetPass writes the authority variable sender (honeypots/GiftBox/GiftBox.sol:24) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/GiftBox/GiftBox.sol",
+          "lines": "17-17",
+          "role": "context",
+          "text": "function SetPass(bytes32 hash)",
+          "verified": true
+        },
+        {
+          "path": "honeypots/GiftBox/GiftBox.sol",
+          "lines": "24-24",
+          "role": "primary",
+          "text": "sender = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): the sensitive statement is not reachable even by the privileged deployer in the model (statement not executed), so the model cannot judge it."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "b3d03a64-c15a-4754-8fc6-e166768e2195",
+      "class": "access-control",
+      "function": "OpenAddressLottery.OpenAddressLottery",
+      "claim": "OpenAddressLottery.OpenAddressLottery writes the authority variable owner (honeypots/Lottery/Lottery.sol:34) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/Lottery/Lottery.sol",
+          "lines": "33-33",
+          "role": "context",
+          "text": "function OpenAddressLottery() {",
+          "verified": true
+        },
+        {
+          "path": "honeypots/Lottery/Lottery.sol",
+          "lines": "34-34",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call SeedComponents."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "dd32ea72-588c-4bf0-8b0c-d44599838b5c",
+      "class": "access-control",
+      "function": "Overflow.add",
+      "claim": "Overflow.add changes the state variable sellerBalance (privileged-looking function name \"add\") (integer_overflow/integer_overflow_1.sol:7) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "integer_overflow/integer_overflow_1.sol",
+          "lines": "6-6",
+          "role": "context",
+          "text": "function add(uint value) returns (bool){",
+          "verified": true
+        },
+        {
+          "path": "integer_overflow/integer_overflow_1.sol",
+          "lines": "7-7",
+          "role": "primary",
+          "text": "sellerBalance += value; // possible overflow",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs add to completion and reaches integer_overflow/integer_overflow_1.sol:7: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls add(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "43d34aa3-a04b-4bb1-8332-841ad7b34217",
+      "class": "access-control",
+      "function": "Ownable.Ownable",
+      "claim": "Ownable.Ownable writes the authority variable owner (honeypots/KOTH/KOTH.sol:7) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/KOTH/KOTH.sol",
+          "lines": "7-7",
+          "role": "primary",
+          "text": "function Ownable() public {owner = msg.sender;}",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs Ownable to completion and reaches honeypots/KOTH/KOTH.sol:7: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls Ownable(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "fc6735b0-00de-4bec-9992-bfb1f78b30f8",
+      "class": "reentrancy",
+      "function": "Private_Bank.CashOut",
+      "claim": "Private_Bank.CashOut makes an external call that hands control to msg.sender.call (honeypots/PrivateBank/PrivateBank.sol:32) and only afterwards updates balances[msg.sender] (honeypots/PrivateBank/PrivateBank.sol:34), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/PrivateBank/PrivateBank.sol",
+          "lines": "32-32",
+          "role": "primary",
+          "text": "if(msg.sender.call.value(_am)())",
+          "verified": true
+        },
+        {
+          "path": "honeypots/PrivateBank/PrivateBank.sol",
+          "lines": "34-34",
+          "role": "supporting",
+          "text": "balances[msg.sender]-=_am;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (complex call); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "c0e95b34-b630-4a92-9c42-4b45cfb530a8",
+      "class": "access-control",
+      "function": "RaceCondition.RaceCondition",
+      "claim": "RaceCondition.RaceCondition writes the authority variable owner (race_condition/RaceCondition.sol:23) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "race_condition/RaceCondition.sol",
+          "lines": "20-20",
+          "role": "context",
+          "text": "function RaceCondition(uint _price, ERC20 _token)",
+          "verified": true
+        },
+        {
+          "path": "race_condition/RaceCondition.sol",
+          "lines": "23-23",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of RaceCondition cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "c300d6ca-c8e8-4640-91da-c2111adb717d",
+      "class": "access-control",
+      "function": "RaceCondition.buy",
+      "claim": "RaceCondition.buy writes the authority variable owner (race_condition/RaceCondition.sol:42) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "race_condition/RaceCondition.sol",
+          "lines": "32-32",
+          "role": "context",
+          "text": "function buy(uint new_price) payable",
+          "verified": true
+        },
+        {
+          "path": "race_condition/RaceCondition.sol",
+          "lines": "42-42",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: external call token.transferFrom."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "09d386c0-32bf-4c06-920e-64fb13d5e178",
+      "class": "reentrancy",
+      "function": "Reentrance.withdrawBalance",
+      "claim": "Reentrance.withdrawBalance makes an external call that hands control to msg.sender.call (reentrancy/Reentrancy.sol:17) and only afterwards updates userBalance[msg.sender] (reentrancy/Reentrancy.sol:20), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/Reentrancy.sol",
+          "lines": "17-17",
+          "role": "primary",
+          "text": "if( ! (msg.sender.call.value(userBalance[msg.sender])() ) ){",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/Reentrancy.sol",
+          "lines": "20-20",
+          "role": "supporting",
+          "text": "userBalance[msg.sender] = 0;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (complex call); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "7b8eaf6e-df6c-454a-abad-ac54060bab49",
+      "class": "access-control",
+      "function": "ReentranceExploit.ReentranceExploit",
+      "claim": "ReentranceExploit.ReentranceExploit writes the authority variable owner (reentrancy/ReentrancyExploit.sol:9) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/ReentrancyExploit.sol",
+          "lines": "8-8",
+          "role": "context",
+          "text": "function ReentranceExploit() public{",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/ReentrancyExploit.sol",
+          "lines": "9-9",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs ReentranceExploit to completion and reaches reentrancy/ReentrancyExploit.sol:9: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls ReentranceExploit(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "fd5bdb0a-8ce8-4763-9af5-216c1d039845",
+      "class": "selfdestruct",
+      "function": "ReentranceExploit.get_money",
+      "claim": "ReentranceExploit.get_money can selfdestruct the contract (reentrancy/ReentrancyExploit.sol:36) and no caller-authorisation check dominates it.",
+      "rationale": "Any caller can destroy the contract and redirect its ether.",
+      "required_checks": [
+        "Confirm no authorisation outside the analysed files applies"
+      ],
+      "alternative_explanations": [
+        "Access may be restricted by an unanalysed base contract or proxy"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/ReentrancyExploit.sol",
+          "lines": "36-36",
+          "role": "primary",
+          "text": "suicide(owner);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-selfdestruct",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs get_money to completion and reaches reentrancy/ReentrancyExploit.sol:36: selfdestruct executed (destroyed=true). Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | get_money: selfdestruct executed (line 36) | attacker calls get_money(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "08a36948-952e-424e-870b-952e02ca467c",
+      "class": "unchecked-call",
+      "function": "",
+      "claim": "Rubixi. ignores the success flag of a low-level send to participants[payoutOrder].etherAddress (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:67) inside init -> addPayout.",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "33-33",
+          "role": "supporting",
+          "text": "init();",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "48-48",
+          "role": "supporting",
+          "text": "addPayout(_fee);",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "67-67",
+          "role": "primary",
+          "text": "participants[payoutOrder].etherAddress.send(payoutToSend);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "none: function not found."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "ac7d1a9a-b766-4110-8f75-55d2f0932724",
+      "class": "access-control",
+      "function": "Rubixi.DynamicPyramid",
+      "claim": "Rubixi.DynamicPyramid writes the authority variable creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:17) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "16-16",
+          "role": "context",
+          "text": "function DynamicPyramid() {",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "17-17",
+          "role": "primary",
+          "text": "creator = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs DynamicPyramid to completion and reaches wrong_constructor_name/Rubixi_source_code/Rubixi.sol:17: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls DynamicPyramid(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "7d24f156-5ce7-4fb8-bb97-aaa16c36aab5",
+      "class": "access-control",
+      "function": "Rubixi.changeFeePercentage",
+      "claim": "Rubixi.changeFeePercentage changes the state variable feePercent (privileged-looking function name \"changeFeePercentage\") (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:114) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "111-111",
+          "role": "context",
+          "text": "function changeFeePercentage(uint _fee) onlyowner {",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "114-114",
+          "role": "primary",
+          "text": "feePercent = _fee;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unknown identifier throw."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "43371d16-5627-4f07-ab71-c2e605c69431",
+      "class": "access-control",
+      "function": "Rubixi.changeMultiplier",
+      "claim": "Rubixi.changeMultiplier changes the state variable pyramidMultiplier (privileged-looking function name \"changeMultiplier\") (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:108) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "105-105",
+          "role": "context",
+          "text": "function changeMultiplier(uint _mult) onlyowner {",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "108-108",
+          "role": "primary",
+          "text": "pyramidMultiplier = _mult;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unknown identifier throw."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "dfe7dc3f-853a-4c2e-b8f0-2aaf1a7c0f62",
+      "class": "access-control",
+      "function": "Rubixi.changeOwner",
+      "claim": "Rubixi.changeOwner writes the authority variable creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:102) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "101-101",
+          "role": "context",
+          "text": "function changeOwner(address _owner) onlyowner {",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "102-102",
+          "role": "primary",
+          "text": "creator = _owner;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "weakens",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller completes the call but the sensitive statement is not executed on that path. This weakens (does not eliminate) the lead: the model is a bounded abstraction."
+        }
+      ],
+      "status": "weakened_by_static_check",
+      "static_outcome": "weakens",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "26fc532e-c054-4bc4-83b5-137c2e3765e2",
+      "class": "unchecked-call",
+      "function": "Rubixi.collectAllFees",
+      "claim": "Rubixi.collectAllFees ignores the success flag of a low-level send to creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:78).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "78-78",
+          "role": "primary",
+          "text": "creator.send(collectedFees);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "dc9657c2-60cc-42d3-954d-fccc136165d6",
+      "class": "unchecked-call",
+      "function": "Rubixi.collectFeesInEther",
+      "claim": "Rubixi.collectFeesInEther ignores the success flag of a low-level send to creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:78) inside collectAllFees.",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "78-78",
+          "role": "primary",
+          "text": "creator.send(collectedFees);",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "84-84",
+          "role": "supporting",
+          "text": "if (_amt > collectedFees) collectAllFees();",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e50d6263-9e13-4989-b398-c5a628f775c6",
+      "class": "unchecked-call",
+      "function": "Rubixi.collectPercentOfFees",
+      "claim": "Rubixi.collectPercentOfFees ignores the success flag of a low-level send to creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:96).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "96-96",
+          "role": "primary",
+          "text": "creator.send(feesToCollect);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "a26da9d7-076c-4022-9213-a99a8288f0b8",
+      "class": "unchecked-call",
+      "function": "SecureAuction.withdraw",
+      "claim": "SecureAuction.withdraw ignores the success flag of a low-level send to msg.sender (denial_of_service/auction.sol:51).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "denial_of_service/auction.sol",
+          "lines": "51-51",
+          "role": "primary",
+          "text": "msg.sender.send(refund);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "supports",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: with the call failing the function still completes and updates refunds. Trace: withdraw: send to attacker FAILS (modelled failure, line 51)"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "331d028f-574b-4dc2-88af-bec3bc66ae1a",
+      "class": "access-control",
+      "function": "TokenCreation.TokenCreation",
+      "claim": "TokenCreation.TokenCreation writes the authority variable privateCreation (reentrancy/DAO_source_code/DAO.sol:293) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/DAO_source_code/DAO.sol",
+          "lines": "286-286",
+          "role": "context",
+          "text": "function TokenCreation(",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/DAO_source_code/DAO.sol",
+          "lines": "293-293",
+          "role": "primary",
+          "text": "privateCreation = _privateCreation;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: expression new."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e2bad468-409a-43dc-adeb-94d0dbc57194",
+      "class": "access-control",
+      "function": "TokenERC20.transfer",
+      "claim": "TokenERC20.transfer increases balanceOf[_to] for a caller-chosen account without consuming a matching amount from the caller (forced_ether_reception/coin.sol:70) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "forced_ether_reception/coin.sol",
+          "lines": "70-70",
+          "role": "primary",
+          "text": "balanceOf[_to] += _value;",
+          "verified": true
+        },
+        {
+          "path": "forced_ether_reception/coin.sol",
+          "lines": "84-84",
+          "role": "context",
+          "text": "function transfer(address _to, uint256 _value) public returns (bool success) {",
+          "verified": true
+        },
+        {
+          "path": "forced_ether_reception/coin.sol",
+          "lines": "85-85",
+          "role": "supporting",
+          "text": "_transfer(msg.sender, _to, _value);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs transfer to completion and reaches forced_ether_reception/coin.sol:70: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls transfer(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e9c939d4-048a-419c-839b-de917a6920a4",
+      "class": "access-control",
+      "function": "Unprotected.Unprotected",
+      "claim": "Unprotected.Unprotected writes the authority variable owner (unprotected_function/Unprotected.sol:14) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/Unprotected.sol",
+          "lines": "11-11",
+          "role": "context",
+          "text": "function Unprotected()",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/Unprotected.sol",
+          "lines": "14-14",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs Unprotected to completion and reaches unprotected_function/Unprotected.sol:14: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls Unprotected(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "5c1fbf5b-21c3-40ae-9187-12f073005445",
+      "class": "access-control",
+      "function": "Unprotected.changeOwner",
+      "claim": "Unprotected.changeOwner writes the authority variable owner (unprotected_function/Unprotected.sol:21) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/Unprotected.sol",
+          "lines": "18-18",
+          "role": "context",
+          "text": "function changeOwner(address _newOwner)",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/Unprotected.sol",
+          "lines": "21-21",
+          "role": "primary",
+          "text": "owner = _newOwner;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs changeOwner to completion and reaches unprotected_function/Unprotected.sol:21: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls changeOwner(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "77374974-b311-4fee-8454-771e3c05e872",
+      "class": "unchecked-call",
+      "function": "",
+      "claim": "Wallet. ignores the success flag of a low-level delegatecall to _walletLibrary (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:430).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "430-430",
+          "role": "primary",
+          "text": "_walletLibrary.delegatecall(msg.data);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "none: function not found."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "7474ccf5-e5d9-4f59-899b-f26f8419a2e4",
+      "class": "access-control",
+      "function": "WalletLibrary.addOwner",
+      "claim": "WalletLibrary.addOwner changes the state variable m_pendingIndex (privileged-looking function name \"addOwner\") (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:298) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "147-147",
+          "role": "context",
+          "text": "function addOwner(address _owner) onlymanyowners(sha3(msg.data)) external {",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "298-298",
+          "role": "primary",
+          "text": "pending.index = m_pendingIndex.length++;",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "93-93",
+          "role": "supporting",
+          "text": "if (confirmAndCheck(_operation))",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "d96ae02a-d824-4916-8579-a8dc45e714b9",
+      "class": "access-control",
+      "function": "WalletLibrary.changeOwner",
+      "claim": "WalletLibrary.changeOwner changes the state variable m_pendingIndex (privileged-looking function name \"changeOwner\") (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:298) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "135-135",
+          "role": "context",
+          "text": "function changeOwner(address _from, address _to) onlymanyowners(sha3(msg.data)) external {",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "298-298",
+          "role": "primary",
+          "text": "pending.index = m_pendingIndex.length++;",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "93-93",
+          "role": "supporting",
+          "text": "if (confirmAndCheck(_operation))",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "06184cab-97ec-41ef-962e-d328d0592fb9",
+      "class": "access-control",
+      "function": "WalletLibrary.changeRequirement",
+      "claim": "WalletLibrary.changeRequirement changes the state variable m_pendingIndex (privileged-looking function name \"changeRequirement\") (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:298) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "173-173",
+          "role": "context",
+          "text": "function changeRequirement(uint _newRequired) onlymanyowners(sha3(msg.data)) external {",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "298-298",
+          "role": "primary",
+          "text": "pending.index = m_pendingIndex.length++;",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "93-93",
+          "role": "supporting",
+          "text": "if (confirmAndCheck(_operation))",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "10fba606-bc5b-410a-a010-5f2f44a793cd",
+      "class": "reentrancy",
+      "function": "WalletLibrary.confirm",
+      "claim": "WalletLibrary.confirm makes an external call that hands control to m_txs[_h].to.call (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:273) and only afterwards updates m_txs[_h] (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:278), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "273-273",
+          "role": "primary",
+          "text": "if (!m_txs[_h].to.call.value(m_txs[_h].value)(m_txs[_h].data))",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "278-278",
+          "role": "supporting",
+          "text": "delete m_txs[_h];",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (condition is not boolean); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "8595d201-dfe9-4dbc-8542-194f21d58942",
+      "class": "initializer",
+      "function": "WalletLibrary.initDaylimit",
+      "claim": "WalletLibrary.initDaylimit sets the state variable m_dailyLimit (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:203) with no caller check and no one-time guard, so any account can call it (again) and take control.",
+      "rationale": "Initialisation functions must run once and only by the deployer; here neither a flag that is checked and then set, nor an authorisation check, was found on the path.",
+      "required_checks": [
+        "Confirm the function is callable after deployment",
+        "Check whether a proxy or deployment script initialises atomically"
+      ],
+      "alternative_explanations": [
+        "Initialisation may be performed atomically in the deployment transaction, outside the analysed files"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "203-203",
+          "role": "primary",
+          "text": "m_dailyLimit = _limit;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-initializer",
+          "outcome": "inconclusive",
+          "rationale": "re-initialisation by an unprivileged caller after a legitimate initialisation: not modelled: modifier constant is not defined in the analysed files."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "f33e8d12-dae0-45a5-adbe-f1b319e13918",
+      "class": "initializer",
+      "function": "WalletLibrary.initMultiowned",
+      "claim": "WalletLibrary.initMultiowned sets the state variable m_numOwners (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:109) with no caller check and no one-time guard, so any account can call it (again) and take control.",
+      "rationale": "Initialisation functions must run once and only by the deployer; here neither a flag that is checked and then set, nor an authorisation check, was found on the path.",
+      "required_checks": [
+        "Confirm the function is callable after deployment",
+        "Check whether a proxy or deployment script initialises atomically"
+      ],
+      "alternative_explanations": [
+        "Initialisation may be performed atomically in the deployment transaction, outside the analysed files"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "109-109",
+          "role": "primary",
+          "text": "m_numOwners = _owners.length + 1;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-initializer",
+          "outcome": "inconclusive",
+          "rationale": "re-initialisation by an unprivileged caller after a legitimate initialisation: not modelled: member _owners.length."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "cca846b1-54ba-4f5d-983c-b8576d90f3e1",
+      "class": "initializer",
+      "function": "WalletLibrary.initWallet",
+      "claim": "WalletLibrary.initWallet sets the state variable m_dailyLimit (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:203) with no caller check and no one-time guard, so any account can call it (again) and take control.",
+      "rationale": "Initialisation functions must run once and only by the deployer; here neither a flag that is checked and then set, nor an authorisation check, was found on the path.",
+      "required_checks": [
+        "Confirm the function is callable after deployment",
+        "Check whether a proxy or deployment script initialises atomically"
+      ],
+      "alternative_explanations": [
+        "Initialisation may be performed atomically in the deployment transaction, outside the analysed files"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "203-203",
+          "role": "primary",
+          "text": "m_dailyLimit = _limit;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-initializer",
+          "outcome": "inconclusive",
+          "rationale": "re-initialisation by an unprivileged caller after a legitimate initialisation: not modelled: modifier constant is not defined in the analysed files."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "65bebda2-fd4d-4534-9827-8bd8eb0bb441",
+      "class": "selfdestruct",
+      "function": "WalletLibrary.kill",
+      "claim": "WalletLibrary.kill can selfdestruct the contract (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:224) and no caller-authorisation check dominates it.",
+      "rationale": "Any caller can destroy the contract and redirect its ether.",
+      "required_checks": [
+        "Confirm no authorisation outside the analysed files applies"
+      ],
+      "alternative_explanations": [
+        "Access may be restricted by an unanalysed base contract or proxy"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "224-224",
+          "role": "primary",
+          "text": "suicide(_to);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-selfdestruct",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "590096a9-f915-43ea-9212-d1c0c812ebcf",
+      "class": "access-control",
+      "function": "WalletLibrary.removeOwner",
+      "claim": "WalletLibrary.removeOwner changes the state variable m_pendingIndex (privileged-looking function name \"removeOwner\") (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:298) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "161-161",
+          "role": "context",
+          "text": "function removeOwner(address _owner) onlymanyowners(sha3(msg.data)) external {",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "298-298",
+          "role": "primary",
+          "text": "pending.index = m_pendingIndex.length++;",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "93-93",
+          "role": "supporting",
+          "text": "if (confirmAndCheck(_operation))",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "9007eb06-6bb2-4615-84e8-70813dd1fdd7",
+      "class": "access-control",
+      "function": "WalletLibrary.resetSpentToday",
+      "claim": "WalletLibrary.resetSpentToday changes the state variable m_pendingIndex (privileged-looking function name \"resetSpentToday\") (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:298) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "211-211",
+          "role": "context",
+          "text": "function resetSpentToday() onlymanyowners(sha3(msg.data)) external {",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "298-298",
+          "role": "primary",
+          "text": "pending.index = m_pendingIndex.length++;",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "93-93",
+          "role": "supporting",
+          "text": "if (confirmAndCheck(_operation))",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "953ee034-42ed-4900-aa13-ffe93b9832ae",
+      "class": "access-control",
+      "function": "WalletLibrary.setDailyLimit",
+      "claim": "WalletLibrary.setDailyLimit changes the state variable m_pendingIndex (privileged-looking function name \"setDailyLimit\") (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:298) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "207-207",
+          "role": "context",
+          "text": "function setDailyLimit(uint _newLimit) onlymanyowners(sha3(msg.data)) external {",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "298-298",
+          "role": "primary",
+          "text": "pending.index = m_pendingIndex.length++;",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "93-93",
+          "role": "supporting",
+          "text": "if (confirmAndCheck(_operation))",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "ff253cc9-c5bd-4a41-a66d-6f5748f22e87",
+      "class": "access-control",
+      "function": "owned.owned",
+      "claim": "owned.owned writes the authority variable owner (forced_ether_reception/coin.sol:9) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "forced_ether_reception/coin.sol",
+          "lines": "8-8",
+          "role": "context",
+          "text": "function owned() public {",
+          "verified": true
+        },
+        {
+          "path": "forced_ether_reception/coin.sol",
+          "lines": "9-9",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs owned to completion and reaches forced_ether_reception/coin.sol:9: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls owned(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "93c105f1-81ce-4b94-b40e-1beb180b8c9e",
+      "class": "access-control",
+      "function": "theRun.ChangeOwnership",
+      "claim": "theRun.ChangeOwnership writes the authority variable admin (bad_randomness/theRun_source_code/theRun.sol:112) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "111-111",
+          "role": "context",
+          "text": "function ChangeOwnership(address _owner) onlyowner {",
+          "verified": true
+        },
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "112-112",
+          "role": "primary",
+          "text": "admin = _owner;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "weakens",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller completes the call but the sensitive statement is not executed on that path. This weakens (does not eliminate) the lead: the model is a bounded abstraction."
+        }
+      ],
+      "status": "weakened_by_static_check",
+      "static_outcome": "weakens",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "a53c5f50-0edf-4ed4-ba4b-1d8b25905d2e",
+      "class": "unchecked-call",
+      "function": "theRun.CollectAllFees",
+      "claim": "theRun.CollectAllFees ignores the success flag of a low-level send to admin (bad_randomness/theRun_source_code/theRun.sol:126).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "126-126",
+          "role": "primary",
+          "text": "admin.send(fees);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e73c4e2f-e888-46ed-b909-4ebef27dd0e1",
+      "class": "unchecked-call",
+      "function": "theRun.GetAndReduceFeesByFraction",
+      "claim": "theRun.GetAndReduceFeesByFraction ignores the success flag of a low-level send to admin (bad_randomness/theRun_source_code/theRun.sol:133).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "133-133",
+          "role": "primary",
+          "text": "admin.send(fees / 1000 * p);//send a percent of fees",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "3137d56c-b77d-4c8c-866a-0d84fa52a930",
+      "class": "access-control",
+      "function": "theRun.theRun",
+      "claim": "theRun.theRun writes the authority variable admin (bad_randomness/theRun_source_code/theRun.sol:20) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "19-19",
+          "role": "context",
+          "text": "function theRun() {",
+          "verified": true
+        },
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "20-20",
+          "role": "primary",
+          "text": "admin = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs theRun to completion and reaches bad_randomness/theRun_source_code/theRun.sol:20: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls theRun(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    }
+  ],
+  "limitations": [
+    "Every item is a lead produced by deterministic rules over source text; nothing was compiled, run against a chain or tested with a fuzzer.",
+    "Reentrancy, access-control, initializer, delegatecall, selfdestruct and unchecked-call leads are challenged by bounded execution of a modelled contract (a different method from the specialists); tx.origin leads have no independent method and stay unchallenged.",
+    "No human review is recorded for any item. Status values come from the database view and say so.",
+    "The analysis is intra-repository: calls into code outside the snapshot, inline assembly and unresolved modifiers are not analysed (they are listed as assumptions where they affect a lead)."
+  ],
+  "content_sha256": "6e4d467b7c5a4e9aba7000233b52f7a1147e9b6c626d219f102debc045754676"
+}

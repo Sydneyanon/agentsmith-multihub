@@ -53,6 +53,11 @@ export class Analyzer {
     const out = new Set<string>();
     for (const c of this.ix.linearize(contract)) {
       for (const v of c.stateVars) if (AUTH_VAR_NAME.test(v.name)) out.add(v.name);
+      // anything an authorising guard reads is an authority, whatever its name: `if (!holds[role][msg.sender]) revert` makes `holds` one
+      // (polarity comes from the trace's guard analysis, so a one-shot `require(!claimed[msg.sender])` does NOT qualify)
+      for (const f of [...c.functions, ...c.modifiers]) if (f.body) for (const g of this.trace(f).events) if (g.k === "guard" && g.auth && !g.assumed) for (const r of g.reads) { const v = this.ix.stateVar(contract, r); if (v && !v.constant && !v.immutable) out.add(r); }
+      // whoever the constructor records as msg.sender is a privileged role, whatever it is called (steward, creator, dev ...)
+      for (const f of c.functions) if (f.kind === "constructor" && f.body) eachExpr(f.body, (e) => { if (e.k === "assign" && e.op === "=" && isCaller(e.r) && e.l.k === "id" && this.ix.stateVar(contract, e.l.name)) out.add(e.l.name); });
       for (const f of [...c.functions, ...c.modifiers]) if (f.body) eachExpr(f.body, (e) => {
         const root = (x: Expr): string | null => x.k === "id" ? x.name : x.k === "index" || x.k === "member" ? root(x.obj) : null;
         if (e.k === "binary" && (e.op === "==" || e.op === "!=")) {
@@ -140,7 +145,7 @@ export class Analyzer {
       else if (e.k === "call" && e.hasValue && (e.low === "call" || e.low === "send" || e.low === "transfer") && e.targetTaint !== "msg.sender" && /address\s*\(\s*this\s*\)\s*\.balance|\bbalance\b/.test(e.valueText ?? "") && !/msg\.value/.test(e.valueText ?? "") && (e.targetTaint === "param" || (e.targetTaint === "state" && !!e.targetVar && this.attackerWritable(fn.contract, e.targetVar)))) why = `sends ether (${e.valueText}) to ${e.targetText}, which is not the caller`;
       else if (e.k === "call" && e.hasValue && e.low !== null && e.targetTaint === "param" && !paying && !/msg\.value/.test(e.valueText ?? "") && !ev.some((x) => x.k === "write" && x.decreasing && x.keyedByCaller)) why = `sends ether to the caller-supplied address ${e.targetText}`;
       else if (e.k === "write" && e.increasing && e.keyedByParam && !e.keyedByCaller && !paying && !hasCallerDecrease && !ev.some((x) => x.k === "call" && x.callee !== null)) why = `increases ${e.variable}[${e.key}] for a caller-chosen account without consuming a matching amount from the caller`;
-      else if (e.k === "write" && PRIV_NAME.test(fn.name) && !e.variable.startsWith("<") && !e.keyedByCaller && !paying) { why = `changes the state variable ${e.variable} (privileged-looking function name "${fn.name}")`; priv = true; }
+      else if (/* a name alone means nothing in a contract with no notion of privilege */ e.k === "write" && auth.size > 0 && PRIV_NAME.test(fn.name) && !e.variable.startsWith("<") && !e.keyedByCaller && !paying) { why = `changes the state variable ${e.variable} (privileged-looking function name "${fn.name}")`; priv = true; }
       if (!why || this.guardedBefore(ev, i)) continue;
       return [this.mk(fn, "access-control", e.line, e.file, {
         claim: `${fn.contract}.${fn.name} ${why} (${e.file}:${e.line}) and no caller-authorisation check dominates that statement.`,

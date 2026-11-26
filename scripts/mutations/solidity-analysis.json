@@ -120,6 +120,48 @@
    "file": "apps/api/src/analysis/solidity/trace.ts",
    "old": "if (e.k === \"id\" && ctx.aliases.has(e.name)) {",
    "new": "if (false) {"
+  },
+  {
+   "name": "index: same-name functions are not constructors",
+   "file": "apps/api/src/analysis/solidity/index.ts",
+   "old": "if (f.kind === \"function\" && f.name === c.name) f.kind = \"constructor\";",
+   "new": ""
+  },
+  {
+   "name": "parser: legacy .call.value(v)() is not normalised",
+   "file": "apps/api/src/analysis/solidity/parser.ts",
+   "old": "if (!changed || fn.k !== \"member\"",
+   "new": "if (true || fn.k !== \"member\""
+  },
+  {
+   "name": "parser: throw; is not a revert",
+   "file": "apps/api/src/analysis/solidity/parser.ts",
+   "old": "case \"throw\": if (ps.is(\";\", 1)) { ps.p += 2; return [{ k: \"revert\", line }]; } break;",
+   "new": ""
+  },
+  {
+   "name": "trace: `_` inside an authorised branch does not protect the body",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "ctx.branch = { cond: saved.cond || mctx.branch.cond, prot: saved.prot || mctx.branch.prot, ret: saved.ret || mctx.branch.ret };",
+   "new": "ctx.branch = saved;"
+  },
+  {
+   "name": "specialists: authorities are not derived from authorising guards",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads)",
+   "new": "if (false) for (const r of (g as { reads: string[] }).reads)"
+  },
+  {
+   "name": "specialists: name-based leads fire with no notion of privilege",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "e.k === \"write\" && auth.size > 0 && PRIV_NAME.test(fn.name)",
+   "new": "e.k === \"write\" && PRIV_NAME.test(fn.name)"
+  },
+  {
+   "name": "trace: helper parameters standing for msg.sender are not recognised",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "return isCaller(al.expr) || (al.expr.k === \"id\" && this.aliasIsCaller(al.expr.name, al.ctx));",
+   "new": "return false;"
   }
  ]
 }

@@ -157,7 +157,7 @@ describe("semantics added after the first independent evaluation (each from a ge
   });
   it("an argument passed to a helper or library stands for the authority it is", () => {
     expect(names(`library G { function enforce(address who) internal view { require(msg.sender == who); } }
-      contract A { address steward; uint flow; function set(uint f) external { G.enforce(steward); flow = f; } function setBad(uint f, address w) external { G.enforce(w); flow = f; } }`)).toEqual(["setBad:access-control"]);
+      contract A { address steward; uint flow; constructor() { steward = msg.sender; } function set(uint f) external { G.enforce(steward); flow = f; } function setBad(uint f, address w) external { G.enforce(w); flow = f; } }`)).toEqual(["setBad:access-control"]);
   });
   it("a helper's delegatecall target is traced back to the state variable it came from", () => {
     expect(names(`contract A { address logic; function setLogic(address l) external { logic = l; }
@@ -168,10 +168,48 @@ describe("semantics added after the first independent evaluation (each from a ge
       function go(address t, bytes calldata d) external { require(allowed[t]); (bool ok,) = t.delegatecall(d); require(ok); } }`).filter((x) => x.endsWith("delegatecall"))).toEqual([]);
   });
   it("flags an unguarded halt-style state change and does not flag paying a fixed owner", () => {
-    expect(names(`contract A { bool halted; function halt() external { halted = true; } }`)).toEqual(["halt:access-control"]);
+    expect(names(`contract A { address steward; bool halted; constructor() { steward = msg.sender; } function halt() external { halted = true; } }`)).toEqual(["halt:access-control"]);
     expect(names(`contract A { address payable owner; function flush() external { (bool ok,) = owner.call{value: address(this).balance}(""); require(ok); } }`)).toEqual([]);
   });
   it("an initializer that sets state with a flag it checks but never sets is flagged", () => {
     expect(names(`contract A { bool ready; address beneficiary; function init(address b) external { require(!ready); beneficiary = b; } }`)).toEqual(["init:initializer"]);
+  });
+});
+
+describe("pre-0.5 Solidity idioms found by the first real-repository run", () => {
+  const legacy = (body: string) => analyzeSources([{ path: "l.sol", text: `pragma solidity ^0.4.18;\n${body}` }]);
+  const names = (body: string) => legacy(body).findings.map((f) => `${f.function}:${f.class}`).sort();
+  it("treats a same-name function as the constructor, and a near-miss name as an open function (the wrong-constructor-name bug)", () => {
+    expect(names(`contract Wallet { address owner; function Wallet() public { owner = msg.sender; } }`)).toEqual([]);
+    expect(names(`contract Wallet { address owner; function Walet() public { owner = msg.sender; } }`)).toEqual(["Walet:access-control"]);
+  });
+  it("normalises .call.value(v)() so the call, its value and its result are seen", () => {
+    const r = legacy(`contract B { mapping(address=>uint) bal; function w() public { uint a = bal[msg.sender]; require(a > 0); if (!msg.sender.call.value(a)()) { throw; } bal[msg.sender] = 0; } }`);
+    expect(r.findings.map((f) => f.class)).toEqual(["reentrancy"]);
+    expect(validateReentrancy(r.index, r.index.findFunction("B", "w", 0)!).verdict).toBe("validated");
+  });
+  it("treats a same-name function as the constructor even without a pragma, and infers wrapping arithmetic only from legacy syntax", () => {
+    const r = analyzeSources([{ path: "n.sol", text: `contract Old { address owner; function Old() { owner = msg.sender; } function f() { if (msg.sender != owner) throw; } }` }]);
+    expect(r.findings).toEqual([]); expect(r.index.wrapsArithmetic.get("n.sol")).toBe(true);
+    expect(new ProgramIndex([{ path: "m.sol", text: "contract M { uint x; }" }]).wrapsArithmetic.get("m.sol")).toBe(false);
+  });
+  it("does not flag an open setter in a contract with no notion of privilege, but does where an authority exists", () => {
+    expect(names(`contract Box { uint v; function set(uint x) public { v = x; } }`)).toEqual([]);
+    expect(names(`contract Box { address owner; uint v; function setV(uint x) public { v = x; } function o() public { require(msg.sender == owner); } }`)).toEqual(["setV:access-control"]);
+  });
+  it("recognises a role table read by an authorising guard as an authority, whatever its name, but not a one-shot claim flag", () => {
+    expect(names(`contract R { mapping(bytes32 => mapping(address => bool)) holds; bool paused; bytes32 constant P = "p";
+      function _need(bytes32 r) internal view { if (!holds[r][msg.sender]) revert(); } function pause() external { _need(P); paused = true; } function unpause() external { paused = false; } }`)).toEqual(["unpause:access-control"]);
+    expect(names(`contract C { mapping(address=>bool) claimed; uint n; function c() external { require(!claimed[msg.sender]); claimed[msg.sender] = true; } function setN(uint x) external { n = x; } }`)).toEqual([]);
+  });
+  it("sees a transfer through a helper as debiting the caller (no false mint)", () => {
+    expect(names(`contract T { address owner; mapping(address=>uint) bal; function o() public { require(msg.sender == owner); }
+      function transfer(address to, uint v) public { _t(msg.sender, to, v); } function _t(address from, address to, uint v) internal { bal[from] -= v; bal[to] += v; } }`)).toEqual([]);
+  });
+  it("treats `throw;` as a revert, so `if (msg.sender != owner) throw;` is a guard", () => {
+    expect(names(`contract A { address owner; function setOwner(address o) public { if (msg.sender != owner) throw; owner = o; } }`)).toEqual([]);
+  });
+  it("protects a body whose modifier runs `_` only inside an authorised branch", () => {
+    expect(names(`contract A { address creator; modifier onlyowner { if (msg.sender == creator) _; } function setFee(uint f) onlyowner public { fee = f; } uint fee; }`)).toEqual([]);
   });
 });

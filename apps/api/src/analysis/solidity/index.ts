@@ -12,8 +12,13 @@ export class ProgramIndex {
     for (const s of sources) {
       const pr = /pragma\s+solidity\s+([^;]+);/.exec(s.text.replace(/\/\/.*$/gm, ""));
       const ver = pr ? /(\d+)\.(\d+)/.exec(pr[1]!) : null;
-      this.wrapsArithmetic.set(s.path, ver ? Number(ver[1]) === 0 && Number(ver[2]) < 8 : false);
+      // no pragma: infer pre-0.8 (wrapping) semantics only from unmistakable legacy syntax, otherwise assume checked arithmetic
+      const legacyMarkers = /\bthrow\s*;|\bsuicide\s*\(|\bsha3\s*\(|\.call\.value\s*\(|\bvar\s+\w+\s*=|\)\s*constant\s+returns/.test(s.text);
+      this.wrapsArithmetic.set(s.path, ver ? Number(ver[1]) === 0 && Number(ver[2]) < 8 : legacyMarkers);
       const parsed = parseSolidity(s.path, s.text);
+      // A function named exactly like its contract is the constructor before 0.5 and a compile error from 0.5 on, so it is always treated as
+      // the constructor; a NEAR-MISS name stays an ordinary public function (the classic wrong-constructor-name bug).
+      for (const c of parsed.contracts) for (const f of c.functions) if (f.kind === "function" && f.name === c.name) f.kind = "constructor";
       this.files.push(parsed);
       for (const p of parsed.problems) this.problems.push(`${s.path}: ${p}`);
       for (const c of parsed.contracts) {

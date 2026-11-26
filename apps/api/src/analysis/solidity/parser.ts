@@ -130,11 +130,24 @@ function parsePostfix(ps: P): Expr {
       if (ps.is("(")) { const args = parseArgs(ps); e = { k: "call", fn: e, args, opts, line: t.line }; }
       continue;
     }
-    if (t.v === "(") { const args = parseArgs(ps); e = { k: "call", fn: e, args, opts: {}, line: t.line }; continue; }
+    if (t.v === "(") { const args = parseArgs(ps); e = collapseLegacyCall({ k: "call", fn: e, args, opts: {}, line: t.line }); continue; }
     if (t.v === "++" || t.v === "--") { ps.p++; e = { k: "update", op: t.v, e, line: t.line }; continue; }
     break;
   }
   return e;
+}
+
+/**
+ * Pre-0.7 syntax `x.call.value(v).gas(g)(data)` is the same operation as `x.call{value: v, gas: g}(data)`; normalise it so analyses and the
+ * interpreter see one form. Anything that does not end in a low-level member is left as it is.
+ */
+function collapseLegacyCall(e: Extract<Expr, { k: "call" }>): Expr {
+  const opts: Record<string, Expr> = { ...e.opts }; let fn: Expr = e.fn; let changed = false;
+  while (fn.k === "call" && fn.fn.k === "member" && (fn.fn.name === "value" || fn.fn.name === "gas") && fn.args.length === 1) {
+    opts[fn.fn.name] = fn.args[0]!; fn = fn.fn.obj; changed = true;
+  }
+  if (!changed || fn.k !== "member" || !["call", "delegatecall", "staticcall", "callcode"].includes(fn.name)) return e;
+  return { k: "call", fn, args: e.args, opts, line: e.line };
 }
 
 function parseArgs(ps: P): Expr[] {
@@ -258,6 +271,7 @@ function parseStatement(ps: P): Stmt[] {
       case "return": { ps.p++; let e: Expr | null = null; if (!ps.is(";")) e = parseExpr(ps); endStatement(ps); return [{ k: "return", e, line }]; }
       case "emit": { ps.skipTo(";"); return [{ k: "emit", line }]; }
       case "revert": { ps.skipTo(";"); return [{ k: "revert", line }]; }
+      case "throw": if (ps.is(";", 1)) { ps.p += 2; return [{ k: "revert", line }]; } break; // pre-0.5 `throw;` reverts
       case "break": case "continue": { ps.skipTo(";"); return [{ k: "other", line }]; }
       case "assembly": {
         ps.p++; while (ps.cur && !ps.is("{")) ps.p++; if (ps.is("{")) ps.p = ps.skipGroup(ps.p); return [{ k: "asm", line }];
@@ -324,7 +338,7 @@ function parseParams(ps: P): Param[] {
 function parseFunction(ps: P, contract: string, file: string): FunctionDef | null {
   const start = ps.cur!; const kw = start.v; ps.p++;
   let name = kw; let kind: FunctionDef["kind"] = kw === "constructor" ? "constructor" : kw === "receive" ? "receive" : kw === "fallback" ? "fallback" : kw === "modifier" ? "modifier" : "function";
-  if (kind === "function" || kind === "modifier") { if (ps.cur?.k === "id") { name = ps.cur.v; ps.p++; } else if (ps.is("(")) { name = ""; if (kind === "function") kind = "fallback"; } }
+  if (kind === "function" || kind === "modifier") { if (ps.cur?.k === "id") { name = ps.cur.v; ps.p++; } else if (ps.is("(")) { name = "fallback"; if (kind === "function") kind = "fallback"; } }
   const params = parseParams(ps);
   let returns: Param[] = []; let visibility = ""; let mutability = ""; let virtual = false; const modifiers: ModifierUse[] = [];
   while (ps.cur && !ps.is("{") && !ps.is(";")) {
