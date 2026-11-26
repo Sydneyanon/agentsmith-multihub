@@ -7,7 +7,7 @@ import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
  * where it executes. Control flow is approximated linearly; events inside non-terminating branches are marked conditional.
  */
 export type Frame = { fn: string; contract: string; file: string; line: number };
-type Base = { line: number; file: string; contract: string; cond: boolean; prot: boolean; chain: Frame[] };
+type Base = { line: number; file: string; contract: string; cond: boolean; prot: boolean; ret: boolean; chain: Frame[] };
 export type Ev =
   | (Base & { k: "guard"; auth: boolean; origin: boolean; reads: string[]; text: string; reverting: boolean; assumed?: string })
   | (Base & { k: "call"; low: "call" | "delegatecall" | "staticcall" | "send" | "transfer" | null; targetText: string; targetExpr: Expr | null; valueText: string | null; hasValue: boolean; callee: string | null; calleeResolved: boolean; attackerTarget: boolean; checked: "checked" | "unchecked" | "returned" | "n/a"; targetTaint: "param" | "msg.sender" | "state" | "constant" | "other"; targetVar: string | null })
@@ -19,7 +19,7 @@ export type Ev =
 type Ctx = {
   contract: string; file: string; fn: FunctionDef; params: Map<string, string>; locals: Map<string, string>;
   tainted: Set<string>; authLocals: Set<string>; success: Map<string, Extract<Ev, { k: "call" }>>; chain: Frame[]; depth: number;
-  onPlaceholder: (() => void) | null; branch: { cond: boolean; prot: boolean }; stack: string[];
+  onPlaceholder: (() => void) | null; branch: { cond: boolean; prot: boolean; ret: boolean }; stack: string[]; aliases: Map<string, { expr: Expr; ctx: Ctx }>;
 };
 export type TraceResult = { events: Ev[]; assumptions: string[]; unknowns: string[] };
 
@@ -82,11 +82,11 @@ export class Tracer {
   private newCtx(fn: FunctionDef, contract: string, chain: Frame[], tainted: Set<string>, depth: number, stack: string[]): Ctx {
     return {
       contract, file: fn.file, fn, params: new Map(fn.params.filter((p) => p.name).map((p) => [p.name!, p.type])), locals: new Map(), tainted,
-      authLocals: new Set(), success: new Map(), chain, depth, onPlaceholder: null, branch: { cond: false, prot: false }, stack: [...stack, `${contract}.${fn.name}`],
+      authLocals: new Set(), success: new Map(), chain, depth, onPlaceholder: null, branch: { cond: false, prot: false, ret: false }, stack: [...stack, `${contract}.${fn.name}`], aliases: new Map(),
     };
   }
 
-  private base(ctx: Ctx, line: number): Base { return { line, file: ctx.file, contract: ctx.contract, cond: ctx.branch.cond, prot: ctx.branch.prot, chain: ctx.chain }; }
+  private base(ctx: Ctx, line: number): Base { return { line, file: ctx.file, contract: ctx.contract, cond: ctx.branch.cond, prot: ctx.branch.prot, ret: ctx.branch.ret, chain: ctx.chain }; }
 
   // ---------------------------------------------------------------- modifiers
   private runWithModifiers(fn: FunctionDef, ctx: Ctx, i: number): void {
@@ -124,8 +124,8 @@ export class Tracer {
   // ---------------------------------------------------------------- statements
   private stmts(list: Stmt[], ctx: Ctx): void { for (const s of list) this.stmt(s, ctx); }
 
-  private withBranch<T>(ctx: Ctx, cond: boolean, prot: boolean, f: () => T): T {
-    const saved = ctx.branch; ctx.branch = { cond: saved.cond || cond, prot: saved.prot || prot };
+  private withBranch<T>(ctx: Ctx, cond: boolean, prot: boolean, f: () => T, ret = false): T {
+    const saved = ctx.branch; ctx.branch = { cond: saved.cond || cond, prot: saved.prot || prot, ret: saved.ret || ret };
     try { return f(); } finally { ctx.branch = saved; }
   }
 
@@ -161,12 +161,12 @@ export class Tracer {
     const termThen = terminates(s.then); const termEls = s.els.length > 0 && terminates(s.els);
     if (termThen && s.els.length === 0) { // `if (bad) revert/return;` is a guard on everything that follows
       this.emitGuard(s.cond, false, ctx, s.line, endsWithRevert(s.then));
-      this.withBranch(ctx, true, false, () => this.stmts(s.then, ctx)); return;
+      this.withBranch(ctx, true, false, () => this.stmts(s.then, ctx), !endsWithRevert(s.then)); return; // a branch that RETURNS skips any later check
     }
     if (termEls && !termThen) { this.emitGuard(s.cond, true, ctx, s.line, endsWithRevert(s.els)); this.stmts(s.then, ctx); return; }
     const authTrue = this.auth(s.cond, true, ctx); const authFalse = this.auth(s.cond, false, ctx);
-    this.withBranch(ctx, true, authTrue, () => this.stmts(s.then, ctx));
-    this.withBranch(ctx, true, authFalse, () => this.stmts(s.els, ctx));
+    this.withBranch(ctx, true, authTrue, () => this.stmts(s.then, ctx), termThen && !endsWithRevert(s.then));
+    this.withBranch(ctx, true, authFalse, () => this.stmts(s.els, ctx), termEls && !endsWithRevert(s.els));
   }
 
   private emitGuard(cond: Expr, positive: boolean, ctx: Ctx, line: number, reverting = true): void {
@@ -312,6 +312,7 @@ export class Tracer {
   }
 
   private targetTaint(e: Expr, ctx: Ctx): { taint: "param" | "msg.sender" | "state" | "constant" | "other"; variable: string | null } {
+    if (e.k === "id" && ctx.aliases.has(e.name)) { const al = ctx.aliases.get(e.name)!; return this.targetTaint(al.expr, al.ctx); } // a helper's parameter stands for the argument it was given
     if (walkExpr(e, isCaller)) return { taint: "msg.sender", variable: null };
     const roots: string[] = []; walkExpr(e, (x) => { if (x.k === "id") roots.push(x.name); return false; });
     if (roots.some((n) => ctx.tainted.has(n))) return { taint: "param", variable: roots.find((n) => ctx.tainted.has(n)) ?? null };
@@ -397,6 +398,7 @@ export class Tracer {
     const chain = [...ctx.chain, { fn: callee.name, contract, file: callee.file, line: e.line }];
     const sub = this.newCtx(callee, contract, chain, tainted, ctx.depth + 1, ctx.stack);
     sub.branch = { ...ctx.branch };
+    callee.params.forEach((p, i) => { const a = e.args[i]; if (!p.name || !a) return; sub.aliases.set(p.name, { expr: a, ctx }); if (this.isAuthority(a, ctx)) sub.authLocals.add(p.name); });
     const before = this.events.length;
     this.runWithModifiers(callee, sub, 0);
     const used: "checked" | "unchecked" | "returned" = usage === "discard" ? "unchecked" : usage === "return" ? "returned" : "checked";

@@ -16,7 +16,7 @@ export type Finding = {
 };
 
 const AUTH_VAR_NAME = /^(owner|admin|governance|governor|guardian|operator|treasury|implementation|pendingOwner|oracle|feeRecipient|minter|authority|manager|keeper)s?$/i;
-const PRIV_NAME = /^(set|update|change|configure|add|remove|grant|revoke|pause|unpause|upgrade|mint|burn|rescue|sweep|drain|withdrawAll|transferOwnership|renounce)/i;
+const PRIV_NAME = /^(set|update|change|configure|add|remove|grant|revoke|pause|unpause|halt|resume|freeze|unfreeze|stop|start|enable|disable|shutdown|upgrade|mint|burn|rescue|sweep|drain|withdrawAll|transferOwnership|renounce|ban|unban|blacklist|whitelist|register|unregister|reset|migrate|rotate|replace)/i;
 const INIT_NAME = /^(__\w*_)?(re)?init(iali[sz]e)?\w*$|^setup\w*$/i;
 
 function eachExpr(stmts: Stmt[], f: (e: Expr) => void): void {
@@ -71,7 +71,7 @@ export class Analyzer {
     if (target.prot) return true;
     // A REVERTING caller check protects the whole function wherever it sits (a revert undoes earlier writes and transfers);
     // a non-reverting early return only protects what comes after it.
-    for (let i = 0; i < events.length; i++) { const g = events[i]!; if (g.k === "guard" && g.auth && !g.cond && (g.reverting || i < idx)) return true; }
+    for (let i = 0; i < events.length; i++) { const g = events[i]!; if (g.k === "guard" && g.auth && !g.cond && ((g.reverting && !target.ret) || i < idx)) return true; }
     return false;
   }
 
@@ -137,7 +137,7 @@ export class Analyzer {
     for (let i = 0; i < ev.length; i++) {
       const e = ev[i]!; let why: string | null = null; let priv = false;
       if (e.k === "write" && auth.has(e.variable)) why = `writes the authority variable ${e.variable}`;
-      else if (e.k === "call" && e.hasValue && (e.low === "call" || e.low === "send" || e.low === "transfer") && e.targetTaint !== "msg.sender" && /address\s*\(\s*this\s*\)\s*\.balance|\bbalance\b/.test(e.valueText ?? "") && !/msg\.value/.test(e.valueText ?? "") && e.targetTaint !== "other") why = `sends ether (${e.valueText}) to ${e.targetText}, which is not the caller`;
+      else if (e.k === "call" && e.hasValue && (e.low === "call" || e.low === "send" || e.low === "transfer") && e.targetTaint !== "msg.sender" && /address\s*\(\s*this\s*\)\s*\.balance|\bbalance\b/.test(e.valueText ?? "") && !/msg\.value/.test(e.valueText ?? "") && (e.targetTaint === "param" || (e.targetTaint === "state" && !!e.targetVar && this.attackerWritable(fn.contract, e.targetVar)))) why = `sends ether (${e.valueText}) to ${e.targetText}, which is not the caller`;
       else if (e.k === "call" && e.hasValue && e.low !== null && e.targetTaint === "param" && !paying && !/msg\.value/.test(e.valueText ?? "") && !ev.some((x) => x.k === "write" && x.decreasing && x.keyedByCaller)) why = `sends ether to the caller-supplied address ${e.targetText}`;
       else if (e.k === "write" && e.increasing && e.keyedByParam && !e.keyedByCaller && !paying && !hasCallerDecrease && !ev.some((x) => x.k === "call" && x.callee !== null)) why = `increases ${e.variable}[${e.key}] for a caller-chosen account without consuming a matching amount from the caller`;
       else if (e.k === "write" && PRIV_NAME.test(fn.name) && !e.variable.startsWith("<") && !e.keyedByCaller && !paying) { why = `changes the state variable ${e.variable} (privileged-looking function name "${fn.name}")`; priv = true; }
@@ -157,14 +157,14 @@ export class Analyzer {
   private initializer(fn: FunctionDef, tr: TraceResult): Finding[] {
     if (!INIT_NAME.test(fn.name)) return [];
     const ev = tr.events; const auth = this.authVars(fn.contract);
-    const idx = ev.findIndex((e) => e.k === "write" && auth.has(e.variable) && e.chain.length === 0 || (e.k === "write" && auth.has(e.variable)));
+    const idx = ev.findIndex((e) => e.k === "write" && !e.variable.startsWith("<") && !e.keyedByCaller && (auth.has(e.variable) || !ev.some((g) => g.k === "guard" && g.reads.includes(e.variable))));
     if (idx < 0) return [];
     const w = ev[idx] as Extract<Ev, { k: "write" }>;
     if (this.guardedBefore(ev, idx)) return [];
     const oneTime = ev.some((g, gi) => g.k === "guard" && ev.some((x, xi) => x.k === "write" && xi > gi && g.reads.includes(x.variable) && !auth.has(x.variable)));
     if (oneTime) return [];
     return [this.mk(fn, "initializer", w.line, w.file, {
-      claim: `${fn.contract}.${fn.name} sets the authority variable ${w.variable} (${w.file}:${w.line}) with no caller check and no one-time guard, so any account can call it (again) and take control.`,
+      claim: `${fn.contract}.${fn.name} sets ${auth.has(w.variable) ? "the authority variable " : "the state variable "}${w.variable} (${w.file}:${w.line}) with no caller check and no one-time guard, so any account can call it (again) and take control.`,
       rationale: "Initialisation functions must run once and only by the deployer; here neither a flag that is checked and then set, nor an authorisation check, was found on the path.",
       requiredChecks: ["Confirm the function is callable after deployment", "Check whether a proxy or deployment script initialises atomically"],
       alternatives: ["Initialisation may be performed atomically in the deployment transaction, outside the analysed files"],
@@ -181,6 +181,7 @@ export class Analyzer {
       if (c.targetTaint === "param" || c.targetTaint === "msg.sender") provenance = "caller-supplied";
       else if (c.targetTaint === "state" && c.targetVar && this.attackerWritable(fn.contract, c.targetVar)) provenance = `a storage variable (${c.targetVar}) that an unguarded function can set`;
       if (!provenance || this.guardedBefore(ev, i)) continue;
+      if (ev.some((g) => g.k === "guard" && g.reverting && !g.cond && g.text.includes(`[${c.targetText}]`))) continue; // the target must be a member of a stored allow-list
       return [this.mk(fn, "delegatecall", c.line, c.file, {
         claim: `${fn.contract}.${fn.name} delegatecalls to ${c.targetText} (${c.file}:${c.line}), whose address is ${provenance}, with no caller-authorisation check before it.`,
         rationale: "delegatecall executes the target's code against this contract's storage; an attacker-chosen target can overwrite ownership and balances or self-destruct the contract.",

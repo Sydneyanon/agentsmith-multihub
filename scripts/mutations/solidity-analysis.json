@@ -78,6 +78,48 @@
    "file": "apps/api/src/analysis/solidity/index.ts",
    "old": "Number(ver[1]) === 0 && Number(ver[2]) < 8 : false",
    "new": "false : false"
+  },
+  {
+   "name": "challenge: privileged addresses default to the zero address instead of a third party",
+   "file": "apps/api/src/analysis/solidity/challenge.ts",
+   "old": "it.entryFn = entry; it.thirdPartyAddressDefault = true;",
+   "new": "it.entryFn = entry; it.thirdPartyAddressDefault = false;"
+  },
+  {
+   "name": "challenge: unchecked-call challenge does not model a failing call",
+   "file": "apps/api/src/analysis/solidity/challenge.ts",
+   "old": "it.failCalls = true;",
+   "new": "it.failCalls = false;"
+  },
+  {
+   "name": "simulate: statements reached are not recorded",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "this.reached.add(`${f.fn.file}:${s.line}`);",
+   "new": ""
+  },
+  {
+   "name": "specialists: an early-return path is protected by a later reverting check",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "((g.reverting && !target.ret) || i < idx)",
+   "new": "(g.reverting || i < idx)"
+  },
+  {
+   "name": "trace: arguments passed to helpers do not carry authority into the helper",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (this.isAuthority(a, ctx)) sub.authLocals.add(p.name); });",
+   "new": "});"
+  },
+  {
+   "name": "specialists: a stored allow-list does not restrict a delegatecall target",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "      if (ev.some((g) => g.k === \"guard\" && g.reverting && !g.cond && g.text.includes(`[${c.targetText}]`))) continue; // the target must be a member of a stored allow-list\n",
+   "new": "\n"
+  },
+  {
+   "name": "trace: a helper parameter is not traced back to its argument",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (e.k === \"id\" && ctx.aliases.has(e.name)) {",
+   "new": "if (false) {"
   }
  ]
 }

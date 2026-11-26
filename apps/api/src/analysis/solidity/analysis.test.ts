@@ -147,3 +147,31 @@ describe("independent challenge by unprivileged-caller execution", () => {
     expect(one(`contract A { mapping(address=>bool) claimed; function c() external { require(!claimed[msg.sender]); claimed[msg.sender] = true; } }`).findings).toEqual([]);
   });
 });
+
+describe("semantics added after the first independent evaluation (each from a general failure class, not a corpus-specific rule)", () => {
+  const names = (t: string) => one(t).findings.map((f) => `${f.function}:${f.class}`).sort();
+  it("a write on an early-return path before a later check is not protected by that check", () => {
+    expect(names(`contract A { address admin; uint limit; uint constant MAX = 10;
+      function setEarly(uint v) external { if (v > MAX) { limit = MAX; return; } require(msg.sender == admin); limit = v; }
+      function setLate(uint v) external { require(msg.sender == admin); limit = v; } }`)).toEqual(["setEarly:access-control"]);
+  });
+  it("an argument passed to a helper or library stands for the authority it is", () => {
+    expect(names(`library G { function enforce(address who) internal view { require(msg.sender == who); } }
+      contract A { address steward; uint flow; function set(uint f) external { G.enforce(steward); flow = f; } function setBad(uint f, address w) external { G.enforce(w); flow = f; } }`)).toEqual(["setBad:access-control"]);
+  });
+  it("a helper's delegatecall target is traced back to the state variable it came from", () => {
+    expect(names(`contract A { address logic; function setLogic(address l) external { logic = l; }
+      fallback() external payable { _run(logic); } function _run(address t) internal { (bool ok,) = t.delegatecall(msg.data); require(ok); } }`)).toEqual(expect.arrayContaining(["fallback:delegatecall"]));
+  });
+  it("a delegatecall target that must be in a stored allow-list is not caller-supplied", () => {
+    expect(names(`contract A { mapping(address=>bool) allowed; address owner; function allow(address t) external { require(msg.sender == owner); allowed[t] = true; }
+      function go(address t, bytes calldata d) external { require(allowed[t]); (bool ok,) = t.delegatecall(d); require(ok); } }`).filter((x) => x.endsWith("delegatecall"))).toEqual([]);
+  });
+  it("flags an unguarded halt-style state change and does not flag paying a fixed owner", () => {
+    expect(names(`contract A { bool halted; function halt() external { halted = true; } }`)).toEqual(["halt:access-control"]);
+    expect(names(`contract A { address payable owner; function flush() external { (bool ok,) = owner.call{value: address(this).balance}(""); require(ok); } }`)).toEqual([]);
+  });
+  it("an initializer that sets state with a flag it checks but never sets is flagged", () => {
+    expect(names(`contract A { bool ready; address beneficiary; function init(address b) external { require(!ready); beneficiary = b; } }`)).toEqual(["init:initializer"]);
+  });
+});
