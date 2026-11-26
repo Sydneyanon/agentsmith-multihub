@@ -4,7 +4,7 @@ Source of truth for scope is `docs/ROADMAP.md`; this file lists small, independe
 Tasks are design-first where architecture is involved, to prevent drift. Status of all tasks: **not started** (2026-11-26) unless stated.
 
 ## Recommended next implementation task
-**T-040 Unified opportunity model: design (documentation only).** Reason: every other discovery task (more sources, URL intake, dedupe, priority engine, Control Room, the 5.2 hand-off) depends on one shared identity for project, repository, commit, scope and provenance.
+**T-040 Unified opportunity model: design (documentation only), including the discovery-before-scanning workflow and the Immunefi program lifecycle (new, updated, paused, closed).** Reason: every other discovery task (more sources, URL intake, dedupe, priority engine, Control Room, the 5.2 hand-off) depends on one shared identity for project, repository, commit, scope and provenance.
 Today's table is GitHub-only and keyed `github:owner/repo`; adding Immunefi, Code4rena, Sherlock or pasted URLs on top of it would create exactly the disconnected duplicate pipelines the roadmap forbids. It needs no spending, no environment access and no migration,
 so it can proceed now. In parallel, the single most valuable **owner-side** action is T-010 (live GitHub shape check), because 5.0 and 5.2 are both unverified without it.
 
@@ -53,16 +53,16 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Security considerations | No new outbound capability. |
 | Approval required | None for code; migration only if a column is needed (separate approval). |
 
-### T-022: Immunefi permission and terms resolution
+### T-022: Immunefi access decision and written permission
 | Field | |
 |---|---|
 | Phase | 5.0 |
 | Dependencies | none |
-| Scope | Owner (or Claude drafting for the owner) asks Immunefi in writing whether `public-api/bounties.json` may be polled and at what rate; read the full Terms of Use. |
-| Acceptance criteria | A written answer recorded in `discovery-sources-official-research.md`; adapter allowed only if permission is explicit. |
+| Scope | Owner (the agent never contacts Immunefi) chooses an access route from `docs/immunefi-scout.md` section 2: ask Immunefi in writing whether `public-api/bounties.json` or another interface may be polled, at what rate and with what caching/storage terms; or decide to rely on manual import / official repositories. Read the full Terms of Use (about 16,000 characters were not read verbatim). |
+| Acceptance criteria | The decision and any written permission are recorded in `immunefi-scout.md` and the decision log. No polling code is written without it. |
 | Required tests | n/a |
-| Security considerations | No automated access to immunefi.com until resolved. |
-| Approval required | Owner contacts Immunefi; no external contact by the agent. |
+| Security considerations | No automated access to immunefi.com until resolved; no disguised or rate-evading access. |
+| Approval required | Owner. |
 
 ### T-023: Code4rena and Sherlock source verification
 | Field | |
@@ -124,7 +124,7 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 |---|---|
 | Phase | 5.0 |
 | Dependencies | none |
-| Scope | Design how opportunity, program, project identity, repository identity, commit SHA, scope, reward, deadlines, eligibility, testing restrictions, snapshots and change history relate; how today's `bounty_opportunities` migrates. |
+| Scope | Design how opportunity, program, project identity, repository identity, commit SHA, scope, reward, deadlines, eligibility, testing restrictions, snapshots and change history relate; how today's `bounty_opportunities` migrates; the program lifecycle (discovered, updated, **paused**, closed/ended, dismissed) that today's states lack; the discovery-before-scanning flow (`immunefi-scout.md` section 3); and the Immunefi record fields observed in the earlier scout output and in the unverified JSON (reward, dates, standing vs time-boxed, size, program URL, entry requirements, code location and commit), each as a *claim with provenance*. |
 | Acceptance criteria | Design doc with schema sketch, identity-resolution rules and cross-source dedupe; reviewed. No migration. |
 | Required tests | n/a (design). |
 | Security considerations | Official-ness never inferred from one source; scope is a claim until confirmed. |
@@ -306,3 +306,68 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Security considerations | None. |
 | Approval required | Owner participation. |
 
+### T-130: Recover the earlier Immunefi scout's method
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | owner |
+| Scope | Owner points to where the scout's source, prompts, notes or session transcript live (possibly on the owner's server or in a private repository outside this task's scope). Review it read-only and record: endpoint/page used, authentication, fields, change detection, storage, repository identification, closed/paused handling, dedupe. |
+| Acceptance criteria | `immunefi-scout.md` section 1 is updated from the primary source, replacing every "not established" with a verified fact or "does not exist". |
+| Required tests | n/a (evidence record) |
+| Security considerations | Do not copy credentials or tokens from the scout; no new access to private repositories without approval. |
+| Approval required | Owner supplies access. |
+
+### T-131: Platform-source registry (inventory, not adapters)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-020, T-024 |
+| Scope | Record the scout's 13-platform inventory (Immunefi, Sherlock, Cantina, Code4rena, CodeHawks, Guardian, HackenProof, CertiK Hunt, HackerOne, Mantis, SpecSiege, bugbounty.fyi, X) with per-source: verified official interface, terms status, permitted access, priority. Aggregators are marked secondary. |
+| Acceptance criteria | A table in docs; every entry says verified vs unverified; no adapter. |
+| Required tests | n/a |
+| Security considerations | No access without a recorded terms review. |
+| Approval required | None (documentation); any adapter needs approval. |
+
+### T-132: Manual snapshot import design and adapter (Immunefi first)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-040, T-032 |
+| Scope | A human-initiated import of an operator-supplied program list or page text; stored as an operator-supplied snapshot (hash, time, actor) and parsed into opportunities with field provenance; never labelled as fetched by the system. |
+| Acceptance criteria | An imported list creates/updates opportunities in the unified model with change history; a re-import detects new/updated/paused/closed; malformed input fails closed. |
+| Required tests | Fixture imports (incl. hostile input); lifecycle diff tests; mutation spec. |
+| Security considerations | Untrusted input bounded; no network access; the owner decides whether the source of the file complies with its terms. |
+| Approval required | Design approval, then migration approval if a table is needed. |
+
+### T-133: Immunefi polling adapter (only after an approved access method)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-022 (written permission), T-020, T-041, T-021 |
+| Scope | Rate-limited, conditional-request polling at the permitted rate, with health status, kill switch and snapshot hashing; disabled by default. |
+| Acceptance criteria | Behaviour matches the recorded permission exactly (rate, caching, storage); failure handling and back-off tested. |
+| Required tests | Fixture-server tests; rate-limit tests; mutation spec. |
+| Security considerations | Fixed host constant; no evasion of limits; no use if permission is withdrawn. |
+| Approval required | Written permission recorded + owner approval; enabling in production needs the S1/S2 blockers resolved. |
+
+### T-134: Program lifecycle states (paused, ended) in the opportunity model
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-040 |
+| Scope | Add paused and ended/closed distinctions (Immunefi exposes `isPaused`/`pausedAt`/`endDate`; other sources differ) to the model and diff logic. |
+| Acceptance criteria | A program that becomes paused or ends yields a recorded event without losing its link to research. |
+| Required tests | Lifecycle transition tests; mutation spec. |
+| Security considerations | A source's claim of "closed" does not delete research history. |
+| Approval required | Migration approval if schema changes. |
+
+### T-135: Optional seed from the Hunt status board
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | T-132 |
+| Scope | Treat the public Hunt `status.json` contest list as an operator-supplied historical seed of program names and URLs, all flagged unverified. Read-only; the Hunt repository and site are never modified. |
+| Acceptance criteria | Seeded entries carry provenance "Hunt status projection, operator-supplied" and no verified scope. |
+| Required tests | Import fixture test. |
+| Security considerations | The board is a sanitised projection and is not a source of truth; no findings data exists in it. |
+| Approval required | Owner approval. |

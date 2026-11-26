@@ -70,6 +70,10 @@ It is a **known-positive capability benchmark, not proof of novel discovery.**
 Integrates: discovery source health; new and changed opportunities; repository acquisition; research priorities; active and queued runs; specialist and tool activity; hypotheses and evidence; independent reviews; findings and outcomes; costs and performance.
 **Everything shown is real and database-backed. No invented activity, no sample performance;** idle shows as idle, stale as stale, unknown as unknown.
 
+### H. Discovery precedes scanning; the Immunefi scout (permanent)
+AgentSmith must know which opportunities exist **before** deciding what code to research: discover, maintain a persistent opportunity list, detect new/updated/**paused**/closed programs, verify project and bounty information, identify official repositories, deduplicate across sources, prioritise, select, then acquire at an exact commit (5.2) and enter the normal pipeline. Immunefi is a source feeding the unified model, never a separate research system.
+Investigation (2026-11-26, `docs/immunefi-scout.md`): the earlier scout's **code is not in this repository or any readable record**; only its public output survives (the Hunt status board: ~20 platforms plus X, sweeps on 2026-11-23, program fields, no later sweep recorded). Its endpoint, authentication, change detection, persistence and repository identification are **unknown and not claimed**. Access position: `immunefi.com/public-api/bounties.json` is **not officially documented** and Immunefi's Terms prohibit robots/automated access to the site, so permanent polling is **not authorised**; the owner chooses written permission, manual import or official-repository/URL routes. Immunefi stays a permanent top-priority source regardless.
+
 ### G. Safety and approval boundaries (permanent)
 - Passive discovery does not authorise active testing; current program scope and rules are verified before any active research; no unauthorised testing.
 - No automatic bounty submissions. No bypassing access restrictions or rate limits.
@@ -84,7 +88,7 @@ Status vocabulary: **Implemented and verified** / **Implemented but unverified**
 
 | Phase | Primary status | Evidence (what is true) | What is NOT true / open |
 |---|---|---|---|
-| **5.0 Bounty discovery** | **Implemented but unverified** (GitHub-organisation adapter only) | `apps/api/src/discovery/`, migration `0008`, 61 discovery/db-role unit+integration tests, mutation spec 36/36, two review passes (author and a separate agent, `pr20-review-and-next-steps.md`). Off by default, human-gated. | Never run against real GitHub (approved live check blocked in the dev sandbox). Migration `0008` not applied anywhere but disposable local databases; not deployed; not merged (PR #20 draft). No human review. **Immunefi: Blocked** (terms forbid automated access; permission needed). **Code4rena and Sherlock platform adapters: Future work** (only their GitHub orgs are reachable by the existing adapter). Cantina, HackenProof, project pages: Future work (terms unread/unreachable). Known limitation: a compromised runtime role could forge a "human" event. |
+| **5.0 Bounty discovery** | **Implemented but unverified** (GitHub-organisation adapter only) | `apps/api/src/discovery/`, migration `0008`, 61 discovery/db-role unit+integration tests, mutation spec 36/36, two review passes (author and a separate agent, `pr20-review-and-next-steps.md`). Off by default, human-gated. | Never run against real GitHub (approved live check blocked in the dev sandbox). Migration `0008` not applied anywhere but disposable local databases; not deployed; not merged (PR #20 draft). No human review. **Immunefi: Blocked** (no documented interface; Terms prohibit automated access; permission or an approved manual route needed; the earlier scout's code could not be found, see `immunefi-scout.md`). **Code4rena and Sherlock platform adapters: Future work** (only their GitHub orgs are reachable by the existing adapter). Cantina, HackenProof, project pages: Future work (terms unread/unreachable). Known limitation: a compromised runtime role could forge a "human" event. |
 | **5.0 General URL intake** | **Designed but not implemented** (classification only) | `resolveSourceReference` classifies GitHub, X and web URLs without fetching; `POST /v1/intake` creates a passive run; designs in `research-intake-and-discovery.md`, `x-bounty-link-intake.md`. | No fetch, extraction, verification of "official", pasted-text fallback, or platform-specific URL kinds (Immunefi/Code4rena/Sherlock). Not authorised to start fetching content. |
 | **Unified opportunity model** | **Designed but not implemented** (requirements only) | Requirements in section 2C. | Current table is GitHub-only; no project-identity dedupe across sources; no commit-SHA/scope/reward/deadline fields. Needs a design and a new migration (approval). |
 | **5.1 Research state** | **Implemented and verified** (locally; schema live, unused) | Migration `0007` (applied in production; ledger of 7 rows confirmed read-only on 2026-11-26), real-Postgres suites for blobs, snapshots, spans, events, reviews; mutation checks. | No production research run has ever used it (engine idle, no worker). Not merged to `main`. |
@@ -107,7 +111,8 @@ Platform and release state: Release 1 (security foundation, engine idle) is **li
 |---|---|---|
 | Live GitHub shape check (5.0, 5.2) | an environment that can reach `api.github.com` (and `codeload.github.com` for acquisition) | dev sandbox allowlist; **owner action** |
 | First live acquisition (5.2) | live shape check, a chosen small public repository, owner approval | same; owner decision on target and optional `GITHUB_TOKEN` |
-| Immunefi adapter | written permission or clear official terms/API | Immunefi's Terms forbid automated access; **owner/Immunefi** |
+| Immunefi adapter | an owner-approved access method: written permission (T-022), or the manual-import route (T-032/T-132) | Immunefi's Terms forbid automated access; endpoint undocumented; **owner/Immunefi** |
+| Recovery of the earlier scout's method | the scout's source, notes or transcript (T-130) | not in this repository; **owner** |
 | Code4rena / Sherlock / Cantina / HackenProof platform adapters | official terms and interfaces read and recorded | docs hosts unreachable from sandbox; HackenProof terms are an unreadable PDF |
 | Unified opportunity model | design, then a migration | owner approval for any migration; design not written |
 | URL intake extraction | opportunity model, fetch policy, pasted-text fallback | not authorised; model design |
@@ -119,3 +124,10 @@ Platform and release state: Release 1 (security foundation, engine idle) is **li
 | Priority engine | 5.8 outcomes, objective definition | 5.8 |
 | Genuine Docker build | a builder reachable from the dev environment | TLS interception; Actions unavailable |
 | PR merges | explicit approval | policy |
+
+## 5. Outstanding security issues (kept visible; not resolved)
+| ID | Issue | Status |
+|---|---|---|
+| S1 | A compromised runtime database role can forge a "human" event and enable discovery sources. **The approval mechanism is not tamper-proof**; "human" means the holder of the single bearer token. | Open; needs a separate role/function (T-061), depends on S2. |
+| S2 | R1: production runs as the schema-owner role; least-privilege role on Fly Managed Postgres unverified. | Open (T-060). |
+| S3 | No production source, worker or polling is activated until S1, S2, the Fly billing restriction and the Immunefi access decision are resolved by the owner. | Standing rule. |

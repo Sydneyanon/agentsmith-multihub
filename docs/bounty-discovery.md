@@ -1,5 +1,7 @@
 # Phase 5.0: autonomous bounty discovery and source monitoring
 
+> Update 2026-11-26: Immunefi, the earlier scout and the discover-before-scan requirement are recorded in `docs/immunefi-scout.md` and `docs/ROADMAP.md` (decision H). This module covers GitHub organisations only.
+
 Status: implemented as a draft PR, **not deployed, not migrated, not enabled**. Migration `0008_discovery.sql` has only ever run on disposable local databases.
 
 ## What it does (and deliberately does not do)

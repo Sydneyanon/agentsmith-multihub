@@ -48,6 +48,16 @@ describe("the canonical roadmap keeps every phase, status and permanent boundary
   it("keeps the permanent decisions", () => {
     for (const phrase of ["Immunefi (highest priority)", "X is a manually supplied channel", "never fabricates retrieved content", "No invented calibrated probabilities", "No Vercel", "known-positive capability benchmark, not proof of novel discovery", "candidate, not a confirmed match", "No automatic bounty submissions", "database-backed"]) expect(roadmap, phrase).toContain(phrase);
   });
+  it("preserves the Immunefi scout position honestly and keeps the integrity issue visible", () => {
+    const scout = read("docs/immunefi-scout.md");
+    expect(roadmap).toContain("Discovery precedes scanning");
+    expect(scout).toMatch(/\*\*No\.\*\* No file, commit message or code mentioned Immunefi/);
+    expect(scout).toMatch(/no automated access to immunefi\.com or its JSON file is built or run/i);
+    expect(scout).toMatch(/not tamper-proof/);
+    expect(roadmap).toMatch(/\| S1 \|[^\n]*not tamper-proof/);
+    expect(read("docs/architecture.md")).toMatch(/Discovery runs \*\*before\*\* repository scanning/);
+    expect(read("docs/research-intelligence-plan.md")).toMatch(/Discovery precedes repository scanning; the Immunefi scout is preserved/);
+  });
   it("has a backlog task with every required field and recommends exactly one next task", () => {
     expect(backlog.match(/^## Recommended next implementation task\n\*\*T-\d+ /m)).toBeTruthy();
     const tasks = backlog.split("### T-").slice(1);
