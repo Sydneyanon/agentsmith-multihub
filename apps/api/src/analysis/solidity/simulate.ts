@@ -7,7 +7,8 @@ import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
  * value), lets an attacker contract re-enter on every call that forwards gas to it, and compares the ether the attacker extracts
  * with the best an honest sequence of the same calls could extract. If the re-entrant run yields strictly more, the lead is
  * VALIDATED with a concrete trace; if every bounded scenario fails to, it is REFUTED with the reason; if the interpreter meets
- * something it does not model, it ABSTAINS. It never reports a verified vulnerability: the model is a bounded abstraction.
+ * something it does not model, it ABSTAINS. The attacker's hook fires only from the ENTRY function's own external call (depth 1), so a
+ * re-entered function that is itself vulnerable cannot be mis-attributed to the entry under test. It never reports a verified vulnerability: the model is a bounded abstraction.
  */
 type Value = bigint | boolean | string | Value[] | null;
 class Revert extends Error { constructor(readonly why: string) { super(why); } }
@@ -228,7 +229,7 @@ export function validateReentrancy(ix: ProgramIndex, entry: FunctionDef): SimOut
   // accounting variables: mappings keyed by address holding uints
   const ledgers: string[] = []; for (const c of ix.linearize(contract)) for (const v of c.stateVars) if (/^mapping\s*\(\s*address\s*=>\s*u?int/.test(v.type)) ledgers.push(v.name);
   void holder;
-  for (const credit of [1n, 2n]) for (const amount of [1n, 2n]) for (const depth of [1, 2]) for (const next of [entry, ...others]) {
+  for (const credit of [1n, 2n]) for (const amount of [1n, 2n]) for (const depth of [1]) for (const next of [entry, ...others]) {
     const args = sampleArgs(entry, [amount * ETHER]); const nextArgs = sampleArgs(next, [amount * ETHER]); if (!args || !nextArgs) continue;
     scenarios++;
     const seed = (it: Interp) => {
