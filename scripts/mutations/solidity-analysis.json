@@ -4,7 +4,7 @@
   {
    "name": "specialists: a reverting check after the write no longer protects",
    "file": "apps/api/src/analysis/solidity/specialists.ts",
-   "old": "(g.reverting || i < idx)",
+   "old": "((g.reverting && !target.ret) || i < idx)",
    "new": "(i < idx)"
   },
   {
