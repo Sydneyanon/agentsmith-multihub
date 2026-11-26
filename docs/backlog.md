@@ -755,7 +755,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 | Approval required | Owner choice among the residual-risk options in `eval/CANDIDATES.md`. |
 
 ### T-149: One research workflow (proposed; design only until approved)
-**Status 2026-11-26: proposed by the roadmap reconciliation; not started; owner approval A16.**
+**Status 2026-11-26: DESIGN written (`docs/unified-research-workflow.md`) with conforming designs for 5.0 (`discovery-intake-design.md`), 5.2 (`acquisition-verification-2026-11-26.md`), 5.3 (`protocol-representation-design.md`) and 5.1 (`research-memory-design.md`); 8 expected-failing gap tests in `apps/api/src/architecture-gaps.test.ts`. Implementation NOT started; awaiting A16 and the per-stage approvals A17, A18, A20.**
 | Field | |
 |---|---|
 | Phase | 5.0-5.7 (foundation) |

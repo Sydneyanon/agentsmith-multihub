@@ -178,6 +178,8 @@ Evidence for every row is in `docs/roadmap-reconciliation-2026-11-26.md` section
 Unifying them is proposed as **T-149** and is the recommended next task. Pending owner decisions are listed in
 `docs/approval-register.md`.
 
+**Update 2026-11-26 (later):** the T-149 design is written (`docs/unified-research-workflow.md`) and proposed as the architectural authority (awaiting A16). It also records a **third, dormant model** in migration 0001 (`programs`, scope, assets, approvals, `findings`, `knowledge_*`); the program and scope tables back the active-testing gate and become the canonical program identity (D10). 5.2 was re-verified locally: two independent acquisitions of the approved real repository gave identical manifests and dossier content hashes (`docs/acquisition-verification-2026-11-26.md`). No level in the table above changes from design work.
+
 ## 4. Dependencies and blockers
 | Item | Needs | Blocked by |
 |---|---|---|

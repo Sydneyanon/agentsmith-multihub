@@ -1,6 +1,6 @@
 # Shared research memory: design proposal (T-144)
 
-**Status: design proposal for review, 2026-11-26.** No migration is written or applied. This extends the gap review in
+**Status: design proposal for review, 2026-11-26. Conforms to T-149 (`unified-research-workflow.md`), which is the authority for identities and provenance; a reportable finding is a `findings` row (0001, repurposed) that references a `confirmed` outcome (T-149 section 3).** No migration is written or applied. This extends the gap review in
 `docs/research-memory-gaps.md` into a concrete design. It needs design approval, then a separate migration approval.
 
 ## 1. Principles

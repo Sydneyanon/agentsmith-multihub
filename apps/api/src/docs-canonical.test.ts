@@ -183,6 +183,20 @@ describe("roadmap reconciliation (2026-11-26) stays evidence-based", () => {
   });
 });
 
+describe("T-149 design stays a design and remains the authority", () => {
+  it("is marked as a design for approval with no implementation", () => {
+    const d = read("docs/unified-research-workflow.md");
+    expect(d).toMatch(/DESIGN for owner approval/); expect(d).toMatch(/No implementation, no migration, no production change/);
+    expect(d).toMatch(/Only stage 8, with an independent supporting evaluation \*\*and\*\* a human `supports` review, can produce `confirmed`/);
+  });
+  it("the conforming designs point to T-149", () => {
+    for (const f of ["docs/discovery-intake-design.md", "docs/protocol-representation-design.md", "docs/research-memory-design.md"]) expect(read(f)).toMatch(/[Cc]onforms to T-149/);
+  });
+  it("the corpus-4 checklist runs only after approval and forbids inspection before scoring", () => {
+    const c = read("docs/corpus4-freeze-before-score-checklist.md"); expect(c).toMatch(/Executes ONLY after owner approval A2/); expect(c).toMatch(/Nobody opens/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");
