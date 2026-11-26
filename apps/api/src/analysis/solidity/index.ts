@@ -16,7 +16,12 @@ export class ProgramIndex {
       const parsed = parseSolidity(s.path, s.text);
       this.files.push(parsed);
       for (const p of parsed.problems) this.problems.push(`${s.path}: ${p}`);
-      for (const c of parsed.contracts) { if (this.contracts.has(c.name)) this.problems.push(`${s.path}: duplicate contract name ${c.name} (first definition kept)`); else this.contracts.set(c.name, c); }
+      for (const c of parsed.contracts) {
+        // A name defined in several files (common for repeated interfaces) gets a file-qualified id for every later definition, so both are
+        // analysed and a contract resolves its bases against its own file first.
+        if (this.contracts.has(c.name)) { const id = `${c.name}@${s.path}`; for (const f of [...c.functions, ...c.modifiers]) f.contract = id; c.name = id; }
+        this.contracts.set(c.name, c);
+      }
     }
   }
 
@@ -25,7 +30,7 @@ export class ProgramIndex {
     const c = this.contracts.get(name); if (!c || seen.has(name)) return [];
     seen.add(name);
     const out: ContractDef[] = [c];
-    for (const b of [...c.bases].reverse()) out.push(...this.linearize(b, seen));
+    for (const b of [...c.bases].reverse()) out.push(...this.linearize(this.contracts.has(`${b}@${c.file}`) ? `${b}@${c.file}` : b, seen));
     return out;
   }
 

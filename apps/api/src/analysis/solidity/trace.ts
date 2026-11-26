@@ -96,6 +96,8 @@ export class Tracer {
     if (def && def.body) {
       const mctx: Ctx = { ...this.newCtx(def, def.contract, [...ctx.chain, { fn: `modifier ${def.name}`, contract: def.contract, file: def.file, line: use.line }], ctx.tainted, ctx.depth + 1, ctx.stack), branch: { ...ctx.branch } };
       mctx.params = new Map(def.params.filter((p) => p.name).map((p) => [p.name!, p.type]));
+      // a modifier parameter stands for the argument it was given: onlyBy(owner) compares the caller with `owner`, an authority
+      def.params.forEach((p, k) => { const a = use.args[k]; if (!p.name || !a) return; if (this.isAuthority(a, ctx)) mctx.authLocals.add(p.name); if (this.tainted(a, ctx)) mctx.tainted.add(p.name); });
       mctx.onPlaceholder = () => this.runWithModifiers(fn, ctx, i + 1);
       this.stmts(def.body, mctx);
       return;

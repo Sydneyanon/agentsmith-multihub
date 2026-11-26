@@ -264,5 +264,23 @@
   "vulnerable": false,
   "line": 30,
   "note": "guarded"
+ },
+ {
+  "file": "contracts/ModArg.sol",
+  "contract": "ModArg",
+  "function": "setOtherGuarded",
+  "class": "access-control",
+  "vulnerable": false,
+  "line": 9,
+  "note": "modifier argument is the authority"
+ },
+ {
+  "file": "contracts/ModArg.sol",
+  "contract": "ModArg",
+  "function": "setOtherWrongArg",
+  "class": "access-control",
+  "vulnerable": true,
+  "line": 10,
+  "note": "modifier argument is caller-supplied, so the check is meaningless"
  }
 ]

@@ -1,0 +1,83 @@
+{
+ "command": "npx vitest run apps/api/src/analysis",
+ "mutations": [
+  {
+   "name": "specialists: a reverting check after the write no longer protects",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "(g.reverting || i < idx)",
+   "new": "(i < idx)"
+  },
+  {
+   "name": "specialists: a lock engaged before the call is ignored",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "      if (locked) continue;\n",
+   "new": "\n"
+  },
+  {
+   "name": "specialists: unchecked-call ignores whether the result was checked",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "c.checked !== \"unchecked\" || ",
+   "new": "false || "
+  },
+  {
+   "name": "trace: modifier arguments are not treated as authorities",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (this.isAuthority(a, ctx)) mctx.authLocals.add(p.name);",
+   "new": ""
+  },
+  {
+   "name": "trace: internal helpers are not inlined (first call site)",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee) { this.inline(callee, callee.contract, e, ctx, usage); return; }",
+   "new": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee && false) { this.inline(callee, callee.contract, e, ctx, usage); return; }"
+  },
+  {
+   "name": "trace: a helper's returned success flag is never resolved by its caller",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "ev.checked === \"returned\") ev.checked = used;",
+   "new": "ev.checked === \"returned\") ev.checked = \"unchecked\";"
+  },
+  {
+   "name": "trace: tx.origin == msg.sender counts as authorisation",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (msgSender) { if (kind === \"other\") kind = \"eoa-check\"; } else kind = \"auth\";",
+   "new": "kind = \"auth\";"
+  },
+  {
+   "name": "simulate: arithmetic never reverts (pre-0.8 semantics everywhere)",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "if (r < 0n || r >= MAX) { if (f.unchecked)",
+   "new": "if (r < 0n || r >= MAX) { if (true)"
+  },
+  {
+   "name": "simulate: any re-entrant payout counts as an exploit",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "if (sim.w.received > honest) {",
+   "new": "if (sim.w.received >= honest) {"
+  },
+  {
+   "name": "simulate: a reverting re-entrant call is not rolled back",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "this.w.restore(snapshot); this.w.trace.push",
+   "new": "this.w.trace.push"
+  },
+  {
+   "name": "lexer: line comments are read as code",
+   "file": "apps/api/src/analysis/solidity/lexer.ts",
+   "old": "if (c === \"/\" && source[i + 1] === \"/\") { while (i < n && source[i] !== \"\\n\") i++; continue; }",
+   "new": "if (false) { continue; }"
+  },
+  {
+   "name": "parser: unchecked blocks are treated as checked",
+   "file": "apps/api/src/analysis/solidity/parser.ts",
+   "old": "body: parseBlockBody(ps), unchecked: true, line }]",
+   "new": "body: parseBlockBody(ps), unchecked: false, line }]"
+  },
+  {
+   "name": "index: pre-0.8 pragma is ignored",
+   "file": "apps/api/src/analysis/solidity/index.ts",
+   "old": "Number(ver[1]) === 0 && Number(ver[2]) < 8 : false",
+   "new": "false : false"
+  }
+ ]
+}

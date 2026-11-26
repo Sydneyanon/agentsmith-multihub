@@ -139,6 +139,11 @@ class Interp {
         if (to === "attacker" && name === "call" && this.plan.callbacks) this.callback(f, e.line);
         return name === "send" ? true : name === "transfer" ? null : [true, ""];
       }
+      if (target.k === "call" && target.fn.k === "id" && this.ix.isContractLike(target.fn.name) && target.args[0]) {
+        // IHook(addr).method(...): when addr is the attacker this is the attacker's hook, which may re-enter
+        const addr = this.eval(target.args[0], f);
+        if (addr === "attacker") { this.w.trace.push(`${f.fn.name}: calls the attacker's hook ${exprText(fn)} (line ${e.line})`); for (const a of e.args) this.eval(a, f); if (this.plan.callbacks) this.callback(f, e.line); return null; }
+      }
       throw new Unsupported(`external call ${exprText(fn)}`);
     }
     throw new Unsupported("complex call");
