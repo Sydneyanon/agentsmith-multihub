@@ -15,3 +15,6 @@ How to read this honestly:
 - The corpus is small (47 labels, 19 vulnerable), the textbook patterns are shared between author and analyzer (same model family), and the labels are unverified. Perfect recall here does not predict recall on real contracts. The baseline's collapse on the same files shows the corpus does discriminate.
 - The execution validator disagrees with two of four `vulnerable` reentrancy labels in the held-out corpus (`ReentHelperA`, `ReentBankA`): under checked 0.8 arithmetic the re-entrant transaction reverts, so no drain is possible by the modelled attacker. Whether those labels or the model is wrong is open; the corpus author flagged the helper label as uncertain.
 - Findings in functions without a label are not scored (0 on the held-out corpus).
+
+## Update: compiler-backed ground truth
+See `ground-truth-README.md`. The four disputed reentrancy cases are settled by execution: checked arithmetic makes the labelled-vulnerable pattern non-drainable; unchecked twins are exploitable; validator vs EVM agreement 19/19. The run-1 held-out result and all earlier rows above are unchanged and still valid as recorded.
