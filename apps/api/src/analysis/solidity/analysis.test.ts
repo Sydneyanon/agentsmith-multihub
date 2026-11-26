@@ -104,6 +104,17 @@ describe("independent validation by execution", () => {
     const old = new ProgramIndex([{ path: "o.sol", text: src.find((s) => s.path.endsWith("Bank.sol"))!.text.replace("^0.8.20", "^0.7.6") }]);
     expect(validateReentrancy(old, old.findFunction("Bank", "withdrawBad", 1)!).verdict).toBe("validated");
   });
+  it("rolls back a re-entrant call that pays and then reverts, so its payout is not counted as an exploit", () => {
+    const r = new ProgramIndex([{ path: "r.sol", text: `contract R { uint n; function f() external { n += 1; (bool ok, ) = msg.sender.call{value: 1 ether}(""); require(ok); require(n == 1, "second call"); } }` }]);
+    expect(validateReentrancy(r, r.findFunction("R", "f", 0)!).verdict).toBe("refuted");
+  });
+  it("does not blame the entry function for a different function that is itself re-enterable", () => {
+    const r = new ProgramIndex([{ path: "r.sol", text: `contract R { mapping(address => bool) c; mapping(address => uint) b;
+      function a(uint x) external { require(b[msg.sender] >= x); (bool ok, ) = msg.sender.call{value: x}(""); require(ok); unchecked { b[msg.sender] -= x; } }
+      function bonus() external { require(!c[msg.sender]); (bool ok, ) = msg.sender.call{value: 1 ether}(""); require(ok); c[msg.sender] = true; } }` }]);
+    const res = validateReentrancy(r, r.findFunction("R", "a", 1)!);
+    expect(res.verdict).toBe("validated"); expect(res.detail["reentered"]).toBe("a"); // via itself, not via the independently vulnerable bonus()
+  });
   it("abstains when it meets something it does not model", () => {
     const u = new ProgramIndex([{ path: "u.sol", text: `contract U { IFoo f; mapping(address=>uint) b; function w(uint a) external { require(b[msg.sender] >= a); f.hook(a); (bool ok,) = msg.sender.call{value: a}(""); b[msg.sender] = 0; } }` }]);
     expect(validateReentrancy(u, u.findFunction("U", "w", 1)!).verdict).toBe("inconclusive");
