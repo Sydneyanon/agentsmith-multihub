@@ -29,6 +29,17 @@
     "eval/results/heldout3-run1-candidate2-structural.json": "3f7207b6e09dc1e65caf6a1643bc7dd80465ffedbaf14848f90ff6ccd9d74a69",
     "eval/results/heldout3-run1-candidate2-structural.txt": "99414cc0cc3711752d53952e0e7c20bb5367f62ce4641e1d1ef508fe8ddf65f1"
    }
+  },
+  {
+   "name": "structural-candidate-3",
+   "commit": "48d9a389ca60783dea74c5aaf0f8d040ee5737a9",
+   "tree": "f293fb3ceafe4462d73323cec6cba1a5236a84e2",
+   "analyzerTree": "5c8f2289f8a75a1cfacdb99d27cb5521670972c3",
+   "harnessBlob": "2a16bcfd3ae81b1a0fa2091b6cb6f64256cc453c",
+   "taggedAt": "1795707452",
+   "tagMessage": "Structural-analysis candidate 3 (48d9a38): candidate 2 plus failure class A (deployed-contract dispatch) and validator fixes V1-V3, developed on corpus-3 failures (development evidence). Frozen BEFORE corpus 4 is scored.",
+   "frozenBefore": "eval/heldout4",
+   "scoredResults": {}
   }
  ],
  "corpora": {
