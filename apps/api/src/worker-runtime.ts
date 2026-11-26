@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext } from "./acquisition/step.js";
+import { ANALYSIS_STEP_KEYS, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
+import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
 import { GitHubSource } from "./acquisition/github-source.js";
 import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
@@ -1016,6 +1018,11 @@ const INTAKE_STEP_KEYS = [
   ACQUIRE_STEP_KEY, MONITOR_STEP_KEY,
 ] as const;
 
+/** The step keys a worker claims. The analysis stages are included ONLY when the switch is exactly "true"; otherwise they stay queued and untouched. */
+export function intakeStepKeys(env: Record<string, string | undefined>): readonly string[] {
+  return env[STRUCTURAL_ANALYSIS_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS] : INTAKE_STEP_KEYS;
+}
+
 async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep, acquire: Omit<AcquireStepContext, "pool" | "worker">): Promise<void> {
   if (step.step_key === "resolve_source") await processIntakeResolution(worker, step);
   else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
@@ -1027,6 +1034,7 @@ async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: Clai
   else if (step.step_key === "prepare_research_brief") await processResearchBrief(pool, worker, step);
   else if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ pool, worker, ...acquire }, step);
   else if (step.step_key === MONITOR_STEP_KEY) await processMonitorSourceStep({ pool, worker }, step);
+  else if (await dispatchAnalysisStep({ pool, worker, workerId: acquire.workerId }, step)) { /* handled */ }
   else throw new Error(`No handler registered for step: ${step.step_key}`);
 }
 
@@ -1055,7 +1063,7 @@ export async function runIntakeWorker(
   signal.addEventListener("abort", () => { if (scheduler) clearInterval(scheduler); }, { once: true });
   await runWorkerLoop({
     reapExhaustedLeases: () => worker.reapExhaustedLeases(),
-    claimNext: () => worker.claimNext(INTAKE_STEP_KEYS),
+    claimNext: () => worker.claimNext(intakeStepKeys(process.env)),
     fail: (stepId, reason, retryable) => worker.fail(stepId, reason, retryable),
     execute: (step) => dispatchIntakeStep(pool, worker, step, { workerId, source: new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) }) }),
     maxAttempts: worker.maxAttempts,

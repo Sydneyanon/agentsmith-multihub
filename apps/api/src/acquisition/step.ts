@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
+import { ANALYZE_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY } from "../analysis/solidity/keys.js";
 import { LeaseLostError } from "../step-errors.js";
 import { ResearchStore } from "../research-state.js";
 import type { ClaimedStep, WorkflowWorker } from "../worker.js";
@@ -23,11 +24,13 @@ export type RepositoryResearchInput = z.infer<typeof stepInput>;
  * Creates a `repository_research` run with its single `acquire_repository` step. Nothing creates these automatically yet:
  * discovery (Task 5.3) will. The run is passive by construction: acquisition reads a public repository and executes nothing.
  */
-export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator"): Promise<{ runId: string; stepId: string }> {
+export type RepositoryResearchOptions = { /** append the analysis stages (analyse, challenge, dossier) after acquisition; OFF by default */ structuralAnalysis?: boolean };
+
+export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator", options: RepositoryResearchOptions = {}): Promise<{ runId: string; stepId: string }> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const created = await createRepositoryResearchRunIn(client, input, createdBy);
+    const created = await createRepositoryResearchRunIn(client, input, createdBy, options);
     await client.query("COMMIT");
     return created;
   } catch (error) {
@@ -39,7 +42,7 @@ export async function createRepositoryResearchRun(pool: Pool, input: RepositoryR
 }
 
 /** The same insert inside the caller's transaction, so a caller (discovery approval) can make "decision recorded" and "run queued" atomic. */
-export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "query">, input: RepositoryResearchInput, createdBy = "operator"): Promise<{ runId: string; stepId: string }> {
+export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "query">, input: RepositoryResearchInput, createdBy = "operator", options: RepositoryResearchOptions = {}): Promise<{ runId: string; stepId: string }> {
   const parsed = stepInput.parse(input);
   parseRepositoryName(parsed.repository);
   const run = await client.query<{ id: string; correlation_id: string }>(
@@ -52,6 +55,12 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
       `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload)
        VALUES ($1, 'repository_research.created', 'workflow_run', $2, $3, 'Repository acquisition requested (passive reading of a public repository)', jsonb_build_object('repository', $4::text, 'passive_only', true))`,
       [createdBy, run.rows[0]!.id, run.rows[0]!.correlation_id, parsed.repository]);
+  if (options.structuralAnalysis === true) {
+    const stages: Array<[string, string]> = [[ANALYZE_STEP_KEY, "structural_analyst"], [CHALLENGE_STEP_KEY, "lead_challenger"], [DOSSIER_STEP_KEY, "dossier_builder"]];
+    for (const [i, [key, role]] of stages.entries()) {
+      await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, '{}'::jsonb)`, [run.rows[0]!.id, key, i + 1, role]);
+    }
+  }
   return { runId: run.rows[0]!.id, stepId: step.rows[0]!.id };
 }
 

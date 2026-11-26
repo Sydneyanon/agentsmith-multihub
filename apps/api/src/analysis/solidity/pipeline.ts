@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { ProgramIndex } from "./index.js";
+import { Analyzer } from "./specialists.js";
 import { challengeFinding } from "./challenge.js";
 import { validateReentrancy, type SimOutcome } from "./simulate.js";
 import { analyzeSources, type Finding } from "./specialists.js";
@@ -131,4 +132,34 @@ export function renderDossierMarkdown(d: Dossier): string {
   });
   o.push("## Limitations\n" + d.limitations.map((l) => `- ${l}`).join("\n") + "\n");
   return o.join("\n");
+}
+
+/** The structural map: every function with its visibility, modifiers, lines and a summary of the effects found on its inlined trace. Metadata only, no source text. */
+export function buildStructuralMap(sources: ReadonlyArray<{ path: string; text: string }>) {
+  const ix = new ProgramIndex(sources); const an = new Analyzer(ix);
+  const contracts = [...ix.contracts.values()].sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name)).map((c) => ({
+    name: c.name, kind: c.kind, file: c.file, bases: c.bases, lines: [c.startLine, c.endLine], state_variables: c.stateVars.map((v) => ({ name: v.name, type: v.type, constant: v.constant, immutable: v.immutable })),
+    functions: c.functions.filter((f) => f.body).map((f) => {
+      const t = an.trace(f); const calls = t.events.filter((e) => e.k === "call"); const writes = t.events.filter((e) => e.k === "write");
+      return {
+        name: f.name, kind: f.kind, visibility: f.visibility, mutability: f.mutability, modifiers: f.modifiers.map((m) => m.name), lines: [f.startLine, f.endLine],
+        entry_point: (f.visibility === "external" || f.visibility === "public") && f.mutability !== "view" && f.mutability !== "pure",
+        caller_guarded: t.events.some((e) => e.k === "guard" && e.auth), external_calls: calls.length, low_level_calls: [...new Set(calls.map((e) => (e.k === "call" ? e.low : null)).filter((x): x is NonNullable<typeof x> => x !== null))],
+        state_writes: [...new Set(writes.map((e) => (e.k === "write" ? e.variable : "")))].filter((x) => x && !x.startsWith("<")), assumptions: t.assumptions.length,
+      };
+    }),
+  }));
+  return { contracts, problems: ix.problems };
+}
+
+/** Rebuild the stored hypotheses of a snapshot (ids and primary spans) by matching the deterministic findings to the database records. */
+export async function loadStoredHypotheses(pool: Pool, snapshotId: string): Promise<StoredHypothesis[]> {
+  const sources = await readSnapshotSources(pool, snapshotId); const { findings } = analyzeSources(sources); const out: StoredHypothesis[] = [];
+  for (const f of findings) {
+    const h = (await pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE snapshot_id = $1 AND claim = $2 AND generator_id = $3", [snapshotId, f.claim, SPECIALIST_ID])).rows[0];
+    if (!h) continue;
+    const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [h.id])).rows;
+    out.push({ id: h.id, finding: f, spanIds: spans.map((x) => x.span_id) });
+  }
+  return out;
 }
