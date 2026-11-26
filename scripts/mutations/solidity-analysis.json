@@ -146,10 +146,10 @@
    "new": "ctx.branch = saved;"
   },
   {
-   "name": "specialists: authorities are not derived from authorising guards",
-   "file": "apps/api/src/analysis/solidity/specialists.ts",
-   "old": "if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads)",
-   "new": "if (false) for (const r of (g as { reads: string[] }).reads)"
+   "name": "specialists (via shared state roles): authorities are not derived from authorising guards",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "      for (const g of tr.events) if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads) {",
+   "new": "      for (const g of [] as typeof tr.events) if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads) {"
   },
   {
    "name": "specialists: name-based leads fire with no notion of privilege",

@@ -96,7 +96,14 @@ describe.skipIf(skipIntegration)("structural analysis inside the repository_rese
       const helper = eps.find((e) => e.fn === "Bank.withdrawHelper(uint256)");
       expect(helper).toBeTruthy(); expect(helper!.external_calls.some((x) => x.kind === "low-level-call" && x.target_provenance === "msg.sender")).toBe(true);
     }
-    expect(renderDossierMarkdown(built)).toMatch(/## Architecture \(protocol model P1\)/);
+    expect(renderDossierMarkdown(built)).toMatch(/## Architecture \(protocol model P1-P2\)/);
+    // P2 in the dossier: state roles carry basis and strength; a name-only authority is shown as weak, never as enforced
+    if (built.architecture.available) {
+      const roles = built.architecture.components.flatMap((c) => c.state_roles);
+      expect(roles.some((v) => v.roles.some((r) => /^ledger \(established, strong/.test(r)))).toBe(true);
+      expect(roles.some((v) => v.roles.some((r) => /^authority \(inferred, strong, authorising-guard-read/.test(r)))).toBe(true);
+      for (const v of roles) for (const r of v.roles) expect(r).toMatch(/@ contracts\/.+\.sol:\d+/);
+    }
   });
 
 

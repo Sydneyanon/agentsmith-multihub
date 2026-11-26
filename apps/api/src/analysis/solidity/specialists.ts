@@ -1,6 +1,7 @@
 import { ProgramIndex } from "./index.js";
 import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
 import { isCaller, Tracer, type Ev, type Frame, type TraceResult } from "./trace.js";
+import { namesWithRole, stateVariableRoles, type VariableRoles } from "./state-roles.js";
 
 /**
  * Deterministic specialists over the structural index. Each emits LEADS with cited lines, never verified vulnerabilities.
@@ -15,7 +16,6 @@ export type Finding = {
   detail: Record<string, string | number | boolean | null>;
 };
 
-const AUTH_VAR_NAME = /^(owner|admin|governance|governor|guardian|operator|treasury|implementation|pendingOwner|oracle|feeRecipient|minter|authority|manager|keeper)s?$/i;
 const PRIV_NAME = /^(set|update|change|configure|add|remove|grant|revoke|pause|unpause|halt|resume|freeze|unfreeze|stop|start|enable|disable|shutdown|upgrade|mint|burn|rescue|sweep|drain|withdrawAll|transferOwnership|renounce|ban|unban|blacklist|whitelist|register|unregister|reset|migrate|rotate|replace)/i;
 const INIT_NAME = /^(__\w*_)?(re)?init(iali[sz]e)?\w*$|^setup\w*$/i;
 
@@ -53,28 +53,15 @@ export class Analyzer {
   }
 
   /** state variables that act as the authority in some check in this contract or its bases (owner, admins mapping, role tables ...) */
+  /** P2: authorities come from the SHARED state-variable roles (state-roles.ts), not from a private derivation. Every authority role counts,
+   *  whatever its strength (equivalence with the former rule was verified on every corpus); the strength is kept in the protocol model. */
   authVars(contract: string): Set<string> {
     const cached = this.authCache.get(contract); if (cached) return cached;
-    const out = new Set<string>();
-    for (const c of this.ix.linearize(contract)) {
-      for (const v of c.stateVars) if (AUTH_VAR_NAME.test(v.name)) out.add(v.name);
-      // anything an authorising guard reads is an authority, whatever its name: `if (!holds[role][msg.sender]) revert` makes `holds` one
-      // (polarity comes from the trace's guard analysis, so a one-shot `require(!claimed[msg.sender])` does NOT qualify)
-      for (const f of [...c.functions, ...c.modifiers]) if (f.body) for (const g of this.trace(f).events) if (g.k === "guard" && g.auth && !g.assumed) for (const r of g.reads) { const v = this.ix.stateVar(contract, r); if (v && !v.constant && !v.immutable) out.add(r); }
-      // whoever the constructor records as msg.sender is a privileged role, whatever it is called (steward, creator, dev ...)
-      for (const f of c.functions) if (f.kind === "constructor" && f.body) eachExpr(f.body, (e) => { if (e.k === "assign" && e.op === "=" && isCaller(e.r) && e.l.k === "id" && this.ix.stateVar(contract, e.l.name)) out.add(e.l.name); });
-      for (const f of [...c.functions, ...c.modifiers]) if (f.body) eachExpr(f.body, (e) => {
-        const root = (x: Expr): string | null => x.k === "id" ? x.name : x.k === "index" || x.k === "member" ? root(x.obj) : null;
-        if (e.k === "binary" && (e.op === "==" || e.op === "!=")) {
-          const other = isCaller(e.l) ? e.r : isCaller(e.r) ? e.l : null; const r = other ? root(other) : null;
-          if (r && this.ix.stateVar(contract, r)) out.add(r);
-        }
-        // a caller-keyed flag such as `claimed[msg.sender]` is one-shot bookkeeping, not an authority, so only role-like names count
-        if (e.k === "index" && e.idx && isCaller(e.idx)) { const r = root(e.obj); if (r && this.ix.stateVar(contract, r)) { const v = this.ix.stateVar(contract, r)!; if (AUTH_VAR_NAME.test(r) || /role|admin|operator|minter|whitelist|allowlist|authori[sz]ed|guardian|governor|keeper|manager|staff|signer/i.test(r)) out.add(r); } }
-      });
-    }
+    const out = new Set(namesWithRole(this.roles(contract), "authority"));
     this.authCache.set(contract, out); return out;
   }
+  private readonly roleCache = new Map<string, VariableRoles[]>();
+  roles(contract: string): VariableRoles[] { let r = this.roleCache.get(contract); if (!r) { r = stateVariableRoles(this.ix, (f) => this.trace(f), contract); this.roleCache.set(contract, r); } return r; }
 
   private guardedBefore(events: Ev[], idx: number): boolean {
     const target = events[idx]!;

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { ProgramIndex } from "./index.js";
 import type { ContractDef, FunctionDef } from "./parser.js";
 import { Analyzer } from "./specialists.js";
+import { STATE_ROLES_VERSION, type VariableRoles } from "./state-roles.js";
 
 /**
  * Protocol model v1, step P1 (docs/protocol-model-p1-p3-plan.md; conforms to T-149, docs/unified-research-workflow.md).
@@ -11,8 +12,9 @@ import { Analyzer } from "./specialists.js";
  * Every fact carries code evidence (file, lines, the file's content hash = its research-blob hash) and a derivation kind.
  * P1 deliberately contains NO roles, assets, value flows, trust boundaries or transitions (P2+ are not approved).
  */
-export const PROTOCOL_MODEL_SCHEMA = "protocol-model/1";
-export const PROTOCOL_MODEL_BUILDER = "solidity-p1/1";
+export const PROTOCOL_MODEL_SCHEMA = "protocol-model/2";
+/** p2: adds state-variable roles (state-roles.ts); P1 content unchanged */
+export const PROTOCOL_MODEL_BUILDER = "solidity-p2/1";
 
 export type Evidence = { file: string; lineStart: number; lineEnd: number; fileSha256: string };
 export type Derivation = "syntactic" | `inferred:${string}`;
@@ -40,6 +42,8 @@ export type ProtocolModel = {
   schema: typeof PROTOCOL_MODEL_SCHEMA; builder: typeof PROTOCOL_MODEL_BUILDER;
   inputs: Array<{ file: string; sha256: string }>;
   components: ComponentFact[]; functions: FunctionFact[]; callEdges: CallEdge[]; inheritance: InheritanceFact[]; unknowns: Unknown[];
+  /** P2: per described component, the role of every state variable visible in it (with basis, strength, rule and evidence lines) */
+  stateRoles: { version: typeof STATE_ROLES_VERSION; byComponent: Array<{ component: string; variables: VariableRoles[] }> };
 };
 
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
@@ -115,12 +119,14 @@ export function buildProtocolModel(sources: ReadonlyArray<{ path: string; text: 
       inheritance.push({ component: c.name, linearization: lin.map((k) => k.name), resolved, evidence: ev(c.file, c.startLine), derivation: "syntactic" });
     }
   }
+  const byComponent = components.filter((c) => c.deployable || c.kind === "library" || !inherited.has(c.id)).map((c) => ({ component: c.id, variables: an.roles(c.id) })).sort(byKey((x) => x.component));
   const model: ProtocolModel = {
     schema: PROTOCOL_MODEL_SCHEMA, builder: PROTOCOL_MODEL_BUILDER,
     inputs: [...fileSha.entries()].map(([file, s]) => ({ file, sha256: s })).sort(byKey((x) => x.file)),
     components, functions: functions.sort(byKey((x) => x.id)),
     callEdges: [...edges.values()].sort(byKey((x) => `${x.from}\u0000${x.kind}\u0000${x.to}\u0000${x.evidence.file}:${x.evidence.lineStart}`)),
     inheritance, unknowns: [...unknowns.values()].sort(byKey((x) => `${x.file}\u0000${String(x.line ?? 0).padStart(8, "0")}\u0000${x.what}`)),
+    stateRoles: { version: STATE_ROLES_VERSION, byComponent },
   };
   const json = JSON.stringify(model);
   return { model, json, sha256: sha(json) };

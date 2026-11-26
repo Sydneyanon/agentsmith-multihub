@@ -1,5 +1,6 @@
 import type { ProgramIndex } from "./index.js";
 import { Tracer } from "./trace.js";
+import { namesWithRole, stateVariableRoles, walkStmts } from "./state-roles.js";
 import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
 
 /**
@@ -223,27 +224,6 @@ export class Interp {
   }
 }
 
-function walkStmts(stmts: Stmt[], f: (e: Expr) => void): void {
-  const walk = (e: Expr | null | undefined): void => {
-    if (!e) return; f(e);
-    switch (e.k) {
-      case "member": walk(e.obj); break; case "index": walk(e.obj); walk(e.idx); break;
-      case "call": walk(e.fn); e.args.forEach(walk); Object.values(e.opts).forEach(walk); break;
-      case "unary": walk(e.e); break; case "binary": case "assign": walk(e.l); walk(e.r); break;
-      case "update": case "delete": walk(e.e); break; case "ternary": walk(e.c); walk(e.a); walk(e.b); break;
-      case "tuple": e.items.forEach(walk); break; case "new": e.args.forEach(walk); break;
-    }
-  };
-  for (const s of stmts) {
-    switch (s.k) {
-      case "expr": walk(s.e); break; case "decl": walk(s.init); break;
-      case "if": walk(s.cond); walkStmts(s.then, f); walkStmts(s.els, f); break;
-      case "loop": walk(s.cond); walkStmts(s.body, f); break; case "block": walkStmts(s.body, f); break;
-      case "return": walk(s.e); break; case "try": walk(s.call); walkStmts(s.body, f); s.catches.forEach((c) => walkStmts(c, f)); break;
-    }
-  }
-}
-
 const fmt = (v: bigint) => (v % ETHER === 0n ? `${v / ETHER} ether` : `${v} wei`);
 
 export function sampleArgs(fn: FunctionDef, amounts: bigint[]): Value[] | null {
@@ -263,25 +243,13 @@ export function validateReentrancy(ix: ProgramIndex, entry: FunctionDef): SimOut
   const contract = entry.contract; const trace: string[] = []; let scenarios = 0; let inconclusive = ""; const reasonsRefuted = new Set<string>();
   const others = ix.entryPoints(contract).filter((g) => g !== entry && g.mutability !== "payable");
   const holder = new Interp(ix, contract, { reenter: [], maxDepth: 0, callbacks: false });
-  // accounting variables: mappings keyed by address holding uints
-  const ledgers: string[] = []; for (const c of ix.linearize(contract)) for (const v of c.stateVars) if (/^mapping\s*\(\s*address\s*=>\s*u?int/.test(v.type)) ledgers.push(v.name);
-  void holder;
-  // Aggregates kept alongside the ledgers (a total supply, a total escrowed ...): a uint state variable updated with += or -= in the same
-  // function body as a ledger entry. Seeding the ledgers without them gives an inconsistent world (an honest withdrawal underflows the
-  // total, a share price divides by a zero supply), and a refutation from such a world is an artefact of the model, not of the contract.
-  const aggregates = new Set<string>();
-  for (const c of ix.linearize(contract)) for (const fnc of [...c.functions, ...c.modifiers]) {
-    if (!fnc.body) continue; let ledgerTouched = false; const scalars = new Set<string>();
-    const visit = (e: Expr): void => {
-      if (e.k === "assign" && (e.op === "+=" || e.op === "-=")) {
-        let root: Expr = e.l; while (root.k === "index" || root.k === "member") root = root.obj;
-        if (root.k === "id" && ledgers.includes(root.name) && e.l.k === "index") ledgerTouched = true;
-        else if (e.l.k === "id") { const v = ix.stateVar(contract, e.l.name); if (v && /^u?int/.test(v.type) && !v.constant && !v.immutable) scalars.add(e.l.name); }
-      }
-    };
-    walkStmts(fnc.body, visit);
-    if (ledgerTouched) for (const v of scalars) aggregates.add(v);
-  }
+  // accounting variables come from the SHARED state-variable roles (P2): ledgers (address-keyed numeric mappings) and the aggregates kept
+  // alongside them, now also through inlined helpers (a total updated in a helper the ledger-updating function calls). Seeding ledgers
+  // without their aggregates gives an inconsistent world, and a refutation from such a world is an artefact of the model (V1).
+  const traces = new Map<FunctionDef, ReturnType<Tracer["run"]>>();
+  const roles = stateVariableRoles(ix, (f) => { let t = traces.get(f); if (!t) { t = new Tracer(ix).run(f); traces.set(f, t); } return t; }, contract);
+  const ledgers = namesWithRole(roles, "ledger");
+  const aggregates = new Set(namesWithRole(roles, "aggregate"));
   // Payable functions are possible re-entry targets the bounded search does not run (re-entering with value needs the attacker's later exit
   // to realise a gain). While such a target exists, "no exploit found" is NOT a refutation.
   // Only targets that PRICE from state the entry leaves stale count (an exchange rate from the ether balance or from an aggregate the entry

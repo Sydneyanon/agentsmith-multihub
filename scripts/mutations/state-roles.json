@@ -1,0 +1,80 @@
+{
+ "command": "npx vitest run apps/api/src/analysis/solidity",
+ "mutations": [
+  {
+   "name": "P2: name-only authority counted as strong",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "rule: \"name-pattern\", note: \"name only: suggests an authority, guarantees nothing\"",
+   "new": "rule: \"name-pattern\", strength: \"strong\" as Strength, note: \"name only: suggests an authority, guarantees nothing\""
+  },
+  {
+   "name": "P2: ledger basis claimed for inference",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "role: \"ledger\", basis: \"established\"",
+   "new": "role: \"ledger\", basis: \"inferred\" as Basis"
+  },
+  {
+   "name": "P2: lock without reset after the call",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "if (reset > 0) add(r,",
+   "new": "if (call > 0) add(r,"
+  },
+  {
+   "name": "P2: lock accepts keyed (ledger) writes",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "x.variable === r && x.key === null && x.op === \"=\");\n          const call",
+   "new": "x.variable === r);\n          const call"
+  },
+  {
+   "name": "P2: aggregate trace rule removed (helper-split totals missed)",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "if (ledgerUpd) for (const x of ev)",
+   "new": "if (false) for (const x of ev)"
+  },
+  {
+   "name": "P2: aggregates from any scalar write, not += / -=",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "if (x.k === \"write\" && x.key === null && (x.op === \"+=\" || x.op === \"-=\")) {",
+   "new": "if (x.k === \"write\" && x.key === null) {"
+  },
+  {
+   "name": "P2: delegatecall target not recognised as pointer",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "e.k === \"call\" && e.low === \"delegatecall\" && e.targetTaint === \"state\"",
+   "new": "e.k === \"call\" && e.low === \"staticcall\" && e.targetTaint === \"state\""
+  },
+  {
+   "name": "P2: unclassified variables dropped",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "    out.push({ variable: v.name,",
+   "new": "    if (!roles.get(v.name)?.length) continue;\n    out.push({ variable: v.name,"
+  },
+  {
+   "name": "P2: ambiguity ignored",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "firm.size > 1 ? \"ambiguous\" : \"classified\"",
+   "new": "\"classified\""
+  },
+  {
+   "name": "P2: weak-only shown as classified",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "firm.size === 0 ? \"weak-only\" :",
+   "new": ""
+  },
+  {
+   "name": "P2: guard-read authority loses polarity check",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "if (g.k === \"guard\" && g.auth && !g.assumed) for (const r of g.reads)",
+   "new": "if (g.k === \"guard\") for (const r of g.reads)"
+  },
+  {
+   "name": "P2: evidence lines dropped",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "evidence: [{ file: g.file, line: g.line }] }); }\n      // implementation pointer",
+   "new": "evidence: [] }); }\n      // implementation pointer"
+  }
+ ],
+ "_notes": [
+  "The analysis suite includes analysis.test.ts (findings on the dev corpus and fixtures), so mutants that change authority or aggregate sets are also judged by the specialists' and validator's behaviour."
+ ]
+}

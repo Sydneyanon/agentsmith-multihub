@@ -590,6 +590,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 
 ### T-152: APEX: shared protocol model and invariant representation
 **Update 2026-11-26: P1 of the protocol model implemented under A20 (P1 only)** (`protocol-model.ts`; consumers: the dossier architecture section and Priority Engine coverage units). Evidence: `docs/protocol-model-p1-evidence.md`. P2 and P3 not approved; stop/go review pending.
+**Update 2026-11-26: P2 (state-variable roles) implemented under the owner's P2-only approval** (`state-roles.ts`; protocol-model/2). Consumers: specialists' authorities, the validator's ledgers and aggregates, the dossier. Evidence: `docs/protocol-model-p2-evidence.md`. P3 NOT approved; stop for review.
 | Field | |
 |---|---|
 | Phase | 5.3 / 5.4 / 5.5-APEX |

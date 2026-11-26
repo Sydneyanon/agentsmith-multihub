@@ -239,6 +239,17 @@ describe("decision M and community directories stay within bounds", () => {
   });
 });
 
+describe("P2 evidence stays within its approval and is honest about names", () => {
+  it("stops before P3, marks name-only evidence weak and the improvement as development evidence", () => {
+    const e = read("docs/protocol-model-p2-evidence.md");
+    expect(e).toMatch(/P3 is NOT started; it awaits this review/); expect(e).toMatch(/Name-only or pattern-only evidence is always `weak`/);
+    expect(e).toMatch(/development evidence, not a held-out measurement/);
+  });
+  it("records the corpus-4 chronology with A2 unresolved", () => {
+    expect(read("docs/corpus4-decision-record.md")).toMatch(/A2: UNRESOLVED/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");
