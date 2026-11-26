@@ -1,0 +1,221 @@
+{
+ "command": "npx vitest run apps/api/src/discovery apps/api/src/integration/discovery apps/api/src/db-roles",
+ "mutations": [
+  {
+   "name": "monitor: a disabled source is fetched",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (!src.enabled) return { outcome: \"skipped\", reason: \"disabled\" };",
+   "new": ""
+  },
+  {
+   "name": "monitor: the minimum interval is ignored",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (!options.force && src.last_attempt_at &&",
+   "new": "if (false && src.last_attempt_at &&"
+  },
+  {
+   "name": "monitor: redirects are followed",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "redirect: \"manual\"",
+   "new": "redirect: \"follow\""
+  },
+  {
+   "name": "monitor: conditional request dropped",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "...(src.etag ? { \"if-none-match\": src.etag } : {})",
+   "new": ""
+  },
+  {
+   "name": "monitor: streamed body not capped",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (total > max) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "monitor: declared size not checked",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (declared > max) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "monitor: rate limit not classified",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "response.headers.get(\"x-ratelimit-remaining\") === \"0\" || response.headers.has(\"retry-after\") || response.status === 429 ? \"rate_limited\" : \"forbidden\"",
+   "new": "\"forbidden\""
+  },
+  {
+   "name": "monitor: pushed_at churn counts as a change",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "const { pushed_at: _ignored, ...rest } = item.details as Record<string, unknown>;",
+   "new": "const rest = item.details as Record<string, unknown>;"
+  },
+  {
+   "name": "monitor: archived repositories are not closed",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (item.closed && !alreadyClosed) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "monitor: non-200 treated as success",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (response.status !== 200) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "store: any repository may be approved",
+   "file": "apps/api/src/discovery/store.ts",
+   "old": "if (!chosen) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "store: approval allowed from any state",
+   "file": "apps/api/src/discovery/store.ts",
+   "old": "if (row.state !== \"discovered\") throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "store: repeated approval queues a second run",
+   "file": "apps/api/src/discovery/store.ts",
+   "old": "if (row.state === \"queued\") {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "store: sources created enabled",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "enabled boolean NOT NULL DEFAULT false",
+   "new": "enabled boolean NOT NULL DEFAULT true"
+  },
+  {
+   "name": "db: monitor may record a human decision",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "CHECK (event_type NOT IN ('approved','dismissed') OR actor_kind = 'human'),",
+   "new": ""
+  },
+  {
+   "name": "step: disabled sources are scheduled",
+   "file": "apps/api/src/discovery/step.ts",
+   "old": "WHERE s.enabled AND",
+   "new": "WHERE true AND"
+  },
+  {
+   "name": "step: duplicate pending runs allowed",
+   "file": "apps/api/src/discovery/step.ts",
+   "old": "if (!exists.rowCount) {",
+   "new": "if (true) {"
+  },
+  {
+   "name": "adapter: other owners' repositories accepted",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "if (!repo.full_name.toLowerCase().startsWith(`${config.org.toLowerCase()}/`)) continue;",
+   "new": ""
+  },
+  {
+   "name": "adapter: forks and private repositories accepted",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "if (repo.private === true || repo.fork === true) continue;",
+   "new": ""
+  },
+  {
+   "name": "adapter: date-prefix rule ignored",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "if (config.requireDatePrefix && !DATE_PREFIX.test(repo.name)) continue;",
+   "new": ""
+  },
+  {
+   "name": "adapter: organisation name unchecked",
+   "file": "apps/api/src/discovery/types.ts",
+   "old": "/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/",
+   "new": "/^.+$/"
+  },
+  {
+   "name": "adapter: item cap ignored",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "if (items.length >= config.maxItems) break;",
+   "new": ""
+  },
+  {
+   "name": "worker: discovery scheduled without the switch",
+   "file": "apps/api/src/worker-runtime.ts",
+   "old": "process.env.DISCOVERY_ENABLED === \"true\"",
+   "new": "process.env.DISCOVERY_ENABLED !== \"false\""
+  },
+  {
+   "name": "db: projection may claim a human decision without an event",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "IF NEW.state IN ('approved','queued','dismissed') AND NOT EXISTS (",
+   "new": "IF false AND NOT EXISTS ("
+  },
+  {
+   "name": "db: a decided opportunity may change state",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "IF OLD.state IN ('approved','queued','dismissed') THEN",
+   "new": "IF false THEN"
+  },
+  {
+   "name": "db: the event type is not matched to the state",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "e.event_type = NEW.state AND e.actor_kind = 'human'",
+   "new": "e.actor_kind = 'human'"
+  },
+  {
+   "name": "monitor: closure clobbers a queued opportunity",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "existing.state === \"queued\" || existing.state === \"approved\"",
+   "new": "false"
+  },
+  {
+   "name": "monitor: forced check ignores the minimum gap",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (options.force && gap > 0) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "api: check-now passes no minimum gap",
+   "file": "apps/api/src/discovery/api.ts",
+   "old": ", minForceGapSeconds: 60",
+   "new": ""
+  },
+  {
+   "name": "db: a row may be inserted already queued",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "IF NEW.state NOT IN ('discovered','closed') THEN",
+   "new": "IF false THEN"
+  },
+  {
+   "name": "monitor: closed events repeat every pass",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (item.closed && !alreadyClosed) {",
+   "new": "if (item.closed && existing.state !== \"closed\" && existing.state !== \"dismissed\") {"
+  },
+  {
+   "name": "adapter: a payload html_url is trusted",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "if (repo.html_url !== `https://github.com/${repo.full_name}`) continue;",
+   "new": ""
+  },
+  {
+   "name": "adapter: NUL is kept",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "v.replace(/\\u0000/g, \"\")",
+   "new": "v"
+  },
+  {
+   "name": "monitor: unexpected failure does not back off",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "consecutive_failures = consecutive_failures + 1, updated_at = now() WHERE id = $1`, [src.id]).catch(() => undefined);\n    throw error;",
+   "new": "consecutive_failures = consecutive_failures + 0, updated_at = now() WHERE id = $1 AND false`, [src.id]).catch(() => undefined);\n    throw error;"
+  },
+  {
+   "name": "store: re-approving a different repository returns the old run",
+   "file": "apps/api/src/discovery/store.ts",
+   "old": "if (queuedRepo && queuedRepo.toLowerCase() !== parsed.repository.toLowerCase())",
+   "new": "if (false)"
+  },
+  {
+   "name": "monitor: gap claim is not atomic",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (!claimed.rowCount) return",
+   "new": "if (false) return"
+  }
+ ]
+}

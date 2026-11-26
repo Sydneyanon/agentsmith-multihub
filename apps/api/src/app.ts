@@ -5,6 +5,7 @@ import { createClientIdentity, parseCidrList } from "./client-identity.js";
 import { registerIntakeRoutes } from "./intake.js";
 import { registerWorkflowRoutes } from "./workflows.js";
 import { registerResearchRoutes } from "./research-api.js";
+import { registerDiscoveryRoutes } from "./discovery/api.js";
 import { registerHubStatic } from "./hub-static.js";
 import { registerHostGuard } from "./host-guard.js";
 
@@ -63,6 +64,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerIntakeRoutes(app, pool);
   registerWorkflowRoutes(app, pool);
   registerResearchRoutes(app, pool);
+  registerDiscoveryRoutes(app, pool);
   registerHubStatic(app);
   app.addHook("onClose", async () => { await pool?.end(); });
   return app;

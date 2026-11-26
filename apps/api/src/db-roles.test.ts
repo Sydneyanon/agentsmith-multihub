@@ -8,13 +8,13 @@ const manifest = loadManifest(join(__dirname, "..", "..", "..", "db", "runtime-g
 const withPriv = (p: string) => Object.entries(manifest.tables).filter(([, v]) => v.includes(p)).map(([k]) => k).sort();
 
 describe("runtime grants manifest (reviewable pins)", () => {
-  it("lets the runtime UPDATE only the four mutable tables, plus row-lock-only hypotheses", () => {
-    expect(withPriv("UPDATE")).toEqual(["ai_budget_reservations", "hypotheses", "repo_snapshots", "workflow_runs", "workflow_steps"]);
+  it("lets the runtime UPDATE only the mutable tables (queue/budget state, and the two discovery projections), plus row-lock-only hypotheses", () => {
+    expect(withPriv("UPDATE")).toEqual(["ai_budget_reservations", "bounty_opportunities", "discovery_sources", "hypotheses", "repo_snapshots", "workflow_runs", "workflow_steps"]);
   });
   it("lets the runtime INSERT only the tables the application writes", () => {
     expect(withPriv("INSERT")).toEqual([
-      "ai_budget_reservations", "audit_events", "evaluation_evidence", "evidence_spans", "hypotheses", "hypothesis_evaluations", "hypothesis_events",
-      "hypothesis_evidence", "hypothesis_reviews", "model_usage_events", "repo_snapshot_files", "repo_snapshots", "research_blobs", "source_snapshots",
+      "ai_budget_reservations", "audit_events", "bounty_opportunities", "discovery_observations", "discovery_sources", "evaluation_evidence", "evidence_spans", "hypotheses", "hypothesis_evaluations", "hypothesis_events",
+      "hypothesis_evidence", "hypothesis_reviews", "model_usage_events", "opportunity_events", "repo_snapshot_files", "repo_snapshots", "research_blobs", "source_snapshots",
       "workflow_runs", "workflow_steps",
     ]);
   });

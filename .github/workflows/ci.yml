@@ -86,7 +86,7 @@ jobs:
             test -f /app/dist/scripts/migrate.js
             test -f /app/dist/scripts/apply-runtime-grants.js
             test -f /app/db/runtime-grants.json
-            test "$(ls /app/db/migrations/*.sql | wc -l)" = 7
+            test "$(ls /app/db/migrations/*.sql | wc -l)" = 8
             test -z "$(find /app/dist \( -name "*.test.js" -o -name "*.d.ts" -o -name "*.map" -o -path "*/integration/*" -o -path "*/testing/*" \) | head -1)"
             test ! -e /app/node_modules/typescript
             test ! -e /app/node_modules/vitest

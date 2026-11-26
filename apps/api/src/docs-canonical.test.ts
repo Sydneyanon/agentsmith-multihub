@@ -31,6 +31,43 @@ describe("the canonical roadmap and decision log", () => {
   });
 });
 
+describe("the canonical roadmap keeps every phase, status and permanent boundary", () => {
+  const roadmap = read("docs/ROADMAP.md");
+  const backlog = read("docs/backlog.md");
+  it("lists every Phase 5 stage and the two cross-phase capabilities", () => {
+    for (const id of ["5.0", "5.1", "5.2", "5.3", "5.4", "5.4B", "5.5", "5.5A", "5.6", "5.7", "5.8"]) expect(roadmap, id).toMatch(new RegExp(`\\| \\*\\*${id.replace(".", "\\.")} `));
+    expect(roadmap).toContain("Adaptive Research Priority Engine");
+    expect(roadmap).toContain("Live Engine Control Room");
+  });
+  it("does not claim 5.2 or 5.0 is verified against real GitHub", () => {
+    const row = roadmap.split("\n").find((l) => l.startsWith("| **5.2 Repository acquisition**"))!;
+    expect(row).toMatch(/\*\*Implemented but unverified\*\*/);
+    expect(row).toMatch(/No real GitHub validation has been done/);
+    expect(roadmap.split("\n").find((l) => l.startsWith("| **5.0 Bounty discovery**"))!).toMatch(/Implemented but unverified/);
+  });
+  it("keeps the permanent decisions", () => {
+    for (const phrase of ["Immunefi (highest priority)", "X is a manually supplied channel", "never fabricates retrieved content", "No invented calibrated probabilities", "No Vercel", "known-positive capability benchmark, not proof of novel discovery", "candidate, not a confirmed match", "No automatic bounty submissions", "database-backed"]) expect(roadmap, phrase).toContain(phrase);
+  });
+  it("preserves the Immunefi scout position honestly and keeps the integrity issue visible", () => {
+    const scout = read("docs/immunefi-scout.md");
+    expect(roadmap).toContain("Discovery precedes scanning");
+    expect(scout).toMatch(/source files themselves are not available to me/);
+    expect(scout).toMatch(/public-api\/bounties\.json/);
+    expect(read("docs/opportunity-model-design.md")).toMatch(/design only\. No migration is written/);
+    expect(scout).toMatch(/no automated access to immunefi\.com or its JSON file is built or run/i);
+    expect(scout).toMatch(/not tamper-proof/);
+    expect(roadmap).toMatch(/\| S1 \|[^\n]*not tamper-proof/);
+    expect(read("docs/architecture.md")).toMatch(/Discovery runs \*\*before\*\* repository scanning/);
+    expect(read("docs/research-intelligence-plan.md")).toMatch(/Discovery precedes repository scanning; the Immunefi scout is preserved/);
+  });
+  it("has a backlog task with every required field and recommends exactly one next task", () => {
+    expect(backlog.match(/^## Recommended next implementation task\n\*\*T-\d+ /m)).toBeTruthy();
+    const tasks = backlog.split("### T-").slice(1);
+    expect(tasks.length).toBeGreaterThanOrEqual(20);
+    for (const t of tasks) for (const field of ["Phase", "Dependencies", "Scope", "Acceptance criteria", "Required tests", "Security considerations", "Approval required"]) expect(t.slice(0, 200) + t, field).toContain(`| ${field} |`);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

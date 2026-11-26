@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import { LeaseLostError } from "../step-errors.js";
 import { ResearchStore } from "../research-state.js";
@@ -24,12 +24,25 @@ export type RepositoryResearchInput = z.infer<typeof stepInput>;
  * discovery (Task 5.3) will. The run is passive by construction: acquisition reads a public repository and executes nothing.
  */
 export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator"): Promise<{ runId: string; stepId: string }> {
-  const parsed = stepInput.parse(input);
-  parseRepositoryName(parsed.repository);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const run = await client.query<{ id: string; correlation_id: string }>(
+    const created = await createRepositoryResearchRunIn(client, input, createdBy);
+    await client.query("COMMIT");
+    return created;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** The same insert inside the caller's transaction, so a caller (discovery approval) can make "decision recorded" and "run queued" atomic. */
+export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "query">, input: RepositoryResearchInput, createdBy = "operator"): Promise<{ runId: string; stepId: string }> {
+  const parsed = stepInput.parse(input);
+  parseRepositoryName(parsed.repository);
+  const run = await client.query<{ id: string; correlation_id: string }>(
       `INSERT INTO workflow_runs (workflow_type, status, input, created_by) VALUES ($1, 'queued', $2::jsonb, $3) RETURNING id, correlation_id`,
       [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: parsed.repository, source: "user", ...(parsed.ref ? { ref: parsed.ref } : {}), execution_mode: "passive_only", authorization_status: "unverified" }), createdBy]);
     const step = await client.query<{ id: string }>(
@@ -39,14 +52,7 @@ export async function createRepositoryResearchRun(pool: Pool, input: RepositoryR
       `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload)
        VALUES ($1, 'repository_research.created', 'workflow_run', $2, $3, 'Repository acquisition requested (passive reading of a public repository)', jsonb_build_object('repository', $4::text, 'passive_only', true))`,
       [createdBy, run.rows[0]!.id, run.rows[0]!.correlation_id, parsed.repository]);
-    await client.query("COMMIT");
-    return { runId: run.rows[0]!.id, stepId: step.rows[0]!.id };
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+  return { runId: run.rows[0]!.id, stepId: step.rows[0]!.id };
 }
 
 export type AcquireStepContext = {
