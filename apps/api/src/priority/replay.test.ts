@@ -65,3 +65,16 @@ describe("offline replay harness (T-057), synthetic scenario only", () => {
     expect(replay(SCENARIO, "engine-v1", 1).metrics.changedCodeCoverage).toBe(1);
   });
 });
+
+describe("T-057 diagnosis of synthetic-v1 (docs/priority-engine-diagnosis.md): pinned facts, not a policy change", () => {
+  it("cause 1: capacity exceeds new work, so every strategy, the oracle included, spends most picks finding nothing", () => {
+    for (const k of [...BASELINES, "engine-v1" as const, "oracle" as const]) expect(replay(SCENARIO, k, 1).picks.filter((p) => p.findings === 0).length).toBeGreaterThanOrEqual(15);
+  });
+  it("cause 4: policy v1 allocates no exploration slot at one slot per period", () => {
+    expect(replay(SCENARIO, "engine-v1", 1).picks.filter((p) => p.mode === "explore")).toHaveLength(0);
+  });
+  it("cause 2: engine v1 re-researches an opportunity whose current versions are all researched", () => {
+    const picks = replay(SCENARIO, "engine-v1", 1).picks.filter((p) => p.itemId === "contest");
+    expect(picks.length).toBeGreaterThan(2); expect(picks.filter((p) => p.findings > 0)).toHaveLength(1);
+  });
+});

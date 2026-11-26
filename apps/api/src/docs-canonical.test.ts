@@ -156,6 +156,18 @@ describe("ground truth and evaluation discipline", () => {
   });
 });
 
+describe("cycle-5 design documents stay proposals", () => {
+  it("T-144 design keeps the three provenance planes and writes no migration", () => {
+    const d = read("docs/research-memory-design.md"); expect(d).toMatch(/No migration is written or applied/); expect(d).toMatch(/Three provenance planes that never mix/);
+  });
+  it("the D1-D9 brief answers every decision and writes no migration", () => {
+    const d = read("docs/opportunity-model-decisions.md"); for (let i = 1; i <= 9; i++) expect(d).toMatch(new RegExp(`## D${i}\\.`)); expect(d).toMatch(/No migration is written or applied/);
+  });
+  it("the T-057 diagnosis does not change the frozen policy", () => {
+    expect(read("docs/priority-engine-diagnosis.md")).toMatch(/Policy v1 is \*\*not changed\*\*/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

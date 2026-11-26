@@ -137,6 +137,7 @@ Used: T-010 to T-148 as listed below (T-137 and T-149 are unused and reserved fr
 
 ### T-041: Unified opportunity model: migration draft and tests
 **Status 2026-11-26: NOT started; the owner withheld approval pending review of the T-040 design. Review prepared for approval in `docs/opportunity-model-review.md` (findings F1 to F13, decisions D1 to D9, backfill, rollback and compatibility plan). No SQL written.**
+**Update 2026-11-26: decision brief for D1-D9 in `docs/opportunity-model-decisions.md` (alternatives, recommendation, consequences per dimension). Still no SQL.**
 | Field | |
 |---|---|
 | Phase | 5.0 |
@@ -242,6 +243,7 @@ Used: T-010 to T-148 as listed below (T-137 and T-149 are unused and reserved fr
 
 ### T-057: Comparative evaluation against simple baselines
 **Status 2026-11-26: offline replay harness built (`apps/api/src/priority/replay.ts`, 7 tests): random, newest-first, highest-reward-first and round-robin baselines plus engine v1 and a ground-truth oracle; reports confirmed findings, findings per cost, time to first confirmed, changed-code coverage, exploration yield and regret; strategies are tested not to see the ground truth. Only a SYNTHETIC scenario exists, so no result is evidence that any strategy is better; real comparison needs replayed histories with independently confirmed outcomes.**
+**Update 2026-11-26: diagnosis in `docs/priority-engine-diagnosis.md`: the synthetic comparison is dominated by forced redundant picks (16/20 for every strategy incl. the oracle); v1 lacks a marginal-value term, half-discounts its own coverage, and allocates 0 exploration slots at 1 slot per period. Policy v1 unchanged; revised, preregistered experiment proposed.**
 | Field | |
 |---|---|
 | Phase | cross-phase / 5.8 |
@@ -693,6 +695,7 @@ Used: T-010 to T-148 as listed below (T-137 and T-149 are unused and reserved fr
 | Approval required | Owner approval. |
 
 ### T-144: Research outcomes and coverage records
+**Update 2026-11-26: design proposal in `docs/research-memory-design.md` (three provenance planes; outcomes, missed, duplicates, ground-truth adjudications, effort, coverage, contributions; database rules; consumers). No migration.**
 | Field | |
 |---|---|
 | Phase | 5.1 / cross-phase |
