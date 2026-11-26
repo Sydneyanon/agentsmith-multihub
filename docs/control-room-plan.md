@@ -1,7 +1,7 @@
 # Live Engine Control Room: audit and shortest safe route (2026-11-26)
 
-**Status: audit and design. Nothing here is implemented, deployed or activated.** CR1 and CR2 are code changes on the branch and need
-approval (A24). Deployment (A25), worker activation (A26) and any migration (A27, A21) are separate approvals. T-149
+**Status (updated 2026-11-26): CR1 and CR2 are implemented on the branch under A24 (`abf76a5`); nothing is deployed or activated.**
+Originally: CR1 and CR2 are code changes on the branch and need approval (A24). Deployment (A25), worker activation (A26) and any migration (A27, A21) are separate approvals. T-149
 (`docs/unified-research-workflow.md`) is the authority. The Control Room is a **read-only view of the one T-149 lifecycle**. It adds no
 lifecycle, protocol model, priority engine or state of its own.
 

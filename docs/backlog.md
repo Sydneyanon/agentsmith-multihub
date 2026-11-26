@@ -11,7 +11,7 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room; see the series at the end). A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); see the series at the end. A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -977,7 +977,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Acceptance criteria | Honesty rules §3 hold on an empty DB, a synthetic DB and with a failing API; no new dependency; CSP unchanged. |
 | Required tests | Web unit tests; layout probe; browser check at 390 px and desktop on the synthetic demo. |
 | Security considerations | Token stays tab-scoped; no data request before login. |
-| Approval required | **A24** (implementation on the branch). |
+| Approval required | **A24** (implementation on the branch). **Status: implemented 2026-11-26 (`abf76a5`).** |
 
 ### T-187: Control Room CR2: `GET /v1/engine/status` (read-only)
 | Field | |
@@ -988,7 +988,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Acceptance criteria | Empty DB shows idle with no worker; expired leases never shown as live; synthetic flag honoured; shaped errors only. |
 | Required tests | Route coverage (401), no-secret body test, idle, expired-lease and synthetic tests. |
 | Security considerations | No environment values, connection strings or raw error bodies in responses. |
-| Approval required | **A24**. |
+| Approval required | **A24**. **Status: implemented 2026-11-26 (`abf76a5`).** |
 
 ### T-188: Control Room CR3: release to the hub
 | Field | |
@@ -1022,3 +1022,82 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Required tests | Migration test; heartbeat expiry test. |
 | Security considerations | Schema change. |
 | Approval required | **A27** (migration). |
+
+## Decision records, policy, ML, Claude runtime and hardening (T-191 to T-197; proposed, not authorised; see `docs/autonomous-architecture.md`, `docs/ml-readiness.md`, `docs/claude-runtime-options.md`)
+
+### T-191: Decision, coverage and outcome records: schema design
+| Field | |
+|---|---|
+| Phase | T-149 S2/S4 |
+| Dependencies | none |
+| Scope | Design the records the policy and learning need (`docs/autonomous-architecture.md` §3B, §3D; `docs/ml-readiness.md` §2): decision (inputs, rule version, chosen action, ranked alternatives, cost, non-actions), coverage (element × method × result), outcome (adjudicated, with label rule). Reuses T-149 tables where possible; no second lifecycle. |
+| Acceptance criteria | Reviewed design; migration drafted for disposable DBs only; Control Room panels specified. |
+| Required tests | Design only; draft migration tested on throwaway DBs. |
+| Security considerations | Records hold research content; same access rules as hypotheses. |
+| Approval required | **A28** (design); applying the migration is **A29**. |
+
+### T-192: Deterministic research policy v0 and its offline evaluation
+| Field | |
+|---|---|
+| Phase | policy |
+| Dependencies | T-191, T-182 |
+| Scope | Transparent scoring vector (value, cost, novelty, duplicate risk, change, class gap, history) with unknowns kept unknown and a recorded exploration share; function-level ranking evaluated offline on corpus 5 against null baselines. |
+| Acceptance criteria | Weights fixed before evaluation; top-k recall and analyst-time figures recorded; no corpus-4 use. |
+| Required tests | Determinism and unknown-handling tests; evaluation script reproducible. |
+| Security considerations | None (offline). |
+| Approval required | Design review; the offline run follows A23. |
+
+### T-193: ML-1 design and pre-registered evaluation protocol
+| Field | |
+|---|---|
+| Phase | ML |
+| Dependencies | T-192 |
+| Scope | LightGBM ranking design over shared-model features; code-family split; pre-registered metric (confirmed differentiated discoveries per hour and per dollar; top-k recall secondary); minimum-data threshold; shadow plan. |
+| Acceptance criteria | Owner-reviewed protocol; no training. |
+| Required tests | n/a (design). |
+| Security considerations | No research data leaves the system. |
+| Approval required | Design review. |
+
+### T-194: ML-1 training and shadow mode
+| Field | |
+|---|---|
+| Phase | ML |
+| Dependencies | T-193 and the data threshold (`ml-readiness.md` §5) |
+| Scope | Train, run beside policy v0 without acting, show both on the Control Room. |
+| Acceptance criteria | Beats v0 on unseen repositories on the pre-registered metric before any promotion. |
+| Required tests | Leakage checks (family split, temporal), reproducible training. |
+| Security considerations | Model files versioned; no external training service without approval. |
+| Approval required | **A32** (training and shadow); promotion is a further decision. |
+
+### T-195: Claude reasoning specialist (single bounded calls)
+| Field | |
+|---|---|
+| Phase | specialists |
+| Dependencies | A26, T-191 |
+| Scope | Two task types (business-logic interpretation; written challenge for high-value leads), Sonnet 5.5, single requests through the existing budget gateway, structured output with cited spans, cost recorded per task. |
+| Acceptance criteria | Blind comparison on corpus-5 slices against the same tasks without Claude; cost per confirmed lead reported. |
+| Required tests | Gateway reservation, cap and emergency-stop tests; refusal and error handling. |
+| Security considerations | API key as a worker secret only; no chain of thought stored; no unbounded loops or subagents. |
+| Approval required | **A31** (paid runtime activation). |
+
+### T-196: Shape step errors in the project-detail API
+| Field | |
+|---|---|
+| Phase | hardening |
+| Dependencies | none |
+| Scope | `GET /v1/research/projects/:id` returns each step's raw `error` JSON; apply the CR2 `shapeError` (no credentials, addresses or opaque strings). |
+| Acceptance criteria | Raw error bodies never leave the API; the web shows shaped messages. |
+| Required tests | Unit and integration tests with secret-bearing errors. |
+| Security considerations | Removes a pre-existing exposure of worker error text to the authenticated client. |
+| Approval required | Implementation go-ahead (branch only), **A33**. |
+
+### T-197: Engine status under the restricted runtime role: migration ledger visibility
+| Field | |
+|---|---|
+| Phase | hardening |
+| Dependencies | T-187 |
+| Scope | Decide whether the runtime role may SELECT `schema_migrations` (names and checksums). It is pinned to no access by `db-roles.test.ts`; without it the Control Room reports the ledger as unreadable. |
+| Acceptance criteria | Decision recorded; if granted, manifest, pin test and runtime-role test updated together. |
+| Required tests | Runtime-role integration test. |
+| Security considerations | Read-only, non-secret table; still a least-privilege change. |
+| Approval required | **A30**. |

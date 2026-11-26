@@ -4,6 +4,7 @@
 > - **APPROVED:** A16 (T-149 authority); A17 (D10); A4 (T-144 **design**, plus a draft on throwaway databases only); [A2 moved to UNRESOLVED below]; A20 **narrowed to P1 implementation only**.
 > - **UNRESOLVED:** A2 (corpus-4 scoring). The owner will clarify whether it was explicitly selected on the approval screen. It was executed (`aa6119d`, `f0ef971`); see `docs/corpus4-decision-record.md` for the exact chronology. The earlier recording is not rewritten in the decision log.
 > - **NOT approved:** P2 and P3 (stop for review after P1); D1–D9 (A5–A13, nine separate decisions); T-149 S2 (the human-review and outcome API); A4b; A15; A18 (deferred); A19; A21; production changes, deployments, worker activation, PR merges, legacy retirement.
+> - **2026-11-26: A24 APPROVED and implemented** (CR1/CR2, `abf76a5`). A25 (release), A26 (worker), P4, corpus-5 execution beyond an approved brief, ML training, migrations, production changes, paid runtime, bounty submissions, external polling and active testing are **not** approved.
 > - The rows below keep their original wording; where they differ, these recorded decisions apply.
 
 | # | Decision required | Recommendation | Authorises | Does NOT authorise | Risks / consequences | Blocks |
@@ -36,6 +37,12 @@
 | A25 | **T-188:** merge and release to the hub (carries review fixes 1–5) | Decide after A24 review | One production release with the recorded checklist | Worker activation; migrations | Production change; rollback target exists | A live, honest Control Room |
 | A26 | **T-189:** activate one worker with the structural switch on, for one public repository | Decide after A25 | One worker, one submitted public repository, read-only GitHub access | Discovery polling; active testing; paid models | Production compute; network reads | Seeing the engine run live |
 | A27 | **T-190:** worker heartbeat migration | Optional, after A25 | Migration on disposable DBs, then production | Other schema changes | Schema change | Worker presence while idle |
+| A28 | **T-191:** decision, coverage and outcome record design (plus a migration draft on disposable DBs only) | Approve | Design and draft | Applying the migration | None | Policy v0, ML-1 data, Control Room "why" panels |
+| A29 | **T-191 migration apply** | Decide after reviewing the draft | Applying it to the named environment | Anything else | Production schema change | Recording real decisions and outcomes |
+| A30 | **T-197:** runtime role read access to `schema_migrations` | Decide | One SELECT grant, with its pin test updated | Any write; other tables | Least-privilege change | Schema identity on the Control Room under the restricted role |
+| A31 | **T-195:** paid Claude API runtime | Decide after A26 and corpus-5 slices exist | Sonnet 5.5 single bounded calls through the budget gateway; API key on the worker only | Opus, Agent SDK, Managed Agents, subagents, top-ups, raising caps | Spend up to the US$25 monthly cap | Claude as a specialist |
+| A32 | **T-194:** ML-1 training and shadow mode | Decide when the data threshold is met | Training and a non-acting shadow ranker | Letting ML act on priorities | None (shadow) | Learned prioritisation |
+| A33 | **T-196:** shaped step errors in the project-detail API | Approve | Branch implementation and tests | Deployment | Low | Removes a raw-error exposure |
 | Standing | S1/T-061 (human-event integrity), S2/T-060 (R1 role), S4/T-138 (Hunt vs MultiHub discovery ownership), Immunefi access route, merging PRs #11–#20, production worker | Unchanged from ROADMAP section 5 | — | — | — | Any production research |
 
 ## T-147 freeze-before-score protocol (corpus 4 is a one-time evaluation set)
