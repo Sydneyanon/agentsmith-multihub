@@ -1,7 +1,8 @@
 # Owner approval register (prepared 2026-11-26; NO approval is assumed or recorded here)
 
 > **Recorded decisions (2026-11-26; the decision log in `research-intelligence-plan.md` section 10 is authoritative):**
-> - **APPROVED:** A16 (T-149 authority); A17 (D10); A4 (T-144 **design**, plus a draft on throwaway databases only); **A2** (corpus 4: freeze and register candidate 3, score candidates 3 and 2 and the baseline once each, no tuning on the results); A20 **narrowed to P1 implementation only**.
+> - **APPROVED:** A16 (T-149 authority); A17 (D10); A4 (T-144 **design**, plus a draft on throwaway databases only); [A2 moved to UNRESOLVED below]; A20 **narrowed to P1 implementation only**.
+> - **UNRESOLVED:** A2 (corpus-4 scoring). The owner will clarify whether it was explicitly selected on the approval screen. It was executed (`aa6119d`, `f0ef971`); see `docs/corpus4-decision-record.md` for the exact chronology. The earlier recording is not rewritten in the decision log.
 > - **NOT approved:** P2 and P3 (stop for review after P1); D1–D9 (A5–A13, nine separate decisions); T-149 S2 (the human-review and outcome API); A4b; A15; A18 (deferred); A19; A21; production changes, deployments, worker activation, PR merges, legacy retirement.
 > - The rows below keep their original wording; where they differ, these recorded decisions apply.
 

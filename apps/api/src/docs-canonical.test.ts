@@ -234,7 +234,7 @@ describe("decision M and community directories stay within bounds", () => {
     const pe = read("docs/adaptive-priority-engine-design.md"); expect(pe).toMatch(/requirements on THIS engine, not a separate one/); expect(pe).toMatch(/\*\*v1 stays frozen and unchanged\.\*\*/);
   });
   it("treats community directories as untrusted indexes with no access enabled", () => {
-    const d = read("docs/discovery-intake-design.md"); expect(d).toMatch(/Status: NOT ASSESSED/); expect(d).toMatch(/No scraping, polling, protection bypass or adapter/);
+    const d = read("docs/discovery-intake-design.md"); expect(d).toMatch(/Status: ASSESSED 2026-11-26/); expect(d).toMatch(/manual reference only/); expect(d).toMatch(/No scraping, polling, protection bypass or adapter/);
     expect(read("docs/backlog.md")).toMatch(/### T-137: Assess community bounty directory/);
   });
 });

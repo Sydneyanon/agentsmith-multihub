@@ -65,19 +65,36 @@ manual import / paste ───┘          │
 **Example:** `https://bug-bounty-board.vercel.app/` (added 2026-11-26, T-137). Class: aggregator, **secondary**, like `bugbounty.fyi` in
 T-131.
 
-**Status: NOT ASSESSED.** The host is not reachable from this environment (DNS refused by the network allowlist, 2026-11-26), and
-nothing about it is assumed.
+**Status: ASSESSED 2026-11-26 (one-time read; owner allowed the host).**
+- **What was read:** the homepage, `robots.txt`, and the single data file the page loads (`programs.json`). Each was fetched once with an
+  identifying user agent. Hashes: homepage `d73fbc2b…`, `programs.json` `b1736782…`.
+- **What was kept:** only the aggregate facts below are recorded. The listings are **not** stored or ingested.
 
-| To establish (T-137) | How (permitted only) |
+| Item | Finding (verified from the pages read) |
 |---|---|
-| Who runs it; coverage (which platforms and programs; listing count) | read its own about or FAQ pages **once**, by a human or through an approved one-off fetch; or the owner pastes them (`operator_supplied`) |
-| Data sources and how listings are obtained (scraped, submitted, API) | as above |
-| Update frequency; last-updated indications | as above |
-| Whether listings link to official program pages and repositories | sample a few listings by hand |
-| API, export, RSS or documented endpoint | its documentation |
-| Terms, licence, robots and automated-access statements | its terms and robots.txt |
+| Operator | "Curated by @CallMeCSZ". "Independent project, not affiliated with or endorsed by any platform listed." |
+| Coverage | **388 permanent bug bounties.** Immunefi 143, HackenProof 158, Cantina 46, Sherlock 41. "Only permanent bug bounties are listed; audit contests and attackathons are left out." **No Code4rena, CodeHawks, HackerOne or Bugcrowd.** |
+| Data sources | Claimed: "Each program comes from the platform's own public data feed". The method is not documented. |
+| Update frequency | One generated file (`generatedAt` 2026-11-26T08:11Z); "Synced from platform data". Per-program update dates span 2024-08 to 2026-11 (342 of 388). "Cantina doesn't publish an update date". No sync schedule is stated. |
+| Official program links | **Yes:** every listing links to its platform page (hackenproof.com 158, immunefi.com 143, cantina.xyz 46, audits.sherlock.xyz 41) |
+| Repository links | **None:** 0 GitHub links in the data. Repository identity must come from the official program |
+| Other fields | Reward cap (386), KYC flag, submission fee, tags, launch date. "Max is a ceiling … real payouts depend on impact" |
+| API / export | No documented API or export. The page fetches one public JSON file; it is not described as an interface for others |
+| Terms, licence, robots | **None published.** `robots.txt` returns 404. Absence of terms is **not** permission. "Missing a program? Send a DM on X." |
 
-**Coverage comparison method** (once assessed):
+**Assessment and recommendation: manual reference only.**
+- **What it is useful for:** a human-browsed index to notice programs on Immunefi, HackenProof, Cantina and Sherlock that we do not
+  yet track. Each one is then opened on the **official** platform and entered through `operator_supplied` intake.
+- **Why not automate it:**
+  - the board publishes no terms or permission;
+  - it is a third-party mirror of platform data, and for Immunefi in particular, automated use of its data through a mirror would sidestep
+    the access question Immunefi's own terms raise (T-022);
+  - it carries no repository links.
+- **What would change the recommendation:** written permission from the curator **and** a terms-clean upstream. Only then could it become
+  a candidate for an approved adapter, and even then only as an untrusted index.
+- **Coverage gaps** it cannot fill: contests (Code4rena, Sherlock contests), Web2 platforms, and repository identity.
+
+**Coverage comparison method:**
 - For each platform it lists, compare with our sources:
   - Immunefi (blocked, manual import);
   - Code4rena and Sherlock (GitHub organisations);

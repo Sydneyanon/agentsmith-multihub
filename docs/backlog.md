@@ -478,7 +478,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Approval required | None (documentation). |
 
 ### T-137: Assess community bounty directory `bug-bounty-board.vercel.app` (untrusted discovery index)
-**Status 2026-11-26: proposed; NOT assessed** (host unreachable from this environment; nothing assumed).
+**Status 2026-11-26: ASSESSED** (owner allowed the host; one-time read of the homepage, robots.txt and the page's own data file; findings in `discovery-intake-design.md` section 2.1). Recommendation: **manual reference only**; no adapter. 388 permanent bounties (Immunefi 143, HackenProof 158, Cantina 46, Sherlock 41); official program links on every listing; no repository links; no terms, licence or robots statement; no contests.
 | Field | |
 |---|---|
 | Phase | 5.0 |
