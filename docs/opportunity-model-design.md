@@ -85,11 +85,13 @@ Held as typed claim fields on `program_version` (reward min/max/currency/text, o
 - No claim of scope authorises testing (section 7).
 - The 0008 data migrates without loss (section 10).
 
-## 13. Open questions for the owner
-1. Immunefi access route (T-022) and what to do about the Hunt engine's existing hourly source (S4, T-138).
-2. Keep program page text bodies, or hashes and extracted fields only?
-3. Is a project the right top-level unit, or should "program" stay the unit the operator selects with project as an annotation?
-4. Should the Hunt engine's target backlog be imported as a seed (T-135/T-138)?
+## 13. Open questions for the owner, with recommendations
+| # | Question | Recommendation | Consequences |
+|---|---|---|---|
+| 1 | Immunefi access route, and what to do about the Hunt engine's hourly Immunefi source | **Ask Immunefi for written permission (owner-sent), use manual import in the meantime, and, once the safe inspection (`hunt-engine-inspection-plan.md`) shows whether it is running, decide whether to pause the Hunt engine's Immunefi source.** Do not start any MultiHub poller. | Permission may be slow or refused: discovery for Immunefi then rests on manual import and official repositories (lower coverage, human effort). Leaving Hunt's poller running keeps the unresolved Terms exposure and risks two pollers later; pausing it loses its backlog refresh until the route is settled. Neither action is taken without the owner. |
+| 2 | Keep program page bodies, or hashes plus extracted fields only? | **Hashes and extracted claims by default; store a body only when the source's terms allow it, size-capped and per-source flagged; always store operator-supplied text (the owner's own input) with its hash.** | Less to re-parse if an extractor changes and a smaller terms/storage exposure; operators must keep or re-supply the original when a parser needs revisiting. A per-source flag lets a permitted source keep bodies later without a redesign. |
+| 3 | Project as top-level unit, or program with project as an annotation? | **Both, with distinct jobs: the operator selects a *program/opportunity* (reward, deadline and rules differ per program), but research identity is keyed by *project and repository at a commit* so a second program of the same project reuses the existing research.** | Slightly more tables and a merge-review screen for suggested duplicates; in return, no parallel pipelines and no merge on name similarity. Choosing program-only would be simpler but would duplicate research whenever two sources list one project. |
+| 4 | Import the Hunt engine's target backlog as a seed? | **Yes, but only after T-138 (who owns discovery) and only through the manual-import path as `operator_supplied` claims, all unverified; never as a live feed.** | Saves rediscovery and preserves history, but imported rows carry no scope authority and may be stale; a live feed would create a second poller and a second source of truth, so it is not recommended. |
 
 ## 14. Tests that T-041 must include
 Real-Postgres tests for every invariant above (merge rules, no-delete on close, absence is not closure, reverting a decision, provenance links), restricted-role runs, hostile-input tests, backfill round-trip, and a mutation spec in the style of `scripts/mutations/discovery.json`.

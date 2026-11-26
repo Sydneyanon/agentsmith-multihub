@@ -395,3 +395,14 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Required tests | n/a |
 | Security considerations | The Hunt service and its configuration are not modified by MultiHub work without approval. |
 | Approval required | Owner. |
+
+### T-139: Safe read-only check of the Hunt engine's polling (S4)
+| Field | |
+|---|---|
+| Phase | 5.0 |
+| Dependencies | owner go-ahead per step |
+| Scope | Follow `docs/hunt-engine-inspection-plan.md`: owner's own looks first, then (only if approved) one unauthenticated public status request and an allowlisted Linode instance-metadata read. No server access, no secrets, no change to Hunt. |
+| Acceptance criteria | A recorded answer (confirmed polling, no evidence, or not determinable) and the evidence step that produced it. |
+| Required tests | n/a |
+| Security considerations | Never read StackScripts, user-data, configs, disks, volumes, the secrets file or the admin token; print allowlisted fields only. |
+| Approval required | Owner, per step. |
