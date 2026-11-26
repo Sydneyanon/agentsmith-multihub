@@ -42,7 +42,7 @@ check "node in image runs" 'run_in node -e "process.exit(0)"'
 check "app files are root-owned and not writable by node" '! run_in sh -c "touch /app/probe" 2>/dev/null && ! run_in sh -c "touch /app/dist/probe" 2>/dev/null'
 check "only production dependencies were installed (no typescript, vitest, jsdom, playwright-core)" '[ ! -e "$ROOTFS/app/node_modules/typescript" ] && [ ! -e "$ROOTFS/app/node_modules/vitest" ] && [ ! -e "$ROOTFS/app/node_modules/jsdom" ] && [ ! -e "$ROOTFS/app/node_modules/playwright-core" ]'
 check "hub client and migrations are in the image" '[ -f "$ROOTFS/app/dist/web/index.html" ] && [ -f "$ROOTFS/app/dist/web/assets/main.js" ] && [ "$(ls "$ROOTFS"/app/db/migrations/*.sql | wc -l)" = 7 ]'
-check "no tests, fixtures, test harnesses, declaration files, source maps or dev scripts in dist" '[ -z "$(find "$ROOTFS/app/dist" \( -name "*.test.js" -o -name "*.d.ts" -o -name "*.map" -o -path "*/integration/*" -o -path "*/testing/*" -o -name "hub-demo.js" -o -name "hub-layout-check.js" -o -name "hub-screenshots.js" \) | head -1)" ] && [ -f "$ROOTFS/app/dist/apps/api/src/server.js" ] && [ -f "$ROOTFS/app/dist/scripts/migrate.js" ]'
+check "no tests, fixtures, test harnesses, declaration files, source maps or dev scripts in dist" '[ -z "$(find "$ROOTFS/app/dist" \( -name "*.test.js" -o -name "*.spec.js" -o -name "*.d.ts" -o -name "*.map" -o -path "*/integration/*" -o -path "*/testing/*" -o -name "hub-demo.js" -o -name "hub-layout-check.js" -o -name "hub-screenshots.js" \) | head -1)" ] && [ -f "$ROOTFS/app/dist/apps/api/src/server.js" ] && [ -f "$ROOTFS/app/dist/scripts/migrate.js" ]'
 check "no secret or local-state files in the image" '[ -z "$(find "$ROOTFS/app" -maxdepth 2 \( -name ".env*" -o -name ".git" -o -name "*.pem" \) | head -1)" ]'
 
 echo "== weak token is refused at startup"
@@ -64,7 +64,8 @@ echo "$OUT" | tail -3 | sed 's/^/     /'
 echo "== start exactly as the image does"
 ( run_in sh -c "cd /app && HOST=127.0.0.1 PORT=$PORT LOG_LEVEL=info DATABASE_CONNECT_TIMEOUT_MS=30000 $CA_ENV DATABASE_URL='$DBURL' HUB_ALLOWED_HOSTS=$HOSTN API_BEARER_TOKEN='$TOKEN' exec docker-entrypoint.sh npm start" >/tmp/hubimg.log 2>&1 & )
 for i in $(seq 1 30); do curl -s -o /dev/null "http://127.0.0.1:$PORT/health/live" && break; sleep 1; done
-PID="$(pgrep -f 'dist/apps/api/src/server.js' | head -1)"
+# Only the node user's process: an unrelated process whose command line merely contains the path (a wrapper, another run) must not be mistaken for the server.
+PID="$(pgrep -u "${UID_NODE%%:*}" -f '^node dist/apps/api/src/server.js' | head -1)"
 check "server process runs as the node user, not root (uid $(ps -o uid= -p "${PID:-0}" 2>/dev/null | tr -d ' '))" '[ -n "$PID" ] && [ "$(ps -o uid= -p "$PID" | tr -d " ")" = "${UID_NODE%%:*}" ]'
 H() { curl -s -o /dev/null -w "%{http_code}" -H "Host: $1" "http://127.0.0.1:$PORT$2" "${@:3}"; }
 check "GET /health/live -> 200" '[ "$(H 10.0.0.9:8080 /health/live)" = 200 ]'

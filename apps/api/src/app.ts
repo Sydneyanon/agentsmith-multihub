@@ -14,6 +14,8 @@ export type AppOptions = {
   hubAllowedHosts: readonly string[];
   logLevel?: string;
   limiter?: AuthFailureLimiter;
+  /** How long a /health/ready answer is reused, so the public probe cannot hammer or keep awake the database. Default 5000 ms; 0 disables. */
+  readinessCacheMs?: number;
   /** CIDR ranges of proxies whose Fly-Client-IP header may be believed. Empty/absent: trust no header. */
   trustedProxyCidrs?: readonly string[];
   /** Called for every route as it is registered (used by the route-coverage test). */
@@ -28,21 +30,35 @@ export function buildApp(options: AppOptions): FastifyInstance {
       for (const method of Array.isArray(route.method) ? route.method : [route.method]) options.onRouteRegistered!({ method, url: route.url });
     });
   }
+  // Internal details (hostnames, ports, driver messages) never reach a client; 4xx keep their messages.
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
+    const status = typeof error.statusCode === "number" && error.statusCode >= 400 ? error.statusCode : 500;
+    if (status >= 500) {
+      request.log.error({ err: error }, "request failed");
+      return reply.code(status).send({ error: "internal_error" });
+    }
+    return reply.code(status).send(error);
+  });
   registerHostGuard(app, options.hubAllowedHosts);
   const trusted = parseCidrList((options.trustedProxyCidrs ?? []).join(","));
   if ("error" in trusted) throw new Error(`Invalid trusted proxy range: ${trusted.error}`);
   registerBearerAuth(app, options.apiBearerToken, options.limiter, createClientIdentity(trusted.cidrs));
   const { pool } = options;
   app.get("/health/live", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
+  const cacheMs = options.readinessCacheMs ?? 5_000;
+  let cached: { at: number; ok: boolean } | undefined;
   app.get("/health/ready", async (_request, reply) => {
     if (!pool) return reply.code(503).send({ status: "not_ready", reason: "database_not_configured" });
-    try {
-      await pool.query("select 1");
-      return { status: "ready", dependencies: { postgres: "ok" } };
-    } catch (error) {
-      app.log.error({ err: error }, "Readiness check failed");
-      return reply.code(503).send({ status: "not_ready", dependencies: { postgres: "error" } });
+    if (!(cached && Date.now() - cached.at < cacheMs)) {
+      try {
+        await pool.query("select 1");
+        cached = { at: Date.now(), ok: true };
+      } catch (error) {
+        app.log.error({ err: error }, "Readiness check failed");
+        cached = { at: Date.now(), ok: false };
+      }
     }
+    return cached.ok ? { status: "ready", dependencies: { postgres: "ok" } } : reply.code(503).send({ status: "not_ready", dependencies: { postgres: "error" } });
   });
   registerIntakeRoutes(app, pool);
   registerWorkflowRoutes(app, pool);

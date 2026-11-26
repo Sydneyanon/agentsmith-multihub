@@ -216,9 +216,16 @@ describe("GitHubSource production behaviour (no network: the fetch function is i
     await drain((await s.openArchive("a", "b", SHA)).body);
     expect(urls[1]).toBe("https://codeload.github.com/a/b/legacy.tar.gz/x");
   });
-  it("never accepts test origins in production", () => {
-    const before = process.env.NODE_ENV; process.env.NODE_ENV = "production";
-    try { expect(() => new GitHubSource({ testOrigins: { api: "http://127.0.0.1:1", archive: [] } })).toThrow(/refused in production/); } finally { process.env.NODE_ENV = before; }
+  it("accepts test origins only when NODE_ENV is exactly 'test' (not production, not development, not unset)", () => {
+    const before = process.env.NODE_ENV;
+    try {
+      for (const v of ["production", "development", ""]) {
+        process.env.NODE_ENV = v;
+        expect(() => new GitHubSource({ testOrigins: { api: "http://127.0.0.1:1", archive: [] } }), v).toThrow(/NODE_ENV/);
+      }
+      delete process.env.NODE_ENV;
+      expect(() => new GitHubSource({ testOrigins: { api: "http://127.0.0.1:1", archive: [] } })).toThrow(/NODE_ENV/);
+    } finally { if (before === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = before; }
   });
   it("refuses a tree id or commit id that is not 40 hex characters", async () => {
     const s = new GitHubSource({ fetcher: (async () => response(200)) as unknown as typeof fetch });

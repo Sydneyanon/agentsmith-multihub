@@ -80,6 +80,17 @@ describe("startup role guard must not turn a database outage into a boot failure
     expect(h.log.fatal.join(" ")).toMatch(/could not verify/);
     expect(h.log.sleeps.length).toBe(2);
   });
+  it("reports every failed attempt, so a slow outage is visible long before the final verdict", async () => {
+    const h = harness();
+    await runRoleGuard({} as pg.Pool, h.options(false, { attempts: 3, assess: async () => { throw new Error("connect ETIMEDOUT"); } }));
+    expect(h.log.warn.filter((m) => /attempt \d\/3 failed.*ETIMEDOUT/.test(m)).length).toBe(2);
+    expect(h.log.warn.join(" ")).toMatch(/after 3 attempts/);
+  });
+  it("server.ts handles idle pool errors and caps the time a fatal exit can wait for open requests", () => {
+    const src = readFileSync(join(__dirname, "server.ts"), "utf8");
+    expect(src).toMatch(/pool\?\.on\("error"/);
+    expect(src).toMatch(/setTimeout\(\(\) => process\.exit\(1\), \d+\)\.unref\(\)/);
+  });
   it("a good role is silent", async () => {
     const h = harness();
     await runRoleGuard({} as pg.Pool, h.options(true, { assess: async () => ok }));

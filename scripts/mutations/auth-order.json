@@ -28,8 +28,8 @@
   {
    "name": "query string not stripped before matching (prefix confusion)",
    "file": "apps/api/src/auth.ts",
-   "old": "const path = q === -1 ? rawUrl : rawUrl.slice(0, q);",
-   "new": "const path = rawUrl;"
+   "old": "  return q === -1 ? rawUrl : rawUrl.slice(0, q);",
+   "new": "  return rawUrl;"
   },
   {
    "name": "health prefix public (/health/*)",

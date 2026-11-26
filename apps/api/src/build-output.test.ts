@@ -67,6 +67,34 @@ describe("production build output (compiled with tsconfig.build.json)", () => {
   });
 });
 
+describe("production build output: review hardening", () => {
+  it("excludes *.spec.ts as well as *.test.ts from the production compile", () => {
+    const cfg = JSON.parse(read("tsconfig.build.json")) as { exclude: string[] };
+    expect(cfg.exclude).toContain("**/*.test.ts");
+    expect(cfg.exclude).toContain("**/*.spec.ts");
+  });
+  it("emitted code has no dynamic import() or require() that the static import scan could not see", () => {
+    const dir = join(root, "dist");
+    if (!existsSync(dir)) return; // the compile test above covers a scratch build; this checks the real one when present
+    const offenders: string[] = [];
+    const walk = (d: string): void => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (p.endsWith(".js") && !p.includes("/web/")) { const src = readFileSync(p, "utf8").replace(/\/\/.*$/gm, ""); if (/[^.\w]import\s*\(|[^.\w]require\s*\(/.test(src)) offenders.push(relative(dir, p)); } } };
+    walk(dir);
+    expect(offenders).toEqual([]);
+  });
+  it("the Dockerfile runtime stage copies nothing but package files, dist and db", () => {
+    const runtime = read("Dockerfile").split("AS runtime")[1]!;
+    const copies = [...runtime.matchAll(/^COPY (.+)$/gm)].map((m) => m[1]!.trim());
+    expect(copies).toEqual(["package*.json ./", "--from=build /app/dist ./dist", "--from=build /app/db ./db"]);
+  });
+  it("the operator's grants command is runnable inside the image (compiled script, no tsx)", () => {
+    expect(JSON.parse(read("package.json")).scripts["db:grants"]).toBe("node dist/scripts/apply-runtime-grants.js");
+    const doc = read("docs/db-roles.md");
+    expect(doc).toMatch(/node dist\/scripts\/apply-runtime-grants\.js/);
+    expect(doc).not.toMatch(/npx tsx scripts\/apply-runtime-grants\.ts[^\n]*(Machine|image|production)/i);
+  });
+  it("the image smoke test also looks for *.spec.js", () => { expect(read("scripts/hub-image-smoke.sh")).toMatch(/-name "\*\.spec\.js"/); });
+});
+
 describe("the image is built from the production config", () => {
   it("npm run build uses tsconfig.build.json for the server code", () => {
     expect(JSON.parse(read("package.json")).scripts.build).toMatch(/tsc -p tsconfig\.build\.json/);
