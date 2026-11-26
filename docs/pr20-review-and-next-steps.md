@@ -86,3 +86,27 @@ dashboard, then 5.3 mapping, tool runs, hypothesis generation and outcome learni
 1. Run the one-line live check (B) from a machine that can reach GitHub, or approve an environment allowlisting `api.github.com` for this session.
 2. Read/approve the Immunefi and HackenProof terms before any adapter; approve or decline X (paid).
 3. Fly billing and the R1 role rollout before any worker.
+
+## A2. Separate-agent review of commit 96f7b9f (2026-11-26)
+
+A fresh agent with no prior context reviewed the implementation read-only and reproduced several findings against a throwaway database. It is a different agent
+instance of the same model family, not a human or external security reviewer; a human review is still advisable before production. Results and what was done:
+
+| # | Finding | Severity | Resolution |
+|---|---|---|---|
+| 1 | The state guard fired only on UPDATE: a direct INSERT of a row already `queued` bypassed it (reproduced). | Medium | Guard now also fires BEFORE INSERT (new rows must be `discovered` or `closed`). Test + mutant. |
+| 2 | The runtime role can INSERT `opportunity_events`, so a compromised runtime can forge a "human" event, then set the state. It can also UPDATE/INSERT `discovery_sources` with `enabled=true`. "Human" means "holder of the single bearer token" (audit actor is always `operator`). | Medium, **limitation** | NOT fixed: closing it needs a separate role/function for human events and decisions, which depends on the role design (R1). The migration comment no longer overstates it. Do not describe this as tamper-proof. Impact is bounded: state `queued` triggers nothing by itself, runs are passive-only, the fetch host is pinned to api.github.com. |
+| 3 | A queued opportunity whose repository is archived gained another `closed` event on every pass (introduced by my earlier fix). | Low-medium | Closure is recorded once. Test + mutant. |
+| 4 | The guard did not block decided -> `closed`. | Low | A decided state can no longer change through UPDATE. Test. |
+| 5 | A NUL character in source text makes jsonb reject the pass, which rolled back and left the source due on every tick (hot loop, no back-off). | Low | NUL stripped in the adapter; any unexpected failure now records a failed observation and sets `last_attempt_at` (back-off to the normal interval). Tests + mutants. |
+| 6 | `html_url` accepted any URL (e.g. `javascript:`). | Low | A repository whose `html_url` is not exactly `https://github.com/<full_name>` is skipped. Test + mutant. |
+| 7 | "Check now" gap was racy (concurrent calls all passed). | Low | The gap is claimed atomically in SQL; 3 concurrent forced checks make one request. Test + mutant. |
+| 8 | Re-approving with a different repository silently returned the earlier run. | Low | Now refused (409). Test + mutant. |
+| 9 | Tests/mutations did not cover INSERT, runtime role on the guard, or the DISCOVERY_ENABLED switch beyond a source-text test. | Low | INSERT now covered. Behavioural test of the worker switch and runtime-role guard tests are still **not written**. |
+
+Also noted, not changed: only page 1 (100 repositories) is read, so older repositories never receive closure events; a closed repository that is un-archived keeps its
+closed state.
+
+Evidence after these fixes: `npm run verify` six steps pass (633 unit, 230 integration also as the restricted runtime role); discovery mutation spec **36/36 killed**
+(first run after the edit exposed two stale patterns and two survivors caused by test fixtures that the new `html_url` rule masked; both repaired).
+Image smoke has **not** been re-run since the migration edit.
