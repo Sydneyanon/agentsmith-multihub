@@ -1,0 +1,24 @@
+# Derived from the raw heldout4-run1-*.json files by eval/results/heldout4-split.py; the raw files are unedited.
+
+## baseline
+  all labels       n=79 tp=12 fp= 6 fn=26 tn=35 precision=0.67 recall=0.32
+  clear labels     n=67 tp=10 fp= 5 fn=19 tn=33 precision=0.67 recall=0.34
+  ambiguous labels n=12 tp= 2 fp= 1 fn= 7 tn= 2 precision=0.67 recall=0.22
+  findings in unlabelled functions (unscored): 5
+
+## candidate 2 (9c2d80e)
+  all labels       n=79 tp=21 fp= 2 fn=17 tn=39 precision=0.91 recall=0.55
+  clear labels     n=67 tp=20 fp= 1 fn= 9 tn=37 precision=0.95 recall=0.69
+  ambiguous labels n=12 tp= 1 fp= 1 fn= 8 tn= 2 precision=0.50 recall=0.11
+  execution validator on reentrancy leads: {'refuted': 2, 'inconclusive': 1}; abstentions (inconclusive) = 1
+  validator vs label: withdrawAll:refuted/label-vuln; claim:refuted/label-vuln; withdraw:inconclusive/label-benign
+  findings in unlabelled functions (unscored): 13
+
+## candidate 3 (48d9a38)
+  all labels       n=79 tp=20 fp= 1 fn=18 tn=40 precision=0.95 recall=0.53
+  clear labels     n=67 tp=20 fp= 0 fn= 9 tn=38 precision=1.00 recall=0.69
+  ambiguous labels n=12 tp= 0 fp= 1 fn= 9 tn= 2 precision=0.00 recall=0.00
+  execution validator on reentrancy leads: {'validated': 1, 'refuted': 1, 'inconclusive': 1}; abstentions (inconclusive) = 1
+  validator vs label: withdrawAll:validated/label-vuln; claim:refuted/label-vuln; withdraw:inconclusive/label-benign
+  findings in unlabelled functions (unscored): 11
+

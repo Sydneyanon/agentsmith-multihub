@@ -107,3 +107,44 @@ compiler-backed EVM check yet.
   - corpus 3: TP 18, FP 1, FN 13 (FP 2 → 1);
   - corpus 2, corpus 1 and the dev corpus: unchanged.
 - **Corpus 4** (`eval/heldout4`) is sealed and unscored. It is the next held-out gate.
+
+## Update: corpus 4, scored once: candidate 3, candidate 2, baseline (2026-11-26; owner approval A2)
+**Protocol.** `docs/corpus4-freeze-before-score-checklist.md`:
+- Candidate 3 is `48d9a38`. Its analyzer and harness are byte-identical to `79716bd` (class A plus validator V1–V3). It was registered in
+  `eval/candidates.json` and pushed in `aa6119d` **before** scoring.
+- Corpus 4 (`b9df4e5`, manifest `9627b82a…`) was never opened before scoring, and its manifest was verified unchanged afterwards.
+- Each analyzer ran once, in a clean worktree at its registered commit. Raw outputs `heldout4-run1-*` are unedited, with hashes in the
+  registry. The split comes from `heldout4-split.py` into `heldout4-run1-split-DERIVED.txt`.
+
+| Analyzer | Labels | TP | FP | FN | TN | Precision | Recall |
+|---|---|---|---|---|---|---|---|
+| Baseline prototype, all | 79 | 12 | 6 | 26 | 35 | 0.67 | 0.32 |
+| Candidate 2, all | 79 | 21 | 2 | 17 | 39 | 0.91 | 0.55 |
+| **Candidate 3, all** | 79 | 20 | 1 | 18 | 40 | 0.95 | 0.53 |
+| Candidate 2, clear only (67) | 67 | 20 | 1 | 9 | 37 | 0.95 | 0.69 |
+| **Candidate 3, clear only (67)** | 67 | 20 | **0** | 9 | 38 | **1.00** | 0.69 |
+| Candidate 2, ambiguous only (12) | 12 | 1 | 1 | 8 | 2 | — | — |
+| Candidate 3, ambiguous only (12) | 12 | 0 | 1 | 9 | 2 | — | — |
+
+**Labels where candidates 2 and 3 differ:** exactly two, both `upgradeToAndCall` (delegatecall class).
+- `I06_LendingPoolV1`, clear, benign: candidate 2 flagged it, candidate 3 does not. This is a false positive removed by class A
+  (deployed-contract dispatch sees the owner-guarded override).
+- `I05_LendingPoolV1`, **ambiguous**, vulnerable: candidate 3 no longer flags it. The author's concern is an unlocked implementation
+  (failure class F, designed, not implemented), not the override that candidate 3 now correctly resolves.
+
+**Execution validator.**
+- Candidate 3: 1 validated, 1 refuted, 1 inconclusive.
+- Candidate 2: 0 validated, 2 refuted, 1 inconclusive.
+
+V1 (consistent seeding) turned a wrong refutation of `withdrawAll` (labelled vulnerable) into a validation. One refutation of a
+labelled-vulnerable lead remains (`claim`); it is **open** and goes to adjudication (T-145) if pursued, never to a label edit.
+
+**Honest reading:**
+- The changes behave as designed on data they were not built from: one fewer false positive on clear labels, no clear-label recall lost,
+  one validator error corrected.
+- The effect is **one label on each side**. That is not statistically distinguishable from no change on a corpus of this size, so no
+  claim of significant improvement is made.
+- Recall on clear labels (0.69) is unchanged: the designed but unimplemented failure classes B–H remain the main gap.
+- Both structural candidates far exceed the baseline.
+- **Corpus 4 is now spent as held-out.** Any change made in response to it is development evidence; a fifth sealed corpus is needed for
+  the next claim.

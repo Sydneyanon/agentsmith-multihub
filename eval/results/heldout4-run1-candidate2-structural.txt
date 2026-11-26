@@ -1,0 +1,35 @@
+## structural-analyzer on /home/user/agentsmith-multihub/eval/heldout4/contracts
+labels: 79; findings: 41; reproducible across file order: false; findings in unlabelled functions (unscored): 13
+TOTAL tp=21 fp=2 fn=17 tn=39 precision=0.913 recall=0.553; key line exact 11/21, within 2 lines 17/21
+  reentrancy      tp=2 fp=1 fn=2 tn=2 precision=0.667 recall=0.5
+  access-control  tp=5 fp=0 fn=1 tn=8 precision=1 recall=0.833
+  tx-origin       tp=3 fp=0 fn=0 tn=2 precision=1 recall=1
+  unchecked-call  tp=3 fp=0 fn=1 tn=2 precision=1 recall=0.75
+  initializer     tp=4 fp=0 fn=7 tn=10 precision=1 recall=0.364
+  delegatecall    tp=3 fp=1 fn=3 tn=10 precision=0.75 recall=0.5
+  selfdestruct    tp=1 fp=0 fn=3 tn=5 precision=1 recall=0.25
+MISSED (false negatives):
+  contracts/R06_LedgerWallet.sol:38 withdrawAll (reentrancy)
+  contracts/R07_GenesisPass.sol:65 mint (reentrancy)
+  contracts/A06_TokenVesting.sol:46 _payout (access-control)
+  contracts/U05_TokenAirdrop.sol:27 claim (unchecked-call)
+  contracts/I05_LendingPoolV1.sol:155 initialize (initializer)
+  contracts/I07_MarketplaceV2.sol:110 initializeV2 (initializer)
+  contracts/I12_CreatorVaultBeacon.sol:107 upgradeTo (initializer)
+  contracts/I13_GaugeController.sol:177 _authorizeUpgrade (initializer)
+  contracts/I15_TransparentProxy.sol:76 upgradeTo (initializer)
+  contracts/D02_CrowdsaleProxy.sol:57 fallback (delegatecall)
+  contracts/D10_ModularRouter.sol:41 fallback (delegatecall)
+  contracts/D11_LaunchpadBatcher.sol:37 batch (delegatecall)
+  contracts/S03_MultisigWallet.sol:32 initWallet (initializer)
+  contracts/S03_MultisigWallet.sol:53 kill (selfdestruct)
+  contracts/S06_VestingFactory.sol:63 initialize (initializer)
+  contracts/S06_VestingFactory.sol:89 revoke (selfdestruct)
+  contracts/S08_LotteryPot.sol:51 terminate (selfdestruct)
+FALSE POSITIVES:
+  contracts/R05_SavingsBank.sol:33 withdraw (reentrancy) flagged at line 33
+  contracts/I06_LendingPoolV1.sol:115 upgradeToAndCall (delegatecall) flagged at line 115
+REENTRANCY VALIDATION (execution):
+  contracts/R01_EtherVault.sol:withdrawAll -> refuted (label vulnerable=true) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -)
+  contracts/R03_StakingRewards.sol:claim -> refuted (label vulnerable=true) no exploit in 8 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -)
+  contracts/R05_SavingsBank.sol:withdraw -> inconclusive (label vulnerable=false) some scenarios could not be modelled (external call amount.nonZero); the rest found no exploit

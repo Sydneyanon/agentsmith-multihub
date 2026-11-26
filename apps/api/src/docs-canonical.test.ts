@@ -152,7 +152,9 @@ describe("ground truth and evaluation discipline", () => {
   });
   it("re-scores of inspected corpora are labelled development evidence, and corpus 4 is sealed and unscored", () => {
     expect(read("docs/analyzer-failure-classes.md")).toMatch(/\*\*development evidence, not a held-out\s+measurement\*\*/);
+    // corpus 4 was sealed unscored (its FROZEN.md, a sealed record, still says so) and then scored exactly once under A2
     expect(read("eval/heldout4/FROZEN.md")).toMatch(/NOT YET SCORED/);
+    expect(JSON.parse(read("eval/candidates.json")).corpora["eval/heldout4"].scored).toBe(true);
   });
 });
 
