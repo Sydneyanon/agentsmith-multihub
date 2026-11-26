@@ -68,6 +68,45 @@ describe("the canonical roadmap keeps every phase, status and permanent boundary
   });
 });
 
+describe("APEX, the Priority Engine and multi-domain commitments are preserved without weakening anything", () => {
+  const roadmap = read("docs/ROADMAP.md"); const apex = read("docs/apex.md"); const pe = read("docs/adaptive-priority-engine-design.md");
+  const md = read("docs/multi-domain-research.md"); const backlog = read("docs/backlog.md"); const plan = read("docs/research-intelligence-plan.md");
+  it("records APEX as a workstream under 5.5 with no renumbering, all eight capabilities and the required relationships", () => {
+    expect(roadmap).toContain("`5.5-APEX`"); expect(roadmap).toMatch(/Numbering adjustment: none/);
+    for (const c of ["Execution Path Explorer", "Assumption Breaker", "Protocol Interaction Explorer", "Temporal Sequence Hunter", "Novel Hypothesis Generator", "Adaptive Search Engine", "Counterexample and Validation Engine", "Durable Discovery Memory"]) expect(apex, c).toContain(c);
+    for (const ph of ["5.3 Intelligence mapping", "5.4 Structural analysis", "5.4B Automated toolchain", "5.5 Specialist intelligence", "5.5A Weirdness Engine", "5.6 Independent challenge", "5.7 Dossiers", "5.8 Benchmarks and learning"]) expect(apex, ph).toContain(ph);
+    for (const id of ["5.0", "5.1", "5.2", "5.3", "5.4", "5.4B", "5.5", "5.5A", "5.6", "5.7", "5.8"]) expect(roadmap, id).toMatch(new RegExp(`\\| \\*\\*${id.replace(".", "\\.")} `));
+  });
+  it("keeps APEX unauthorised, prior-art first, evidence-based about originality, and independently benchmarked", () => {
+    expect(apex).toMatch(/not authorised for implementation, not started/); expect(roadmap).toMatch(/not authorised for implementation, not started/);
+    expect(apex).toMatch(/No originality is claimed without evidence/); expect(roadmap).toMatch(/originality is not claimed without evidence/);
+    for (const t of [apex, roadmap]) expect(t).toContain("independently confirmed APEX-only discoveries");
+    expect(apex).toMatch(/APEX does not create or grade its own benchmark/); expect(apex).toMatch(/never judges its own output|never judge its own output|cannot be the component that validates it/);
+    for (const cmp of ["existing security tools", "the current AgentSmith analyzer", "combined conventional tooling", "AgentSmith with APEX disabled", "AgentSmith with APEX enabled"]) expect(apex, cmp).toContain(cmp);
+  });
+  it("keeps the Priority Engine honest: no invented probabilities, version-aware coverage, no whole-project penalty, learning only from confirmed outcomes", () => {
+    expect(pe).toMatch(/No invented probabilities/); expect(pe).toMatch(/never penalising a whole project/); expect(pe).toMatch(/new or changed code is never treated as already audited|changed or new code is never treated as already audited/);
+    expect(pe).toMatch(/Never\*\* treat unverified or self-generated findings as confirmed/); expect(pe).toMatch(/exploration/i); expect(pe).toMatch(/Freshness is a signal|freshness alone cannot/i);
+    expect(roadmap).toMatch(/no calibrated probabilities until independent evidence supports them/);
+  });
+  it("records multi-domain research without assuming the Solidity analyzer transfers, with smart contracts as the immediate focus", () => {
+    expect(md).toMatch(/not assumed reusable for Web2/); expect(md).toMatch(/Immediate focus/);
+    for (const d of ["Web application", "API", "Cloud and infrastructure", "Software supply chain", "Identity systems"]) expect(md, d).toContain(d);
+    expect(md).toMatch(/Active testing|active testing/); expect(roadmap).toContain("`MD`");
+  });
+  it("has unique task IDs, expands T-050 and T-051 in place, and reserves the new series with complete fields", () => {
+    const ids = [...backlog.matchAll(/^### (T-\d+):/gm)].map((m) => m[1]!);
+    expect(ids.length).toBeGreaterThan(60); expect(new Set(ids).size).toBe(ids.length);
+    for (const want of ["T-050", "T-051", "T-052", "T-053", "T-054", "T-055", "T-056", "T-057", "T-058", ...Array.from({ length: 13 }, (_, i) => `T-${150 + i}`), ...Array.from({ length: 10 }, (_, i) => `T-${170 + i}`)]) expect(ids, want).toContain(want);
+    for (const block of backlog.split("### T-").slice(1).filter((b) => /^(05[0-8]|1[5-6]\d|17\d)/.test(b))) for (const f of ["Phase", "Dependencies", "Scope", "Acceptance criteria", "Required tests", "Security considerations", "Approval required"]) expect(block.slice(0, 2500), f).toContain(`| ${f} |`);
+    expect(backlog).toMatch(/not authorised/); expect(backlog).toMatch(/ID registry/);
+  });
+  it("records the three commitments in the research-intelligence plan and keeps the earlier rows", () => {
+    expect(plan).toMatch(/\*\*5\.5-APEX\*\* \| \*\*AgentSmith APEX/); expect(plan).toMatch(/Multi-domain security research/); expect(plan).toMatch(/Adaptive Research Priority Engine expanded/);
+    expect(plan).toContain("| **-** | **Adaptive Research Priority Engine** |"); expect(plan).toMatch(/The definition is not yet written/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

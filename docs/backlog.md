@@ -9,6 +9,9 @@ Today's table is GitHub-only and keyed `github:owner/repo`; adding Immunefi, Cod
 so it can proceed now. In parallel, the single most valuable **owner-side** action is T-010 (live GitHub shape check), because 5.0 and 5.2 are both unverified without it.
 
 ## Tasks
+
+## ID registry (checked 2026-11-26)
+Used: T-010 to T-143 as listed below (T-137 and T-144 to T-149 are unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -154,27 +157,106 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Security considerations | Never merge on name similarity alone. |
 | Approval required | None beyond T-041. |
 
-### T-050: Adaptive Research Priority Engine: design
-| Field | |
-|---|---|
-| Phase | cross-phase |
-| Dependencies | T-040 |
-| Scope | Define the feature set, how each feature is recorded, how scores are explained, how outcomes feed back, and the limits of what can be claimed. |
-| Acceptance criteria | Design doc; explicitly forbids invented probabilities; separates v1 (transparent weights) from learned adaptation. |
-| Required tests | n/a (design). |
-| Security considerations | Budget caps respected; no model spend. |
-| Approval required | None (documentation). |
+### T-050: Adaptive Research Priority Engine: detailed design
+**Status 2026-11-26: design draft written (`docs/adaptive-priority-engine-design.md`), awaiting owner review. Documentation only. Expands the original T-050; no duplicate task exists.**
 
-### T-051: Priority scoring v1 (transparent features)
+| Field | |
+|---|---|
+| Phase | cross-phase (core capability, built early) |
+| Dependencies | T-040 (opportunity model design) |
+| Scope | Define the six prioritisation levels, signals (freshness, coverage and saturation, reassessment, economics, exploration), scoring v1, the version-aware coverage record, learning rules and evaluation against simple baselines. |
+| Acceptance criteria | A reviewed design that: separates v1 transparent weights from learned adaptation; forbids invented probabilities; states the exploration policy parameter; defines coverage keyed by version and component hash; lists the owner decisions (exploration share, learning ground-truth levels, calibration thresholds, audit-data ingestion). |
+| Required tests | n/a (design); a documentation guard pins its key rules. |
+| Security considerations | Budget caps respected; no model spend; no approval is ever started by the engine. |
+| Approval required | None (documentation); owner review of the open decisions. |
+
+### T-051: Transparent deterministic priority scoring v1
 | Field | |
 |---|---|
 | Phase | cross-phase |
-| Dependencies | T-050 approved, T-041 |
-| Scope | Replace the 5.0 placeholder scorer with the v1 feature scorer; every point stored with its reason. |
-| Acceptance criteria | Deterministic scores with per-feature reasons; no probability language. |
-| Required tests | Unit tests per feature; mutation spec. |
-| Security considerations | No behaviour adaptation. |
-| Approval required | Approval of the design. |
+| Dependencies | T-050 approved; built alongside T-040/T-041, on fixtures first |
+| Scope | Replace the 5.0 placeholder scorer with the v1 feature scorer over synthetic opportunities and repository histories; every feature contribution stored with reason and evidence pointer; versioned weight policy file; uncertainty flags. Real discovery and acquisition feeds attached as they become operational. |
+| Acceptance criteria | Deterministic scores with per-feature reasons; no probability language; exploration and coverage-gap components separable; fixtures cover freshness, saturation and recovery cases. |
+| Required tests | Unit tests per feature; golden-file score explanations; mutation spec. |
+| Security considerations | No behaviour adaptation; no external calls. |
+| Approval required | Approval of the T-050 design. |
+
+### T-052: Research coverage and audit-saturation model
+| Field | |
+|---|---|
+| Phase | cross-phase / 5.1 |
+| Dependencies | T-050, T-040; structural component hashes (5.4) |
+| Scope | Design then build the version-aware coverage records: examined commits, mapped components, investigated surfaces and classes, hypotheses and outcomes, unexplored areas, evidence-backed prior-audit coverage with reliability discount. |
+| Acceptance criteria | Unchanged saturated components lose priority; changed or new code is never treated as covered; one heavily audited contract does not lower the whole project; unverified audit claims are discounted. |
+| Required tests | Real-Postgres tests of coverage invalidation by content hash; fixtures for audited-and-unchanged vs changed components. |
+| Security considerations | Third-party audit data ingested only under its terms. |
+| Approval required | Design approval; migration approval for any schema. |
+
+### T-053: Commit- and change-aware reprioritisation
+| Field | |
+|---|---|
+| Phase | cross-phase / 5.2 |
+| Dependencies | T-052, T-011 (real acquisition), T-051 |
+| Scope | Event-driven recovery: new commits, upgrades, new integrations, scope or asset changes, new intelligence, changed hypothesis evidence re-open exactly the affected components. |
+| Acceptance criteria | A fixture history where an old, low-priority repository gains a relevant commit rises in rank for the changed components only, with the trigger recorded as the reason. |
+| Required tests | Replay tests over synthetic commit histories. |
+| Security considerations | Read-only monitoring only; no polling of any source without approval. |
+| Approval required | Design approval; no live polling without owner approval. |
+
+### T-054: Economic and research-efficiency scoring
+| Field | |
+|---|---|
+| Phase | cross-phase |
+| Dependencies | T-051 |
+| Scope | Reward and eligibility, impact, scope and asset importance, deadlines, cost and time estimates from measured runs, historical performance per class; all weights in the reviewed policy file. |
+| Acceptance criteria | Each factor visible in the explanation; missing data produces an uncertainty flag, not a guess; no probability claims. |
+| Required tests | Feature unit tests; fixtures with missing and conflicting data. |
+| Security considerations | None. |
+| Approval required | None beyond T-050 approval. |
+
+### T-055: Exploration versus exploitation allocation
+| Field | |
+|---|---|
+| Phase | cross-phase |
+| Dependencies | T-051, T-052 |
+| Scope | Implement the reserved exploration share with seeded, logged selection among low-coverage and novel candidates. |
+| Acceptance criteria | Over a simulated period the engine spends at least the configured share on exploration, never only on the top scorers, and every exploration pick is reproducible from its seed and logged reason. |
+| Required tests | Allocation simulations; reproducibility tests. |
+| Security considerations | None. |
+| Approval required | Owner sets the exploration share. |
+
+### T-056: Historical outcome integration and calibration
+| Field | |
+|---|---|
+| Phase | cross-phase / 5.8 |
+| Dependencies | T-057 baselines, independently confirmed outcomes from 5.6/5.8 |
+| Scope | Store outcomes with confirmation levels; adaptive weight updates and, only when evidence allows, calibration. |
+| Acceptance criteria | Learning uses only independently confirmed outcomes; unverified or self-generated findings are excluded by construction; calibration curves computed on unseen data before any probability is reported. |
+| Required tests | Tests that unverified outcomes cannot enter training; held-out replay showing the learner's ranking improves. |
+| Security considerations | None. |
+| Approval required | Owner approval of the minimum evidence threshold. |
+
+### T-057: Comparative evaluation against simple baselines
+| Field | |
+|---|---|
+| Phase | cross-phase / 5.8 |
+| Dependencies | T-051, historical or synthetic outcome data |
+| Scope | Offline replay against random, newest-first, highest-reward-first and round-robin. |
+| Acceptance criteria | Reports confirmed findings per cost, time to first confirmed finding, changed-code coverage, exploration yield and regret; the engine must beat the simple baselines on held-out replays before steering real capacity. |
+| Required tests | The replay harness itself, with frozen inputs. |
+| Security considerations | None. |
+| Approval required | None. |
+
+### T-058: Live integration with discovery, orchestration and the Control Room
+| Field | |
+|---|---|
+| Phase | cross-phase / Control Room |
+| Dependencies | T-051, T-057, discovery and acquisition operational, T-091 |
+| Scope | Feed ranked queues to orchestration, explanations to the Control Room, search budgets to APEX. |
+| Acceptance criteria | Every displayed ranking reproduces from stored records with its explanation; no displayed score without a stored assessment. |
+| Required tests | API tests; UI test refusing unbacked values. |
+| Security considerations | The engine never triggers an action that needs an approval. |
+| Approval required | Owner approval before it steers real work. |
 
 ### T-060: Fly Managed Postgres role verification
 | Field | |
@@ -458,3 +540,261 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Required tests | Real-Postgres integration incl. restricted role. |
 | Security considerations | Read-only analysis; no execution of repository code. |
 | Approval required | Design approval; no worker activation without owner approval. |
+
+## APEX series (reserved T-150 to T-162; proposed, not authorised; see `docs/apex.md`)
+
+### T-150: APEX: prior-art research and novelty assessment
+| Field | |
+|---|---|
+| Phase | 5.5-APEX |
+| Dependencies | none (may start when owner directs; recorded for later) |
+| Scope | Cited review of static analysis, symbolic/concolic execution, fuzzing and invariant-guided exploration, formal verification, cross-contract and protocol-level analysis, learning-guided search and published protocol-level vulnerability research; per capability, novel versus combination. |
+| Acceptance criteria | What exists, what is reusable (with licences), what is unsolved, where APEX could hold a measurable advantage, and a per-capability novel/combination verdict, every claim cited to a primary source; **no originality claimed without evidence**. |
+| Required tests | n/a (research); a documentation guard pins the no-unsupported-originality rule. |
+| Security considerations | No access to restricted sources; no code from reviewed tools is run without approval. |
+| Approval required | None for research; owner review of the verdicts. |
+
+### T-151: APEX: architecture and integration design
+| Field | |
+|---|---|
+| Phase | 5.5-APEX |
+| Dependencies | T-150, T-040, T-152 outline |
+| Scope | Design how the eight capabilities sit on the shared protocol model, research state, hypothesis system, challenge and memory; origin and provenance recording; interfaces with the Weirdness Engine and specialists; budget and safety limits. |
+| Acceptance criteria | Reviewed design showing no private parallel model; provenance of origin defined (and any needed store extension identified for later approval); independence rule (APEX never judges its own output) specified; first controlled-prototype scope proposed. |
+| Required tests | n/a (design). |
+| Security considerations | Passive-only and no-spend rules restated; any model use needs separate approval. |
+| Approval required | Owner review; any schema change is a separate approval. |
+
+### T-152: APEX: shared protocol model and invariant representation
+| Field | |
+|---|---|
+| Phase | 5.3 / 5.4 / 5.5-APEX |
+| Dependencies | T-151; structural analyzer on further independent corpora |
+| Scope | Define the shared protocol representation (contracts, calls, assets, integrations, trust boundaries, state) and a machine-checkable invariant/assumption representation used by APEX, specialists and challenge. |
+| Acceptance criteria | Representation documented and reviewed; round-trips existing analyzer output; invariants can be evaluated by the execution engine and by tools. |
+| Required tests | Schema/golden tests; compile-and-execute checks where applicable. |
+| Security considerations | None (local modelling). |
+| Approval required | Design approval; migration approval if stored. |
+
+### T-153: APEX: execution-path and transaction-sequence exploration
+| Field | |
+|---|---|
+| Phase | 5.5-APEX (capabilities 1 and 4) |
+| Dependencies | T-151, T-152 |
+| Scope | Explore paths across functions, modifiers, helpers and contracts, and bounded sequences of transactions, with path-explosion control and recorded coverage. |
+| Acceptance criteria | On independent fixtures, finds known multi-step and cross-function issues that the current analyzer does not; every path result stored with evidence and reproducible. |
+| Required tests | Fixture tests; compiler-backed ground truth; mutation spec. |
+| Security considerations | Local execution of snapshots only; resource caps. |
+| Approval required | Task approval. |
+
+### T-154: APEX: assumption extraction and breaking
+| Field | |
+|---|---|
+| Phase | 5.5-APEX (capability 2) |
+| Dependencies | T-151, T-152 |
+| Scope | Extract explicit and implicit assumptions as records and systematically attempt to violate each. |
+| Acceptance criteria | Assumptions are first-class stored records; each has a recorded breaking attempt and outcome; measured yield on independent fixtures. |
+| Required tests | Fixture tests; independent challenge of resulting hypotheses. |
+| Security considerations | No active testing; model use separately approved. |
+| Approval required | Task approval. |
+
+### T-155: APEX: cross-contract and protocol interaction exploration
+| Field | |
+|---|---|
+| Phase | 5.5-APEX (capability 3) |
+| Dependencies | T-151, T-152, T-153 |
+| Scope | Model interactions among contracts, tokens, oracles, lending, vaults, bridges and external dependencies, including stubs for out-of-repository code with stated assumptions. |
+| Acceptance criteria | Detects at least one class of multi-contract economic or ordering issue on independent fixtures that single-contract analysis misses; external-code assumptions are explicit. |
+| Required tests | Independent multi-contract corpus; compiler-backed validation. |
+| Security considerations | Stubs never contact real systems. |
+| Approval required | Task approval. |
+
+### T-156: APEX: novel hypothesis generation
+| Field | |
+|---|---|
+| Phase | 5.5-APEX (capability 5) |
+| Dependencies | T-153, T-154, T-155 |
+| Scope | Generate hypotheses not tied to fixed templates, each evidence-linked with origin recorded; define and measure novelty. |
+| Acceptance criteria | A stated novelty measure; hypotheses carry spans, assumptions and required checks; measured precision after independent challenge; no unevidenced claims. |
+| Required tests | Held-out evaluation; independent challenge. |
+| Security considerations | Model involvement is spending and needs separate approval; no external contact. |
+| Approval required | Task approval; separate approval for any model spend. |
+
+### T-157: APEX: adaptive exploration and prioritisation
+| Field | |
+|---|---|
+| Phase | 5.5-APEX (capability 6) / Priority Engine |
+| Dependencies | T-052, T-055, T-153 |
+| Scope | Search budgeting and path prioritisation from coverage gaps, anomaly signals, novelty and measured discovery value. |
+| Acceptance criteria | Search spends budget per the Priority Engine policy; coverage gaps close measurably versus an unguided baseline on fixtures; learning only from independently confirmed outcomes. |
+| Required tests | Replay and fixture tests against baselines. |
+| Security considerations | None. |
+| Approval required | Task approval. |
+
+### T-158: APEX: counterexample generation and independent validation
+| Field | |
+|---|---|
+| Phase | 5.5-APEX (capability 7) / 5.6 |
+| Dependencies | T-152, T-141 methods |
+| Scope | Produce reproducible counterexamples and invariant-violation evidence under a real compiler and EVM, minimise them, and hand them to the independent challenge stage. |
+| Acceptance criteria | Every APEX claim of a violation ships with a reproducible counterexample; APEX does not assign the independent outcome; disagreement with ground truth is measured. |
+| Required tests | Compiler-backed execution; reproducibility checks. |
+| Security considerations | Sandboxed, no network, no host access. |
+| Approval required | Task approval; sandbox design approval. |
+
+### T-159: APEX: integration with the Weirdness Engine and specialist researchers
+| Field | |
+|---|---|
+| Phase | 5.5-APEX / 5.5A / 5.5 |
+| Dependencies | T-151, Weirdness Engine definition (T-120) |
+| Scope | Define signal exchange both ways with provenance of origin. |
+| Acceptance criteria | Each hypothesis records the originating and contributing components; no duplicated pipeline; combined runs reproducible. |
+| Required tests | Integration tests on fixtures. |
+| Security considerations | None. |
+| Approval required | Task approval. |
+
+### T-160: APEX: durable discovery memory and learning
+| Field | |
+|---|---|
+| Phase | 5.5-APEX (capability 8) / 5.1 / 5.8 |
+| Dependencies | T-151, T-052 |
+| Scope | Preserve explored paths, strategies, false positives, confirmed vulnerabilities and missed findings; learning interface with contamination controls. |
+| Acceptance criteria | Memory records are versioned and queryable; learning uses only independently confirmed outcomes; replay shows prior knowledge improves search without leaking benchmark answers. |
+| Required tests | Real-Postgres tests; leakage tests. |
+| Security considerations | Retention and access rules for sensitive findings. |
+| Approval required | Design and migration approval. |
+
+### T-161: APEX: controlled prototype
+| Field | |
+|---|---|
+| Phase | 5.5-APEX |
+| Dependencies | T-150, T-151, T-152, and at least T-153 plus T-158 |
+| Scope | A minimal end-to-end prototype on the shared architecture, offline fixtures only. |
+| Acceptance criteria | Runs the full loop (explore, hypothesise, counterexample, independent challenge, memory) on fixtures with everything stored in the research state; frozen baselines untouched. |
+| Required tests | Integration tests; reproducibility. |
+| Security considerations | Passive and local only; disabled by default. |
+| Approval required | Explicit owner approval to start implementation. |
+
+### T-162: APEX: independent benchmark and comparative evaluation
+| Field | |
+|---|---|
+| Phase | 5.8 / 5.5-APEX |
+| Dependencies | T-161, independent corpora (T-140 style), T-141 |
+| Scope | Compare existing tools, the current analyzer, combined conventional tooling, AgentSmith with APEX off and on, on frozen independently authored held-out corpora and unseen repositories. |
+| Acceptance criteria | Reports independently confirmed APEX-only discoveries, false positives and negatives, reproducibility, time, cost, cross-contract coverage and generalisation; corpora written and graded independently of APEX; baselines frozen and unedited; the strategic claim is measured, and a negative result is reported as such. |
+| Required tests | The evaluation harness; reproducibility reruns. |
+| Security considerations | No active testing of live systems. |
+| Approval required | Owner approval. |
+
+## Multi-domain series (reserved T-170 to T-179; proposed, not authorised; see `docs/multi-domain-research.md`)
+
+### T-170: Shared kernel generalisation audit
+| Field | |
+|---|---|
+| Phase | kernel |
+| Dependencies | none |
+| Scope | Audit which research-state, evidence, memory and orchestration interfaces assume Solidity or repositories, and design artifact snapshots and typed evidence locators. |
+| Acceptance criteria | A reviewed list of required generalisations with a migration-free interface proposal; the smart-contract path unchanged. |
+| Required tests | n/a (design). |
+| Security considerations | None. |
+| Approval required | Design approval. |
+
+### T-171: Domain-pack interface design
+| Field | |
+|---|---|
+| Phase | kernel |
+| Dependencies | T-170 |
+| Scope | Define what a domain pack declares: threat model, artifacts, acquisition adapters, analyzers, hypothesis families, validation methods, evidence locators, reporting templates and the safety and authorisation policy. |
+| Acceptance criteria | Interface reviewed; smart contracts expressible as the first pack without behaviour change. |
+| Required tests | n/a (design). |
+| Security considerations | Authorisation policy is part of the interface. |
+| Approval required | Design approval. |
+
+### T-172: Web application domain: threat model and architecture research
+| Field | |
+|---|---|
+| Phase | Web2 |
+| Dependencies | T-171, smart-contract engine independently evaluated |
+| Scope | Prior-art and threat-model study for authentication, authorisation, session management, access control, business logic, privilege escalation and trust boundaries; passive-first architecture; safe validation approach. |
+| Acceptance criteria | Cited research and a reviewed architecture; every dynamic method states its authorisation and sandbox requirements. |
+| Required tests | n/a (research/design). |
+| Security considerations | Active testing only under verified scope and authorisation. |
+| Approval required | Owner review. |
+
+### T-173: Web application domain: limited proof of capability
+| Field | |
+|---|---|
+| Phase | Web2 |
+| Dependencies | T-172 |
+| Scope | A limited passive proof (for example authorisation checks found by source review of a framework application) on a local fixture application. |
+| Acceptance criteria | Works end to end on the shared kernel with evidence and independent challenge; no live system touched. |
+| Required tests | Fixture application tests; independent labels. |
+| Security considerations | Local fixtures only. |
+| Approval required | Owner approval to start. |
+
+### T-174: Web application domain: independent evaluation
+| Field | |
+|---|---|
+| Phase | Web2 / 5.8 |
+| Dependencies | T-173 |
+| Scope | Independently authored held-out Web2 corpus, labels verified by a method other than the analyzer, comparison with conventional tools. |
+| Acceptance criteria | Reported detection, false positives and negatives, and where it does not beat conventional tools. |
+| Required tests | Evaluation harness. |
+| Security considerations | Local fixtures only. |
+| Approval required | Owner approval. |
+
+### T-175: API security domain pack design
+| Field | |
+|---|---|
+| Phase | API |
+| Dependencies | T-171, T-174 |
+| Scope | Design for BOLA, BFLA, authentication weaknesses, business-logic flaws, privilege escalation and data exposure from specifications and code. |
+| Acceptance criteria | Reviewed design with passive methods first and an authorisation-gated validation plan. |
+| Required tests | n/a (design). |
+| Security considerations | No testing of live APIs without authorisation. |
+| Approval required | Design approval. |
+
+### T-176: Cloud and infrastructure domain pack design
+| Field | |
+|---|---|
+| Phase | Cloud |
+| Dependencies | T-171 |
+| Scope | Design for identity and permissions, misconfiguration, insecure storage, exposed services and trust boundaries from infrastructure-as-code and exported configuration. |
+| Acceptance criteria | Reviewed design; passive configuration analysis only until authorised. |
+| Required tests | n/a (design). |
+| Security considerations | No live probing; no credentials stored. |
+| Approval required | Design approval. |
+
+### T-177: Software supply-chain domain pack design
+| Field | |
+|---|---|
+| Phase | Supply chain |
+| Dependencies | T-171 |
+| Scope | Design for dependency vulnerabilities, insecure packages, build and deployment processes, dependency confusion and substitution, compromised update mechanisms, trust relationships. |
+| Acceptance criteria | Reviewed design using manifests and build definitions; sandboxed reproducibility checks. |
+| Required tests | n/a (design). |
+| Security considerations | No installation or execution of untrusted packages outside a sandbox. |
+| Approval required | Design approval. |
+
+### T-178: Identity systems domain pack design
+| Field | |
+|---|---|
+| Phase | Identity |
+| Dependencies | T-171 |
+| Scope | Design for authentication flows, authorisation boundaries, identity lifecycle, token and credential handling, privilege relationships, federation and trust failures. |
+| Acceptance criteria | Reviewed design with protocol-flow modelling and an authorisation-gated validation plan. |
+| Required tests | n/a (design). |
+| Security considerations | No credentials or personal data stored beyond an authorised engagement. |
+| Approval required | Design approval. |
+
+### T-179: Cross-domain acceptance review and expansion decision
+| Field | |
+|---|---|
+| Phase | kernel |
+| Dependencies | T-174, T-175 to T-178 as available |
+| Scope | Review measured value per domain against the acceptance criteria in `docs/multi-domain-research.md` section 7 and decide the expansion order. |
+| Acceptance criteria | A recorded decision per domain with the evidence; no domain declared operational without its corpus, comparison, safe validation and authorisation policy. |
+| Required tests | n/a (review). |
+| Security considerations | None. |
+| Approval required | Owner decision. |
+
