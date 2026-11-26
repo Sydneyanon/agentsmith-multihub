@@ -42,6 +42,60 @@
    "file": "apps/api/src/priority/outcomes.ts",
    "old": "if (o.category === \"confirmed\") discoveryLabels.push(o);",
    "new": "if (o.category === \"confirmed\" || o.category === \"missed\") discoveryLabels.push(o);"
+  },
+  {
+   "name": "coverage: research at an older content hash counts as current",
+   "file": "apps/api/src/priority/coverage.ts",
+   "old": "const atNow = mine.filter((r) => r.contentSha256 === c.contentSha256);",
+   "new": "const atNow = mine;"
+  },
+  {
+   "name": "coverage: an audit of an earlier version still counts",
+   "file": "apps/api/src/priority/coverage.ts",
+   "old": "if (hashAtAudit !== c.contentSha256) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "coverage: audits without provenance or permitted use are used",
+   "file": "apps/api/src/priority/coverage.ts",
+   "old": "const usable = audits.filter((a) => a.provenanceVerified && a.permittedUse);",
+   "new": "const usable = audits;"
+  },
+  {
+   "name": "coverage: claimed audits are not discounted",
+   "file": "apps/api/src/priority/coverage.ts",
+   "old": "? policy.commitAuditReliability : policy.claimedAuditDiscount;",
+   "new": "? policy.commitAuditReliability : 1;"
+  },
+  {
+   "name": "coverage: project saturation is the maximum component, not the weighted mean",
+   "file": "apps/api/src/priority/coverage.ts",
+   "old": "saturation: total ? r3(out.reduce((s, c) => s + c.weight * c.saturation, 0) / total) : 0,",
+   "new": "saturation: Math.max(0, ...out.map((c) => c.saturation)),"
+  },
+  {
+   "name": "coverage: own research and audit coverage are added together",
+   "file": "apps/api/src/priority/coverage.ts",
+   "old": "const saturation = Math.max(ownCoverage, auditCoverage);",
+   "new": "const saturation = Math.min(1, ownCoverage + auditCoverage);"
+  },
+  {
+   "name": "replay: strategies can see the ground truth",
+   "file": "apps/api/src/priority/replay.ts",
+   "old": "estimatedCostUnits: i.costUnits,\n  };",
+   "new": "estimatedCostUnits: i.costUnits * (1 + (st.remaining.get(`${i.components[0]?.id}@${versionAt(i.components[0]!, day)?.hash}`) ?? 0)),\n  };"
+  },
+  {
+   "name": "replay: expired opportunities stay selectable",
+   "file": "apps/api/src/priority/replay.ts",
+   "old": "(i.deadlineDay === null || i.deadlineDay >= day)",
+   "new": "true"
+  },
+  {
+   "name": "replay: findings counted again on every re-research",
+   "file": "apps/api/src/priority/replay.ts",
+   "old": "found += n; st.remaining.set(key, 0);",
+   "new": "found += n;"
   }
  ]
 }

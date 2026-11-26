@@ -8,9 +8,13 @@ import { approveOpportunity, createSource, dismissOpportunity, getOpportunity, l
 import { WorkflowWorker } from "../worker.js";
 import { migratedTestDatabase, skipIntegration, type TestDatabase } from "./harness.js";
 
+// One fixed creation time for every fixture repository. It used to be computed on each repo() call, so when the clock crossed a millisecond
+// between two calls the same repository had two different created_at values: a real material change, recorded as 'updated', which failed
+// the "pushed_at churn is ignored" assertion intermittently (owner-mode integration run, 2026-11-26).
+const CREATED_AT = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const repo = (name: string, over: Record<string, unknown> = {}) => ({
   name, full_name: `code-423n4/${name}`, html_url: `https://github.com/code-423n4/${name}`, description: "Code4rena audit contest", archived: false, fork: false, private: false,
-  created_at: new Date(Date.now() - 2 * 86_400_000).toISOString(), pushed_at: "2026-11-25T00:00:00Z", topics: [], ...over,
+  created_at: CREATED_AT, pushed_at: "2026-11-25T00:00:00Z", topics: [], ...over,
 });
 type Call = { url: string; headers: Record<string, string>; redirect?: string; method?: string };
 /** A scripted GitHub: each call returns the next response; every request is recorded. No network. */

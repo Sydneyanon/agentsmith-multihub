@@ -123,6 +123,22 @@ describe("this cycle's decisions are recorded without overclaiming", () => {
   });
 });
 
+describe("the T-041 review, coverage and replay work stay within their approvals", () => {
+  it("the opportunity-model review is for approval and writes no migration", () => {
+    const r = read("docs/opportunity-model-review.md");
+    expect(r).toMatch(/Nothing here is written as a migration, applied or enabled/); expect(r).toMatch(/\| D9 \|/);
+    expect(read("docs/backlog.md")).toMatch(/T-041: [^\n]*\n\*\*Status 2026-11-26: NOT started/);
+  });
+  it("synthetic replay results are never presented as evidence", () => {
+    expect(read("docs/backlog.md")).toMatch(/Only a SYNTHETIC scenario exists, so no result is evidence/);
+    expect(read("docs/adaptive-priority-engine-design.md")).toMatch(/are \*\*not\*\* evidence about real discovery/);
+  });
+  it("records both intermittent integration failures with their causes and status", () => {
+    const t = read("docs/test-reliability.md");
+    expect(t).toMatch(/No test was skipped, suppressed or weakened/); expect(t).toMatch(/cause identified with high confidence, not fully proven/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

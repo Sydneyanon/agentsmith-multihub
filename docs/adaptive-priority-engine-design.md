@@ -63,6 +63,10 @@ Start T-050 now (this document). Build T-051 early alongside the unified opportu
 ## 11. T-051 status
 Implemented on fixtures only (`apps/api/src/priority/`): deterministic additive scoring with a named, reasoned contribution per feature, policy version and input hash; flags instead of guesses for unknowns; version-aware coverage and audit handling as in section 10; seeded, reproducible 20/80 allocation. Tested by property tests over synthetic opportunities (`priority.test.ts`). **Not connected to real discovery or acquisition data, not used to steer anything, no learning.**
 
+### 11.1 T-052 and T-057 status (2026-11-26)
+- **T-052 coverage model** (`coverage.ts`), fixtures only: version-aware, per component and per class; audit evidence discounted and never full saturation; component-weighted project figure. It is a separate, versioned input (`coverage-policy/1`) and does **not** change scoring policy v1, which golden tests now freeze as the deterministic baseline.
+- **T-057 replay harness** (`replay.ts`): the four simple baselines, engine v1 and a ground-truth oracle on frozen scenarios, with the backlog's metrics. Only a synthetic scenario exists; its numbers test the harness and are **not** evidence about real discovery. On that scenario the engine does not beat round-robin on findings per cost.
+
 ## 12. Open owner decisions
 1. The exploration share, outcome categories, calibration gating and audit-data policy are decided (section 10).
 2. Still open: the preregistered evidence threshold for T-056 (to be proposed with its justification when outcome data exists), and which audit sources to ingest first.

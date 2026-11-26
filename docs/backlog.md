@@ -136,6 +136,7 @@ Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and re
 | Approval required | None (documentation); the later migration needs approval. |
 
 ### T-041: Unified opportunity model: migration draft and tests
+**Status 2026-11-26: NOT started; the owner withheld approval pending review of the T-040 design. Review prepared for approval in `docs/opportunity-model-review.md` (findings F1 to F13, decisions D1 to D9, backfill, rollback and compatibility plan). No SQL written.**
 | Field | |
 |---|---|
 | Phase | 5.0 |
@@ -171,7 +172,7 @@ Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and re
 | Approval required | None (documentation); owner review of the open decisions. |
 
 ### T-051: Transparent deterministic priority scoring v1
-**Status 2026-11-26: implemented on fixtures only (`apps/api/src/priority/`, 12 property tests). Not connected to real data; steers nothing.**
+**Status 2026-11-26: implemented on fixtures only (`apps/api/src/priority/`, 14 property tests including golden values that freeze policy v1 as the deterministic baseline). Not connected to real data; steers nothing.**
 
 | Field | |
 |---|---|
@@ -184,6 +185,7 @@ Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and re
 | Approval required | Approval of the T-050 design. |
 
 ### T-052: Research coverage and audit-saturation model
+**Status 2026-11-26: model built on fixtures only (`apps/api/src/priority/coverage.ts`, 9 tests): coverage per component at a content hash and per class; changed code never counts as covered; audits count only with provenance and permitted use, only for components they name at the unchanged hash, discounted (claimed 0.25, commit-specific 0.8, never 1.0); project figure is component-weighted. Not wired into policy v1 (frozen); no schema (needs T-041/T-144 approval); real-Postgres invalidation tests wait for that schema.**
 | Field | |
 |---|---|
 | Phase | cross-phase / 5.1 |
@@ -239,6 +241,7 @@ Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and re
 | Approval required | Owner approval of the minimum evidence threshold. |
 
 ### T-057: Comparative evaluation against simple baselines
+**Status 2026-11-26: offline replay harness built (`apps/api/src/priority/replay.ts`, 7 tests): random, newest-first, highest-reward-first and round-robin baselines plus engine v1 and a ground-truth oracle; reports confirmed findings, findings per cost, time to first confirmed, changed-code coverage, exploration yield and regret; strategies are tested not to see the ground truth. Only a SYNTHETIC scenario exists, so no result is evidence that any strategy is better; real comparison needs replayed histories with independently confirmed outcomes.**
 | Field | |
 |---|---|
 | Phase | cross-phase / 5.8 |
@@ -546,6 +549,7 @@ Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and re
 ## APEX series (reserved T-150 to T-162; proposed, not authorised; see `docs/apex.md`)
 
 ### T-150: APEX: prior-art research and novelty assessment
+**Status 2026-11-26: first pass in `docs/apex-prior-art.md` (no paper read directly). Second pass with full texts where reachable is in progress: publisher sites stay unreachable from this environment (the allowlist change was not approved at the prompt), so full texts are read only where authors publish them on GitHub, and Foundry's official docs from their source repository.**
 | Field | |
 |---|---|
 | Phase | 5.5-APEX |

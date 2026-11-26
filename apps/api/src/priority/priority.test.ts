@@ -71,3 +71,16 @@ describe("outcome categories (owner policy): only confirmed outcomes are discove
     expect(() => assertWellFormed(o("y", "confirmed", true, false))).toThrow(/human adjudication/);
   });
 });
+
+describe("policy v1 is the frozen deterministic baseline (golden values recorded at cfdee08)", () => {
+  // Any change to these numbers is a change to the baseline: it needs a new policy version and a recorded decision, not an edited test.
+  it("scores the fixtures exactly as recorded", () => {
+    const got = Object.fromEntries(Object.values(FIXTURES).map((o) => { const a = s(o); return [a.id, a.score]; }));
+    expect(got).toEqual({ fresh: 60.03, stale: 49.97, saturated: 5.52, recovered: 49.17, "partly-audited": 49.97, "claimed-only": 48.58, unknowns: 16.67, "high-reward": 55.99 });
+    expect(POLICY_V1.version).toBe("priority-policy/1");
+  });
+  it("allocates 5 slots with seed 42 exactly as recorded (4 exploit, 1 explore)", () => {
+    const r = allocate(Object.values(FIXTURES).map(s), 5, 42);
+    expect(r.allocations.map((x) => [x.id, x.mode])).toEqual([["fresh", "exploit"], ["high-reward", "exploit"], ["partly-audited", "exploit"], ["stale", "exploit"], ["claimed-only", "explore"]]);
+  });
+});

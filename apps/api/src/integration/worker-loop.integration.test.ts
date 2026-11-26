@@ -83,16 +83,24 @@ describe.skipIf(skipIntegration)("worker loop over the real queue SQL", () => {
     const a = await seedRun(db.pool, keys);
     const b = await seedRun(db.pool, keys);
     let killed = false;
+    let terminated = 0;
     const { logs } = await drive(keys, async (worker, step) => {
       if (!killed) {
         killed = true;
-        await db.adminPool.query(
-          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [db.name],
+        // Only non-superuser backends: a superuser-owned backend on this database (an autovacuum worker, typically just after the server
+        // restarts) cannot be terminated by the test login, and PostgreSQL then refuses the WHOLE statement ("permission denied to
+        // terminate process"), so nothing was killed and the test failed intermittently. Every connection the worker and the API hold
+        // belongs to a non-superuser role, so this still terminates all of them; the count below proves it did.
+        const r = await db.adminPool.query<{ ok: boolean }>(
+          `SELECT pg_terminate_backend(a.pid) AS ok FROM pg_stat_activity a JOIN pg_roles r ON r.oid = a.usesysid
+            WHERE a.datname = $1 AND a.pid <> pg_backend_pid() AND NOT r.rolsuper`, [db.name],
         );
+        terminated = r.rows.filter((row) => row.ok).length;
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
       await worker.complete(step.id, { ok: true });
     });
+    expect(terminated).toBeGreaterThan(0);
     expect((await runRow(db.pool, a.runId)).status).toBe("succeeded");
     expect((await runRow(db.pool, b.runId)).status).toBe("succeeded");
     expect(logs.filter((entry) => entry.message === "step_failed" && entry.level === "error")).toHaveLength(0);
