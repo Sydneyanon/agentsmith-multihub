@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,5 +50,27 @@ describe("engine status (CR2) pure parts", () => {
     expect((await app.inject({ method: "GET", url: "/v1/engine/status" })).statusCode).toBe(401);
     const r = await app.inject({ method: "GET", url: "/v1/engine/status", headers: { authorization: `Bearer ${token}` } });
     expect(r.statusCode).toBe(503); expect(r.json()).toEqual({ error: "database_not_configured" });
+  });
+});
+
+describe("release readiness (A25 checklist)", () => {
+  const read = (p: string) => require("node:fs").readFileSync(p, "utf8") as string;
+  it("the release image build refuses to run without the last approved migration, drops later migrations and all drafts, and records both", () => {
+    const s = read("scripts/hub-image.sh");
+    expect(s).toMatch(/HUB_RELEASE_LAST_MIGRATION/);
+    expect(s).toMatch(/set HUB_RELEASE_LAST_MIGRATION to the last migration approved for this release/);
+    expect(s).toMatch(/rm -rf "\$WORK\/stage1\/db\/drafts"/);
+    expect(s).toMatch(/"migrations_excluded":\[%s\]/);
+    expect(read("scripts/hub-image-smoke.sh")).toMatch(/\[ ! -d "\$ROOTFS\/app\/db\/drafts" \]/);
+  });
+  it("discovery routes answer 503 discovery_not_installed (not 500) when migration 0008 is absent", async () => {
+    const token = randomBytes(36).toString("base64url");
+    const missing = Object.assign(new Error('relation "discovery_sources" does not exist'), { code: "42P01" });
+    const pool = { query: async () => { throw missing; } } as never;
+    const app = buildApp({ pool, apiBearerToken: token, hubAllowedHosts: [] });
+    for (const url of ["/v1/discovery/sources", "/v1/discovery/opportunities", "/v1/discovery/opportunities/00000000-0000-4000-8000-000000000000"]) {
+      const r = await app.inject({ method: "GET", url, headers: { authorization: `Bearer ${token}` } });
+      expect(r.statusCode, url).toBe(503); expect(r.json()).toEqual({ error: "discovery_not_installed" });
+    }
   });
 });

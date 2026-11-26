@@ -1,0 +1,25 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "Corpus 5 selection (visible to the analyzer side)",
+ "type": "object", "additionalProperties": false, "required": ["version", "selector", "selected_at", "entries"],
+ "properties": {
+  "version": { "const": "corpus5-selection/1" },
+  "selector": { "type": "string", "description": "who selected (agent run id or the owner); not the analyzer's author" },
+  "selected_at": { "type": "string", "format": "date-time" },
+  "entries": { "type": "array", "minItems": 20, "maxItems": 30, "items": {
+   "type": "object", "additionalProperties": false,
+   "required": ["id", "kind", "repository", "commit_sha", "tree_sha", "in_scope_paths", "code_family", "report_published", "prior_knowledge_risk"],
+   "properties": {
+    "id": { "type": "string", "pattern": "^c5-[0-9]{2}$" },
+    "kind": { "enum": ["vulnerable", "post_fix_control", "clean_control"] },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+    "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "tree_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "in_scope_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "maxLength": 300 } },
+    "code_family": { "type": "string", "maxLength": 200 },
+    "report_published": { "type": "string", "format": "date" },
+    "prior_knowledge_risk": { "type": "boolean" },
+    "control_of": { "type": "string", "pattern": "^c5-[0-9]{2}$" }
+   } } }
+ }
+}

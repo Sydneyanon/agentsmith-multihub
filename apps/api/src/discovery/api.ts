@@ -14,6 +14,8 @@ function fail(reply: FastifyReply, error: unknown) {
     return reply.code(status).send({ error: error.code, message: error.message });
   }
   if (error instanceof z.ZodError) return reply.code(400).send({ error: "invalid_request", details: error.flatten() });
+  // migration 0008 not applied in this database: say so instead of a generic 500 (the Control Room reads the same fact from engine status)
+  if ((error as { code?: unknown } | null)?.code === "42P01") return reply.code(503).send({ error: "discovery_not_installed" });
   throw error;
 }
 
@@ -21,7 +23,10 @@ function fail(reply: FastifyReply, error: unknown) {
 export function registerDiscoveryRoutes(app: FastifyInstance, pool: Pool | undefined) {
   const need = (reply: FastifyReply) => (pool ? null : reply.code(503).send({ error: "database_not_configured" }));
 
-  app.get("/v1/discovery/sources", async (_request, reply) => need(reply) ?? { sources: await listSources(pool!) });
+  app.get("/v1/discovery/sources", async (_request, reply) => {
+    if (need(reply)) return reply;
+    try { return { sources: await listSources(pool!) }; } catch (error) { return fail(reply, error); }
+  });
 
   app.post("/v1/discovery/sources", async (request, reply) => {
     if (need(reply)) return reply;
@@ -60,8 +65,10 @@ export function registerDiscoveryRoutes(app: FastifyInstance, pool: Pool | undef
     if (need(reply)) return reply;
     const parsed = id.safeParse((request.params as { id: string }).id);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_id" });
-    const found = await getOpportunity(pool!, parsed.data);
-    return found ?? reply.code(404).send({ error: "not_found" });
+    try {
+      const found = await getOpportunity(pool!, parsed.data);
+      return found ?? reply.code(404).send({ error: "not_found" });
+    } catch (error) { return fail(reply, error); }
   });
 
   app.post("/v1/discovery/opportunities/:id/approve", async (request, reply) => {

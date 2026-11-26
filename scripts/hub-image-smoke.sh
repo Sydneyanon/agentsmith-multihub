@@ -41,7 +41,7 @@ echo "     node in image: $(run_in node -v 2>&1) (host: $(node -v))"
 check "node in image runs" 'run_in node -e "process.exit(0)"'
 check "app files are root-owned and not writable by node" '! run_in sh -c "touch /app/probe" 2>/dev/null && ! run_in sh -c "touch /app/dist/probe" 2>/dev/null'
 check "only production dependencies were installed (no typescript, vitest, jsdom, playwright-core)" '[ ! -e "$ROOTFS/app/node_modules/typescript" ] && [ ! -e "$ROOTFS/app/node_modules/vitest" ] && [ ! -e "$ROOTFS/app/node_modules/jsdom" ] && [ ! -e "$ROOTFS/app/node_modules/playwright-core" ]'
-check "hub client and migrations are in the image" '[ -f "$ROOTFS/app/dist/web/index.html" ] && [ -f "$ROOTFS/app/dist/web/assets/main.js" ] && [ "$(ls "$ROOTFS"/app/db/migrations/*.sql | wc -l)" = 8 ]'
+check "hub client and migrations are in the image" '[ -f "$ROOTFS/app/dist/web/index.html" ] && [ -f "$ROOTFS/app/dist/web/assets/main.js" ] && [ "$(ls "$ROOTFS"/app/db/migrations/*.sql | wc -l)" -ge 7 ] && [ ! -d "$ROOTFS/app/db/drafts" ]'
 check "no tests, fixtures, test harnesses, declaration files, source maps or dev scripts in dist" '[ -z "$(find "$ROOTFS/app/dist" \( -name "*.test.js" -o -name "*.spec.js" -o -name "*.d.ts" -o -name "*.map" -o -path "*/integration/*" -o -path "*/testing/*" -o -name "hub-demo.js" -o -name "hub-layout-check.js" -o -name "hub-screenshots.js" \) | head -1)" ] && [ -f "$ROOTFS/app/dist/apps/api/src/server.js" ] && [ -f "$ROOTFS/app/dist/scripts/migrate.js" ]'
 check "no secret or local-state files in the image" '[ -z "$(find "$ROOTFS/app" -maxdepth 2 \( -name ".env*" -o -name ".git" -o -name "*.pem" \) | head -1)" ]'
 
@@ -57,7 +57,7 @@ check "nothing was migrated by the refused connection" '[ -z "$(psql "$DBURL" -A
 echo "== migration inside the image, against a disposable loopback database (TLS verified with the throw-away CA)"
 OUT="$(run_in sh -c "cd /app && $CA_ENV DIRECT_DATABASE_URL='$DBURL' node dist/scripts/migrate.js" 2>&1)"; RC=$?
 check "migrate.js exits 0 (rc=$RC)" '[ "$RC" = 0 ]'
-check "all eight migrations recorded in schema_migrations" '[ "$(psql "$DBURL" -Atc "select count(*) from schema_migrations")" = 8 ]'
+check "exactly the migrations shipped in the image are recorded in schema_migrations" '[ "$(psql "$DBURL" -Atc "select count(*) from schema_migrations")" = "$(ls "$ROOTFS"/app/db/migrations/*.sql | wc -l)" ]'
 check "research-state tables exist" '[ -n "$(psql "$DBURL" -Atc "select 1 from information_schema.tables where table_name='"'"'repo_snapshots'"'"'")" ]'
 echo "$OUT" | tail -3 | sed 's/^/     /'
 

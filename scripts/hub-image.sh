@@ -19,6 +19,9 @@ SHA="$(git -C "$ROOT" rev-parse HEAD)"
 SHORT="${SHA:0:12}"
 TAG="${HUB_IMAGE_TAG:-hub-$SHORT}"
 SDE="$(git -C "$ROOT" log -1 --format=%ct HEAD)"   # fixed file times: same commit, same layer bytes
+# The last migration APPROVED FOR THIS RELEASE (e.g. 0007). Later migration files, and every draft under db/drafts, are left out of the
+# image, so an unapproved migration can never be applied from it (the runner applies every file it ships). Required: no silent default.
+RELEASE_LAST_MIGRATION="${HUB_RELEASE_LAST_MIGRATION:-}"
 
 base_digest() { # digest of the linux/amd64 manifest inside the base image index
   crane manifest "$BASE_REF" | python3 -c '
@@ -36,8 +39,16 @@ build() {
   # Dockerfile build stage: COPY package*.json, tsconfig.json, apps, scripts, db; npm ci; npm run build
   git -C "$ROOT" archive HEAD package.json package-lock.json tsconfig.json tsconfig.build.json apps scripts db | tar -x -C "$WORK/stage1"
   (cd "$WORK/stage1" && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null)
+  [[ "$RELEASE_LAST_MIGRATION" =~ ^[0-9]{4}$ ]] || { echo "set HUB_RELEASE_LAST_MIGRATION to the last migration approved for this release (e.g. 0007)"; exit 1; }
+  local excluded=""
+  for f in "$WORK/stage1/db/migrations/"*.sql; do n="$(basename "$f")"; if [ "${n%%_*}" \> "$RELEASE_LAST_MIGRATION" ]; then excluded="$excluded $n"; rm "$f"; fi; done
+  rm -rf "$WORK/stage1/db/drafts"
+  ls "$WORK/stage1/db/migrations/${RELEASE_LAST_MIGRATION}_"*.sql >/dev/null 2>&1 || { echo "migration $RELEASE_LAST_MIGRATION not found"; exit 1; }
+  local shipped; shipped="$(cd "$WORK/stage1/db/migrations" && ls *.sql | sed 's/.*/"&"/' | paste -sd, -)"
+  local excl_json; excl_json="$(for n in $excluded; do printf '"%s"\n' "$n"; done | paste -sd, -)"
   # build identity for GET /v1/engine/status (commit, image tag, commit time: deterministic, so two builds stay byte-identical)
-  printf '{"commit":"%s","image":"registry.fly.io/%s:%s","built_at":"%s"}\n' "$SHA" "$APP" "$TAG" "$(date -u -d "@$SDE" +%Y-%m-%dT%H:%M:%SZ)" > "$WORK/stage1/dist/build-info.json"
+  printf '{"commit":"%s","image":"registry.fly.io/%s:%s","built_at":"%s","migrations_shipped":[%s],"migrations_excluded":[%s]}\n' "$SHA" "$APP" "$TAG" "$(date -u -d "@$SDE" +%Y-%m-%dT%H:%M:%SZ)" "$shipped" "$excl_json" > "$WORK/stage1/dist/build-info.json"
+  echo "migrations shipped: $shipped; excluded (not approved for this release):${excluded:- none}; drafts removed"
   # Dockerfile runtime stage: COPY package*.json; npm ci --omit=dev; COPY dist, db
   cp "$WORK/stage1/package.json" "$WORK/stage1/package-lock.json" "$WORK/stage2/app/"
   (cd "$WORK/stage2/app" && npm ci --omit=dev --no-audit --no-fund >/dev/null)

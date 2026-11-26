@@ -911,7 +911,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Acceptance criteria | Owner-reviewed brief; rules fixed before any repository is named; nothing acquired. |
 | Required tests | n/a (design). |
 | Security considerations | No credentials; public sources only. |
-| Approval required | Design review (part of A22). |
+| Approval required | Design review (part of A22). | **Status 2026-11-26: brief approved by the owner and prepared** (`eval/heldout5/BRIEF.md`, `PROCESS.md`, schemas, blind validator with tests). No repository is selected or fetched (A22).
 
 ### T-181: Corpus-5 independent selection, acquisition and seal
 | Field | |
@@ -1034,7 +1034,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Acceptance criteria | Reviewed design; migration drafted for disposable DBs only; Control Room panels specified. |
 | Required tests | Design only; draft migration tested on throwaway DBs. |
 | Security considerations | Records hold research content; same access rules as hypotheses. |
-| Approval required | **A28** (design); applying the migration is **A29**. |
+| Approval required | **A28** (design); applying the migration is **A29**. | **Status 2026-11-26: A28 approved (design only); design written** (`docs/research-decision-records.md`). Owner instruction: no migration file and no application; reuses the T-144 draft for coverage, effort and outcomes.
 
 ### T-192: Deterministic research policy v0 and its offline evaluation
 | Field | |

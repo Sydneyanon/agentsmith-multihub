@@ -1,0 +1,25 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "Corpus 5 ground truth (SEALED: the analyzer side must not open it before scoring)",
+ "type": "object", "additionalProperties": false, "required": ["version", "findings", "controls"],
+ "properties": {
+  "version": { "const": "corpus5-ground-truth/1" },
+  "findings": { "type": "array", "items": {
+   "type": "object", "additionalProperties": false,
+   "required": ["entry", "finding_id", "report_url", "severity", "class", "mappable", "locations", "fix_commit"],
+   "properties": {
+    "entry": { "type": "string", "pattern": "^c5-[0-9]{2}$" },
+    "finding_id": { "type": "string", "maxLength": 100 },
+    "report_url": { "type": "string", "pattern": "^https://" },
+    "severity": { "enum": ["high", "medium", "exploit"] },
+    "class": { "type": "string", "pattern": "^(reentrancy|access-control|initializer|delegatecall|selfdestruct|unchecked-call|tx-origin|other:.{3,80})$" },
+    "mappable": { "type": "boolean" },
+    "locations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["file", "contract", "function"],
+     "properties": { "file": { "type": "string" }, "contract": { "type": "string" }, "function": { "type": "string" }, "line_start": { "type": "integer" }, "line_end": { "type": "integer" } } } },
+    "fix_commit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "notes": { "type": "string", "maxLength": 1000 }
+   } } },
+  "controls": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["entry", "fixed_findings"],
+   "properties": { "entry": { "type": "string", "pattern": "^c5-[0-9]{2}$" }, "fixed_findings": { "type": "array", "items": { "type": "string" } } } } }
+ }
+}
