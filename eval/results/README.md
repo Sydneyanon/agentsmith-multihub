@@ -35,3 +35,65 @@ Abstentions (reentrancy execution validator on the 8 leads): validated 4, refute
 Honest reading: on this independently written, harder corpus the candidate is much better than the baseline but nowhere near the 18/18 seen on the first corpus; most of the gap is initializer and upgradeability, access control on unusual shapes, and judgement calls the author marked ambiguous (where the analyzer flags and the label says benign, or the reverse). The two corpora's labels are unverified except for reentrancy (compiler-backed, see `ground-truth-README.md`).
 
 **After this run the corpus is no longer held-out.** I inspected the misses and fixed general failure classes (early-return paths before a check, authority passed through helper arguments, delegatecall provenance through helpers, stored allow-lists, initializer breadth, fixed-owner payouts, halt-style setters). The re-score `heldout2-after-tuning-DEVELOPMENT-not-heldout.*` (TP 31, FP 8, FN 6, TN 51) is **development evidence only**. Corpora 1 and the development corpus are unchanged by those fixes (18/0 and 17/0). A third corpus is needed for the next honest measurement.
+
+## Update: third independent corpus, both frozen candidates and the baseline (2026-11-26)
+**Corpus.** `eval/heldout3` has 58 contracts and 79 labels; its author marked 8 of them `ambiguous`. It was written by a separate agent
+that was told nothing about the analyzer, the earlier corpora or any result, and all 58 contracts compile with solc 0.8.28 (pass/fail
+gate only). It was frozen and committed in `912bda2`, and pushed, before any analyzer ran on it. See `eval/heldout3/FROZEN.md`, which
+also discloses the one exposure: the author's hand-back message named the ambiguous labels before scoring. No analyzer change followed.
+
+**Scoring.** Each analyzer ran once, unmodified, in a clean worktree at its tag: `structural-candidate-1` = 6cd3be7 and
+`structural-candidate-2` = 9c2d80e, both verified by `eval/verify-frozen.sh`. The baseline ran from the candidate-2 worktree; the
+baseline and the harness are identical at both tags. The raw outputs `heldout3-run1-*.{json,txt}` are unedited. The clear/ambiguous
+split below is derived from them by `heldout3-split.py` into `heldout3-run1-split-DERIVED.txt`.
+
+| Analyzer | Labels | TP | FP | FN | TN | Precision | Recall |
+|---|---|---|---|---|---|---|---|
+| Baseline prototype, all labels | 79 | 8 | 7 | 23 | 41 | 0.53 | 0.26 |
+| Baseline, clear labels only | 71 | 6 | 5 | 20 | 40 | 0.55 | 0.23 |
+| **Candidate 1, all labels** | 79 | 18 | 2 | 13 | 46 | 0.90 | 0.58 |
+| **Candidate 2, all labels** | 79 | 18 | 2 | 13 | 46 | 0.90 | 0.58 |
+| Candidates 1 and 2, clear labels only | 71 | 17 | 2 | 9 | 43 | 0.89 | 0.65 |
+| Candidates 1 and 2, ambiguous labels only | 8 | 1 | 0 | 4 | 3 | 1.00 | 0.20 |
+
+**By class** (both candidates, TP/FP/FN):
+
+| Class | TP/FP/FN |
+|---|---|
+| reentrancy | 4/1/2 |
+| access-control | 4/0/1 |
+| initializer | 2/0/4 |
+| delegatecall | 2/1/2 |
+| unchecked-call | 2/0/2 |
+| selfdestruct | 1/0/2 |
+| tx-origin | 3/0/0 |
+
+Key line exact: 12/18 for both. Within 2 lines: 17/18 for candidate 1 and 16/18 for candidate 2.
+
+**Abstentions.** The execution validator ran on the 5 reentrancy leads, with the same verdicts for both candidates:
+- **Validated (1):** `withdrawRefund`, labelled vulnerable.
+- **Refuted (3):**
+  - `PrepaidCreditLedger.withdraw`, labelled benign. The refutation agrees with the label.
+  - `EtherShareVault.redeem`, labelled vulnerable. This disagrees with the label.
+  - `MerchantEscrow.release`, labelled vulnerable. This disagrees with the label.
+- **Inconclusive, i.e. an abstention (1):** `AirdropDistributor.claim`, where the external call `points.mint` could not be modelled.
+
+The two disagreements are **open**: either the label or the validator's bounded scenarios are wrong. The corpus author describes the
+`EtherShareVault` drain as re-entering `deposit` at a depressed share price, a cross-function path. Neither is settled by the
+compiler-backed EVM check yet.
+
+**Unlabelled.** Findings in unlabelled functions, which are not scored: 10 for candidate 1, 7 for candidate 2.
+
+**Honest reading:**
+- **The fixes did not move the labels.** Candidates 1 and 2 agree label by label: same 18 detections, same 13 misses, same 2 false
+  positives. The fixes made after corpus 2 and the first real run gave no measurable gain in label recall or precision on this
+  independent corpus. Their only visible effect is fewer findings outside the labelled functions (10 to 7).
+- **Precision is high and recall is moderate.** Precision on clear labels is 0.89; recall is 0.65. The weak classes are again the
+  upgradeable/initializer family (initializer 2 of 6 found, selfdestruct-through-logic-contract 1 of 3), proxy fallbacks (delegatecall
+  2 of 4) and some unchecked-call shapes.
+- **The baseline is far behind** (recall 0.26).
+- **Ambiguous labels are reported separately and are not counted as wins or losses** of either side. The analyzer found 1 of the 5
+  labelled vulnerable, and flagged none of the 3 labelled benign.
+- **The sample is small.** With 31 vulnerable labels, a one-label change moves recall by about 3 points.
+
+**After this run the corpus is no longer held-out** for any change made in response to it. No analyzer change was made in this cycle.

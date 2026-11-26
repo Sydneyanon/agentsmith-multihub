@@ -1,0 +1,24 @@
+# Derived from the raw heldout3-run1-*.json files by eval/results/heldout3-split.py; the raw files are unedited.
+
+## baseline
+  all labels       n=79 tp= 8 fp= 7 fn=23 tn=41 precision=0.53 recall=0.26
+  clear labels     n=71 tp= 6 fp= 5 fn=20 tn=40 precision=0.55 recall=0.23
+  ambiguous labels n= 8 tp= 2 fp= 2 fn= 3 tn= 1 precision=0.50 recall=0.40
+  findings in unlabelled functions (unscored): 8
+
+## candidate 1 (6cd3be7)
+  all labels       n=79 tp=18 fp= 2 fn=13 tn=46 precision=0.90 recall=0.58
+  clear labels     n=71 tp=17 fp= 2 fn= 9 tn=43 precision=0.89 recall=0.65
+  ambiguous labels n= 8 tp= 1 fp= 0 fn= 4 tn= 3 precision=1.00 recall=0.20
+  execution validator on reentrancy leads: {'inconclusive': 1, 'refuted': 3, 'validated': 1}; abstentions (inconclusive) = 1
+  validator vs label: claim:inconclusive/label-vuln; redeem:refuted/label-vuln; release:refuted/label-vuln; withdraw:refuted/label-benign; withdrawRefund:validated/label-vuln
+  findings in unlabelled functions (unscored): 10
+
+## candidate 2 (9c2d80e)
+  all labels       n=79 tp=18 fp= 2 fn=13 tn=46 precision=0.90 recall=0.58
+  clear labels     n=71 tp=17 fp= 2 fn= 9 tn=43 precision=0.89 recall=0.65
+  ambiguous labels n= 8 tp= 1 fp= 0 fn= 4 tn= 3 precision=1.00 recall=0.20
+  execution validator on reentrancy leads: {'inconclusive': 1, 'refuted': 3, 'validated': 1}; abstentions (inconclusive) = 1
+  validator vs label: claim:inconclusive/label-vuln; redeem:refuted/label-vuln; release:refuted/label-vuln; withdraw:refuted/label-benign; withdrawRefund:validated/label-vuln
+  findings in unlabelled functions (unscored): 7
+
