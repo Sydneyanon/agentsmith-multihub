@@ -105,7 +105,8 @@ describe("independent validation by execution", () => {
     expect(validateReentrancy(old, old.findFunction("Bank", "withdrawBad", 1)!).verdict).toBe("validated");
   });
   it("rolls back a re-entrant call that pays and then reverts, so its payout is not counted as an exploit", () => {
-    const r = new ProgramIndex([{ path: "r.sol", text: `contract R { uint n; function f() external { n += 1; (bool ok, ) = msg.sender.call{value: 1 ether}(""); require(ok); require(n == 1, "second call"); } }` }]);
+    const r = new ProgramIndex([{ path: "r.sol", text: `contract R { bool done; bool inCall;
+      function f() external { require(!done); bool was = inCall; inCall = true; (bool ok, ) = msg.sender.call{value: 1 ether}(""); require(ok); inCall = was; require(!was, "reentered"); done = true; } }` }]);
     expect(validateReentrancy(r, r.findFunction("R", "f", 0)!).verdict).toBe("refuted");
   });
   it("does not blame the entry function for a different function that is itself re-enterable", () => {
