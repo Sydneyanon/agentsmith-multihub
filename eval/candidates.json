@@ -1,0 +1,61 @@
+{
+ "schema": "agentsmith-candidate-registry/1",
+ "purpose": "Durable identity of frozen analyzer candidates. Commits are content-addressed: a candidate is its commit SHA AND tree SHA; tags are only local conveniences recreated from this file. The frozen commits are ancestors of this branch, so they exist wherever the branch is pushed.",
+ "candidates": [
+  {
+   "name": "structural-candidate-1",
+   "commit": "6cd3be7573b80e995eabffd12e218807a2100f27",
+   "tree": "5dbd02cf766dfd32fa6be660c39e9719b10f39da",
+   "analyzerTree": "ccaf12723c903b728e70f7b1de815303503bf386",
+   "harnessBlob": "2a16bcfd3ae81b1a0fa2091b6cb6f64256cc453c",
+   "taggedAt": "1795679447",
+   "tagMessage": "Structural-analysis candidate 1 (6cd3be7): analyzer, validator, baseline, frozen held-out corpus, evaluation record. Frozen for independent evaluation.",
+   "scoredResults": {
+    "eval/results/heldout2-run1-candidate1-structural.json": "af67c3f7ec2d27c627e6b0b582d614574c09904ba1274af4cd89e9b532dd8448",
+    "eval/results/heldout2-run1-candidate1-structural.txt": "cbf889d7174ae653c0c2ba0887e2ac7b42e90be0cda5ee9f122d4a3ecdb6e091",
+    "eval/results/heldout3-run1-candidate1-structural.json": "0bd6b44244c4c79b35b7d88e9f793f19fc970247fd3ecd795f13031dcb708e13",
+    "eval/results/heldout3-run1-candidate1-structural.txt": "1b0b7d80abe467145b036c5ebcc2cbc4a0eec0b5679337898732643316fd4450"
+   }
+  },
+  {
+   "name": "structural-candidate-2",
+   "commit": "9c2d80e70eb08dae2afae5ab55a11e372c38061d",
+   "tree": "163ef7b965330002b47d2714634ca3d75dc6f694",
+   "analyzerTree": "6cee7b59704e2890e5073a3b4b20989832848edf",
+   "harnessBlob": "2a16bcfd3ae81b1a0fa2091b6cb6f64256cc453c",
+   "taggedAt": "1795681315",
+   "tagMessage": "Structural-analysis candidate 2 (9c2d80e): candidate 1 plus general fixes from corpus-2 failures and the first real-repository run; frozen BEFORE corpus 3 is scored",
+   "scoredResults": {
+    "eval/results/heldout3-run1-candidate2-structural.json": "3f7207b6e09dc1e65caf6a1643bc7dd80465ffedbaf14848f90ff6ccd9d74a69",
+    "eval/results/heldout3-run1-candidate2-structural.txt": "99414cc0cc3711752d53952e0e7c20bb5367f62ce4641e1d1ef508fe8ddf65f1"
+   }
+  }
+ ],
+ "corpora": {
+  "eval/heldout": {
+   "manifestSum": "aa9b10c8b0db82a7962bd5f3823d1f6180e1184a2ab3b3a8798ad30538323ebd",
+   "frozenIn": "cd54fef68ba4b811b3ebb81f7b10c8701a85dcd6"
+  },
+  "eval/heldout2": {
+   "manifestSum": "5b492241307016fedf51346ddacb2aae2be06e01145b681528111ebb4aa527c2",
+   "frozenIn": "067964da7361ffedfe09f6b302da3d70f73424bc"
+  },
+  "eval/heldout3": {
+   "manifestSum": "5b34b254f209fffaaa50d748a64fe9d24d33dacde0ead244fa1ed1604cf87b41",
+   "frozenIn": "912bda295aba11d66b63831008fb080db99d672f"
+  }
+ },
+ "baselineResults": {
+  "eval/results/heldout-run1-baseline.json": "b9a3bd05c63b0c6d024c8a6943f4ee3ac106995c206a69053e2cec68b84ad80f",
+  "eval/results/heldout-run1-baseline.txt": "94ca1d845f380215b3adeb1cda31964b4d70c4552016029d104ddc9fe56fa851",
+  "eval/results/heldout2-run1-baseline.json": "c6c292d41c82d754651c16d889d9a127e8253015327d569a144445bea3a9436e",
+  "eval/results/heldout2-run1-baseline.txt": "21c168804e77afd0c4ee4620284d715e7cadfcb1b41f2efb491e0221ff51224b",
+  "eval/results/heldout3-run1-baseline.json": "8f5fde7a1a8555896db2717353149f424d61a225922d7350b9e1da1635822a15",
+  "eval/results/heldout3-run1-baseline.txt": "b6fce4953a6c6421dcfe5f1a386402c74f086cf71593a539d1381495a813865c"
+ },
+ "otherFrozenResults": {
+  "note": "Corpus-1 run 1 was scored before candidate 1 was tagged (development commit, see eval/results/README.md); hashes kept, no candidate attributed.",
+  "eval/results/heldout-run1-structural.json": "d9aa550fe051ee698e62415588d9d373c46e4d27d1036fd17f2d95d8fbf9d07e",
+  "eval/results/heldout-run1-structural.txt": "0ed1d34d52ff6233132996d52b039cfe5972a37d87b88302025f6ec33f29c64a"
+ }
+}
