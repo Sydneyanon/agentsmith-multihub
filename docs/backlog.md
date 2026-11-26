@@ -406,3 +406,47 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 | Required tests | n/a |
 | Security considerations | Never read StackScripts, user-data, configs, disks, volumes, the secrets file or the admin token; print allowlisted fields only. |
 | Approval required | Owner, per step. |
+
+### T-140: Fresh held-out corpus (successor to the burned one)
+| Field | |
+|---|---|
+| Phase | 5.8 |
+| Dependencies | none |
+| Scope | A separate agent writes a second corpus including harder cases (cross-contract, inheritance chains, proxies, access control via libraries, non-textbook styles); frozen with a manifest before the analyzer is changed. |
+| Acceptance criteria | The analyzer is scored once on it and the result recorded unedited. |
+| Required tests | `eval/run-eval.ts` |
+| Security considerations | None (local text). |
+| Approval required | None. |
+
+### T-141: Compile-and-execute ground truth for labels (Foundry)
+| Field | |
+|---|---|
+| Phase | 5.4B |
+| Dependencies | `docs/security-tooling-assessment.md` approved |
+| Scope | Run the corpora's contracts under Foundry in a no-network sandbox to verify labels and the reentrancy validator's verdicts (including the two labels it disputes). |
+| Acceptance criteria | Each disputed label is settled by execution; the validator's agreement rate is reported. |
+| Required tests | Execution outputs recorded as artifacts. |
+| Security considerations | Sandbox per the assessment; `ffi` off. |
+| Approval required | Install of Foundry and pinned compilers; owner approval. |
+
+### T-142: Path-sensitive independent challenge for access control, initializers and delegatecall
+| Field | |
+|---|---|
+| Phase | 5.6 |
+| Dependencies | none |
+| Scope | A second method (path enumeration with guard facts) that can weaken or refute those classes, so they are not left unchallenged. |
+| Acceptance criteria | Disagreement cases on both corpora are listed; classes with a validator no longer record `no-independent-validator`. |
+| Required tests | Unit and held-out scoring; mutation spec. |
+| Security considerations | None. |
+| Approval required | None. |
+
+### T-143: Wire the structural pipeline into the `repository_research` workflow (idle by default)
+| Field | |
+|---|---|
+| Phase | 5.3-5.7 |
+| Dependencies | T-011 (first live acquisition) |
+| Scope | Add the analyse and challenge steps after acquisition as worker steps; no production activation. |
+| Acceptance criteria | A run created in tests passes acquire, analyse, challenge and produces the dossier. |
+| Required tests | Real-Postgres integration incl. restricted role. |
+| Security considerations | Read-only analysis; no execution of repository code. |
+| Approval required | Design approval; no worker activation without owner approval. |

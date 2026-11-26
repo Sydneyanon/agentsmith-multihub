@@ -1,0 +1,16 @@
+## structural-analyzer on eval/dev/contracts
+labels: 31; findings: 19; reproducible across file order: true; findings in unlabelled functions (unscored): 1
+TOTAL tp=17 fp=0 fn=0 tn=14 precision=1 recall=1; key line exact 17/17, within 2 lines 17/17
+  reentrancy      tp=5 fp=0 fn=0 tn=2 precision=1 recall=1
+  access-control  tp=5 fp=0 fn=0 tn=6 precision=1 recall=1
+  initializer     tp=1 fp=0 fn=0 tn=1 precision=1 recall=1
+  delegatecall    tp=2 fp=0 fn=0 tn=1 precision=1 recall=1
+  unchecked-call  tp=2 fp=0 fn=0 tn=2 precision=1 recall=1
+  tx-origin       tp=1 fp=0 fn=0 tn=1 precision=1 recall=1
+  selfdestruct    tp=1 fp=0 fn=0 tn=1 precision=1 recall=1
+REENTRANCY VALIDATION (execution):
+  contracts/Bank.sol:withdrawBad -> refuted (label vulnerable=true) no exploit in 16 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: balances
+  contracts/Bank.sol:withdrawHelper -> refuted (label vulnerable=true) no exploit in 16 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: balances
+  contracts/Bank2.sol:cashOut -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering c
+  contracts/Bank2.sol:withdrawUnchecked -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering w
+  contracts/Bank2.sol:claimBonus -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering c

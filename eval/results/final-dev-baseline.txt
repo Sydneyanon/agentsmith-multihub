@@ -1,0 +1,23 @@
+## baseline-prototype on eval/dev/contracts
+labels: 31; findings: 16; reproducible across file order: true; findings in unlabelled functions (unscored): 1
+TOTAL tp=10 fp=4 fn=7 tn=10 precision=0.714 recall=0.588; key line exact 10/10, within 2 lines 10/10
+  reentrancy      tp=4 fp=1 fn=1 tn=1 precision=0.8 recall=0.8
+  access-control  tp=0 fp=0 fn=5 tn=6 precision=null recall=0
+  initializer     tp=1 fp=1 fn=0 tn=0 precision=0.5 recall=1
+  delegatecall    tp=2 fp=1 fn=0 tn=0 precision=0.667 recall=1
+  unchecked-call  tp=1 fp=0 fn=1 tn=2 precision=1 recall=0.5
+  tx-origin       tp=1 fp=1 fn=0 tn=0 precision=0.5 recall=1
+  selfdestruct    tp=1 fp=0 fn=0 tn=1 precision=1 recall=1
+MISSED (false negatives):
+  contracts/Bank.sol:47 withdrawHelper (reentrancy)
+  contracts/Admin.sol:21 setOracleOpen (access-control)
+  contracts/Admin.sol:25 addMinter (access-control)
+  contracts/Admin.sol:28 mint (access-control)
+  contracts/Admin.sol:20 setFeeOpen (access-control)
+  contracts/Misc.sol:22 viaHelper (unchecked-call)
+  contracts/ModArg.sol:10 setOtherWrongArg (access-control)
+FALSE POSITIVES:
+  contracts/Bank.sol:38 withdrawLocked (reentrancy) flagged at line 33
+  contracts/Misc.sol:11 initOnce (initializer) flagged at line 11
+  contracts/Misc.sol:14 fwdOwner (delegatecall) flagged at line 14
+  contracts/Misc.sol:28 eoaGate (tx-origin) flagged at line 27

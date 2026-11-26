@@ -1,0 +1,32 @@
+## baseline-prototype on eval/heldout/contracts
+labels: 47; findings: 18; reproducible across file order: true; findings in unlabelled functions (unscored): 0
+TOTAL tp=8 fp=10 fn=10 tn=19 precision=0.444 recall=0.444; key line exact 5/8, within 2 lines 8/8
+  reentrancy      tp=2 fp=2 fn=2 tn=3 precision=0.5 recall=0.5
+  access-control  tp=0 fp=0 fn=6 tn=8 precision=null recall=0
+  tx-origin       tp=1 fp=2 fn=0 tn=0 precision=0.333 recall=1
+  initializer     tp=1 fp=0 fn=1 tn=3 precision=1 recall=0.5
+  delegatecall    tp=1 fp=2 fn=1 tn=2 precision=0.333 recall=0.5
+  unchecked-call  tp=2 fp=1 fn=0 tn=3 precision=0.667 recall=1
+  selfdestruct    tp=1 fp=3 fn=0 tn=0 precision=0.25 recall=1
+MISSED (false negatives):
+  contracts/ReentHelperA.sol:20 withdraw (reentrancy)
+  contracts/ReentBankA.sol:20 redeem (reentrancy)
+  contracts/AcFeeA.sol:18 setFee (access-control)
+  contracts/AcOracleA.sol:21 setOracle (access-control)
+  contracts/AcMintA.sol:12 mint (access-control)
+  contracts/AcSweepA.sol:18 withdrawAll (access-control)
+  contracts/AcLateA.sol:17 setTreasury (access-control)
+  contracts/InitFeeA.sol:14 initialize (initializer)
+  contracts/DcProxyA.sol:17 execute (delegatecall)
+  contracts/DcStoreA.sol:16 setLogic (access-control)
+FALSE POSITIVES:
+  contracts/ReentVaultB.sol:23 withdraw (reentrancy) flagged at line 23
+  contracts/ReentRewardsB.sol:29 claim (reentrancy) flagged at line 29
+  contracts/TxOriginEoa.sol:10 deposit (tx-origin) flagged at line 10
+  contracts/DcConstant.sol:12 run (delegatecall) flagged at line 10
+  contracts/DcStoreB.sol:26 forward (delegatecall) flagged at line 25
+  contracts/SdB.sol:20 shutdown (selfdestruct) flagged at line 18
+  contracts/SdRole.sol:24 shutdown (selfdestruct) flagged at line 21
+  contracts/StringTraps.sol:14 describe (selfdestruct) flagged at line 13
+  contracts/StringTraps.sol:14 describe (tx-origin) flagged at line 14
+  contracts/StringTraps.sol:14 describe (unchecked-call) flagged at line 14
