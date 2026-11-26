@@ -76,8 +76,8 @@
   {
    "name": "index: pre-0.8 pragma is ignored",
    "file": "apps/api/src/analysis/solidity/index.ts",
-   "old": "Number(ver[1]) === 0 && Number(ver[2]) < 8 : false",
-   "new": "false : false"
+   "old": "Number(ver[1]) === 0 && Number(ver[2]) < 8 : legacyMarkers",
+   "new": "false : legacyMarkers"
   },
   {
    "name": "challenge: privileged addresses default to the zero address instead of a third party",
