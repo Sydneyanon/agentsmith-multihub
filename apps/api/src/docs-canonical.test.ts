@@ -250,6 +250,14 @@ describe("P2 evidence stays within its approval and is honest about names", () =
   });
 });
 
+describe("P3 evidence stays within its approval and certifies nothing", () => {
+  it("stops before P4, describes checks without certifying them, and labels the corpus-3 gain as development evidence", () => {
+    const e = read("docs/protocol-model-p3-evidence.md");
+    expect(e).toMatch(/P4 is NOT started; it awaits this review/); expect(e).toMatch(/Described, \*\*never certified\*\*/);
+    expect(e).toMatch(/This is \*\*development evidence\*\*, not a held-out measurement/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

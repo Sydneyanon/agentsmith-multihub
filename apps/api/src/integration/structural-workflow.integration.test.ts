@@ -96,13 +96,19 @@ describe.skipIf(skipIntegration)("structural analysis inside the repository_rese
       const helper = eps.find((e) => e.fn === "Bank.withdrawHelper(uint256)");
       expect(helper).toBeTruthy(); expect(helper!.external_calls.some((x) => x.kind === "low-level-call" && x.target_provenance === "msg.sender")).toBe(true);
     }
-    expect(renderDossierMarkdown(built)).toMatch(/## Architecture \(protocol model P1-P2\)/);
+    expect(renderDossierMarkdown(built)).toMatch(/## Architecture \(protocol model P1-P3\)/);
     // P2 in the dossier: state roles carry basis and strength; a name-only authority is shown as weak, never as enforced
     if (built.architecture.available) {
       const roles = built.architecture.components.flatMap((c) => c.state_roles);
       expect(roles.some((v) => v.roles.some((r) => /^ledger \(established, strong/.test(r)))).toBe(true);
       expect(roles.some((v) => v.roles.some((r) => /^authority \(inferred, strong, authorising-guard-read/.test(r)))).toBe(true);
       for (const v of roles) for (const r of v.roles) expect(r).toMatch(/@ contracts\/.+\.sol:\d+/);
+      // P3 in the dossier: authority holders and writers with code locations; open writes and unresolved paths are listed, not hidden
+      const au = built.architecture.components.map((c) => c.authority).filter((x): x is NonNullable<typeof x> => x !== null);
+      expect(au.length).toBe(built.architecture.components.length);
+      const roleRows = au.flatMap((a) => a.roles); expect(roleRows.length).toBeGreaterThan(0);
+      for (const r of roleRows) for (const w of r.writers) expect(w).toMatch(/\[(constructor|one-time-initialiser|guarded|open)[^\]]*\] @ contracts\/.+\.sol:\d+$/);
+      expect(au.some((a) => a.open_authority_writes.length > 0)).toBe(true); // the dev corpus contains unprotected authority setters
     }
   });
 

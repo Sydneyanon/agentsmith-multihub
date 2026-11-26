@@ -5,6 +5,7 @@ import { challengeFinding } from "./challenge.js";
 import { validateReentrancy, type SimOutcome } from "./simulate.js";
 import { analyzeSources, type Finding } from "./specialists.js";
 import { buildProtocolModel, reachableCalls, type ProtocolModel } from "./protocol-model.js";
+import type { AuthorityFacts } from "./authority.js";
 import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
 
 /**
@@ -88,11 +89,33 @@ export type DossierEntry = {
 };
 export type ArchitectureSection =
   | { available: false; reason: string }
-  | { available: true; model_sha256: string; builder: string; components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; state_roles: Array<{ variable: string; status: string; roles: string[] }>; entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; resolved_callee: string | null; at: string }>; unresolved_calls: Array<{ name: string; at: string }> }> }>; unknowns: Array<{ at: string; what: string }> };
+  | { available: true; model_sha256: string; builder: string; components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; state_roles: Array<{ variable: string; status: string; roles: string[] }>; authority: AuthoritySummary | null; entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; resolved_callee: string | null; at: string }>; unresolved_calls: Array<{ name: string; at: string }> }> }>; unknowns: Array<{ at: string; what: string }> };
+export type AuthoritySummary = {
+  roles: Array<{ variable: string; strength: string; holder: string; held_by: string | null; transfer: string; writers: string[] }>;
+  open_authority_writes: string[]; callee_side_checks: string[]; factory_paths: string[]; proxy: string[]; initialisers: string[]; assumptions: string[]; unresolved: string[];
+};
 export type Dossier = {
   snapshot: { id: string; repository: string; commit_sha: string; file_count: number; manifest_sha256: string; verified: boolean };
   summary: Record<string, number>; entries: DossierEntry[]; architecture: ArchitectureSection; limitations: string[]; content_sha256: string;
 };
+
+/** P3 consumer: what the dossier says about authority, with code locations, and with every unresolved or assumed path listed. */
+function authoritySummary(a: AuthorityFacts | null, at: (e: { file: string; lineStart: number; lineEnd: number }) => string): AuthoritySummary | null {
+  if (!a) return null;
+  const L = (l: { file: string; line: number }) => `${l.file}:${l.line}`;
+  return {
+    roles: a.roles.map((r) => ({ variable: r.variable, strength: r.strength, holder: r.holder, held_by: r.heldBy ? `${r.heldBy.contract} (deploying contract; ${r.heldBy.evidence.map(L).join(", ")})` : null, transfer: r.transfer,
+      writers: r.writers.map((w) => `${w.fn} [${w.control}${w.guardedBy.length ? ` by ${w.guardedBy.join(",")}` : ""}] @ ${L(w.at)}`) })),
+    open_authority_writes: a.unguardedAuthorityWrites.map((w) => `${w.fn} writes ${w.variable} with no caller-side check @ ${L(w.at)}`),
+    callee_side_checks: a.checks.filter((c) => c.side === "callee-side").map((c) => `${c.fn}: ${c.note} @ ${L(c.at)}`),
+    factory_paths: a.factoryPaths.map((p) => `${p.from} -> ${p.callee}${p.reaches.length ? ` (${p.reaches.join(", ")})` : ""}: callee checks ${p.calleeChecks.map((c) => `${c.reads.join(",") || "?"} @ ${L(c.at)}`).join("; ")}; ${p.outerCallerGuarded ? "outer function has a caller-side check" : "**outer function has NO caller-side check**"} @ ${L(p.at)}`),
+    proxy: a.proxy.map((p) => `${p.fallback} delegatecalls ${p.pointer} -> ${p.implementation} @ ${L(p.at)}; pointer writers: ${p.upgradeWriters.map((w) => `${w.fn} [${w.control}]`).join(", ") || "none found"}; ${p.note}`),
+    initialisers: a.initialisers.map((i) => `${i.fn} (flag ${i.flag}) @ ${L(i.at)}: ${i.note}`),
+    assumptions: a.externalAssumptions.map((x) => `${x.fn} @ ${L(x.at)}: ${x.why}`),
+    unresolved: a.unresolved.map((u) => `${u.what}${u.at ? ` @ ${L(u.at)}` : ""}`),
+  };
+  void at;
+}
 
 /** P1 consumer: the dossier's architecture section, built ONLY from the protocol model the analysis step stored for this snapshot's run
  *  (located through the step output, re-hashed on read; a missing or mismatching model is reported, never reconstructed). */
@@ -114,6 +137,7 @@ async function architectureFromStoredModel(pool: Pool, snapshotId: string): Prom
       state_roles: (m.stateRoles?.byComponent.find((x) => x.component === c.id)?.variables ?? []).map((v) => ({
         variable: v.variable, status: v.status, roles: v.roles.map((r) => `${r.role} (${r.basis}, ${r.strength}, ${r.rule} @ ${r.evidence.map((e) => `${e.file}:${e.line}`).join(", ")})`),
       })),
+      authority: authoritySummary(m.authority?.byComponent.find((x) => x.component === c.id) ?? null, at),
       entry_points: m.functions.filter((f) => f.component === c.id && f.entryPoint).map((f) => ({
         fn: f.id, guarded: f.callerGuarded, writes: f.stateWrites,
         external_calls: reachableCalls(m, f.id).filter((e) => e.kind !== "unresolved").map((e) => ({ kind: e.kind, to: e.to, target_provenance: e.targetProvenance, resolved_callee: e.resolvedCallee ?? null, at: at(e.evidence) })),
@@ -171,16 +195,22 @@ export function renderDossierMarkdown(d: Dossier): string {
     o.push(`\n**Challenge.**` + (e.evaluations.length ? "\n" + e.evaluations.map((v) => `- ${v.evaluator}: **${v.outcome}**. ${v.rationale.slice(0, 600)}`).join("\n") : " none recorded"));
     o.push(`\n**Required checks.** ${(e.required_checks as string[]).join("; ")}\n**Alternative explanations.** ${(e.alternative_explanations as string[]).join("; ")}\n**Generated by** ${e.generator}. Human review: ${e.human_review}.\n`);
   });
-  o.push("## Architecture (protocol model P1-P2)\n");
+  o.push("## Architecture (protocol model P1-P3)\n");
   if (!d.architecture.available) o.push(`Not available: ${d.architecture.reason}.\n`);
   else {
-    o.push(`Model \`${d.architecture.model_sha256}\` (${d.architecture.builder}). Every item cites code; P1 covers components, entry points, writes and external calls; P2 adds state-variable roles with their basis and strength (no trust boundaries, assets or value flows yet).\n`);
+    o.push(`Model \`${d.architecture.model_sha256}\` (${d.architecture.builder}). Every item cites code; P1 covers components, entry points, writes and external calls; P2 adds state-variable roles with their basis and strength; P3 adds who holds and can change authority, which checks are caller-side, cross-contract and proxy boundaries, initialisation controls and unresolved paths. A check is described, never certified. No assets or value flows yet.\n`);
     for (const c of d.architecture.components) {
       o.push(`### ${c.id} (${c.kind}, \`${c.file}:${c.lines}\`)`);
       const classified = c.state_roles.filter((v) => v.status !== "unclassified");
       if (classified.length) o.push("State variables: " + classified.map((v) => `\`${v.variable}\` [${v.status}] ${v.roles.join("; ")}`).join(" · "));
       const unc = c.state_roles.filter((v) => v.status === "unclassified").map((v) => v.variable);
       if (unc.length) o.push(`Unclassified state variables (kept for investigation): ${unc.map((x) => `\`${x}\``).join(", ")}`);
+      const au = c.authority;
+      if (au) {
+        for (const r of au.roles) o.push(`- authority \`${r.variable}\` (${r.strength}, ${r.holder}${r.held_by ? `, held by ${r.held_by}` : ""}), transfer: ${r.transfer}${r.writers.length ? `; writers: ${r.writers.join("; ")}` : ""}`);
+        for (const [label, xs] of [["Open authority writes", au.open_authority_writes], ["Callee-side checks (not a check on this function's caller)", au.callee_side_checks], ["Cross-contract authority paths", au.factory_paths], ["Proxy boundaries", au.proxy], ["Initialisation controls", au.initialisers], ["Trust assumptions", au.assumptions], ["Unresolved authority", au.unresolved]] as const)
+          if (xs.length) o.push(`**${label}:** ` + xs.join(" · "));
+      }
       for (const f of c.entry_points) o.push(`- \`${f.fn}\` ${f.guarded ? "caller-guarded" : "**no caller guard**"}${f.writes.length ? `; writes ${f.writes.join(", ")}` : ""}${f.external_calls.length ? `; calls ${f.external_calls.map((x) => `${x.kind} ${x.to}${x.resolved_callee ? ` -> ${x.resolved_callee}` : ""} (target from ${x.target_provenance ?? "n/a"}, \`${x.at}\`)`).join("; ")}` : ""}${f.unresolved_calls.length ? `; **unresolved:** ${f.unresolved_calls.map((x) => `${x.name} (\`${x.at}\`)`).join(", ")}` : ""}`);
       o.push("");
     }

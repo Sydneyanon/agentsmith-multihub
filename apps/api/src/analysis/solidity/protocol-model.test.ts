@@ -43,7 +43,7 @@ describe("protocol model P1 (deterministic, evidence-backed export of what the a
   it("is deterministic and independent of source order; the hash is the hash of the stored JSON", () => {
     expect(buildProtocolModel(src).sha256).toBe(sha256);
     expect(buildProtocolModel([...src].reverse()).sha256).toBe(sha256);
-    expect(sha(json)).toBe(sha256); expect(model.schema).toBe("protocol-model/2");
+    expect(sha(json)).toBe(sha256); expect(model.schema).toBe("protocol-model/3");
   });
 
   it("every fact cites code: its file hash equals the file's content hash and its lines exist", () => {
@@ -105,7 +105,7 @@ describe("protocol model P1 (deterministic, evidence-backed export of what the a
 
   it("the structural map is a projection of the model (one derivation), consistent with it", () => {
     const map = buildStructuralMap(src);
-    expect(map.protocol_model_schema).toBe("protocol-model/2");
+    expect(map.protocol_model_schema).toBe("protocol-model/3");
     const vault = map.contracts.find((c) => c.name === "Vault")!;
     expect(vault.functions.map((f) => f.name).sort()).toEqual(model.functions.filter((f) => f.component === "Vault").map((f) => f.name).sort());
   });

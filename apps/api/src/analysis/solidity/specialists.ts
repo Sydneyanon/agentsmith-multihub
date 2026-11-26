@@ -2,6 +2,7 @@ import { ProgramIndex } from "./index.js";
 import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
 import { isCaller, Tracer, type Ev, type Frame, type TraceResult } from "./trace.js";
 import { namesWithRole, stateVariableRoles, type VariableRoles } from "./state-roles.js";
+import { guardSide } from "./authority.js";
 
 /**
  * Deterministic specialists over the structural index. Each emits LEADS with cited lines, never verified vulnerabilities.
@@ -63,12 +64,14 @@ export class Analyzer {
   private readonly roleCache = new Map<string, VariableRoles[]>();
   roles(contract: string): VariableRoles[] { let r = this.roleCache.get(contract); if (!r) { r = stateVariableRoles(this.ix, (f) => this.trace(f), contract); this.roleCache.set(contract, r); } return r; }
 
-  private guardedBefore(events: Ev[], idx: number): boolean {
+  /** P3: only a check on THIS function's caller protects it. A check inside a contract this one calls (a child checking `msg.sender == factory`, in a
+   *  child) is satisfied by this contract itself and is classified callee-side by the shared trust-boundary rule (authority.ts guardSide). */
+  private guardedBefore(events: Ev[], idx: number, contract: string): boolean {
     const target = events[idx]!;
     if (target.prot) return true;
     // A REVERTING caller check protects the whole function wherever it sits (a revert undoes earlier writes and transfers);
     // a non-reverting early return only protects what comes after it.
-    for (let i = 0; i < events.length; i++) { const g = events[i]!; if (g.k === "guard" && g.auth && !g.cond && ((g.reverting && !target.ret) || i < idx)) return true; }
+    for (let i = 0; i < events.length; i++) { const g = events[i]!; if (g.k === "guard" && g.auth && !g.cond && guardSide(this.ix, contract, g) !== "callee-side" && ((g.reverting && !target.ret) || i < idx)) return true; }
     return false;
   }
 
@@ -147,7 +150,7 @@ export class Analyzer {
       else if (e.k === "call" && e.hasValue && e.low !== null && e.targetTaint === "param" && !paying && !/msg\.value/.test(e.valueText ?? "") && !ev.some((x) => x.k === "write" && x.decreasing && x.keyedByCaller)) why = `sends ether to the caller-supplied address ${e.targetText}`;
       else if (e.k === "write" && e.increasing && e.keyedByParam && !e.keyedByCaller && !paying && !hasCallerDecrease && !ev.some((x) => x.k === "call" && x.callee !== null)) why = `increases ${e.variable}[${e.key}] for a caller-chosen account without consuming a matching amount from the caller`;
       else if (/* a name alone means nothing in a contract with no notion of privilege */ e.k === "write" && auth.size > 0 && PRIV_NAME.test(fn.name) && !e.variable.startsWith("<") && !e.keyedByCaller && !paying) { why = `changes the state variable ${e.variable} (privileged-looking function name "${fn.name}")`; priv = true; }
-      if (!why || this.guardedBefore(ev, i)) continue;
+      if (!why || this.guardedBefore(ev, i, fn.contract)) continue;
       return [this.mk(fn, "access-control", e.line, e.file, {
         claim: `${fn.contract}.${fn.name} ${why} (${e.file}:${e.line}) and no caller-authorisation check dominates that statement.`,
         rationale: "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
@@ -166,7 +169,7 @@ export class Analyzer {
     const idx = ev.findIndex((e) => e.k === "write" && !e.variable.startsWith("<") && !e.keyedByCaller && (auth.has(e.variable) || !ev.some((g) => g.k === "guard" && g.reads.includes(e.variable))));
     if (idx < 0) return [];
     const w = ev[idx] as Extract<Ev, { k: "write" }>;
-    if (this.guardedBefore(ev, idx)) return [];
+    if (this.guardedBefore(ev, idx, fn.contract)) return [];
     const oneTime = ev.some((g, gi) => g.k === "guard" && ev.some((x, xi) => x.k === "write" && xi > gi && g.reads.includes(x.variable) && !auth.has(x.variable)));
     if (oneTime) return [];
     return [this.mk(fn, "initializer", w.line, w.file, {
@@ -186,7 +189,7 @@ export class Analyzer {
       let provenance: string | null = null;
       if (c.targetTaint === "param" || c.targetTaint === "msg.sender") provenance = "caller-supplied";
       else if (c.targetTaint === "state" && c.targetVar && this.attackerWritable(fn.contract, c.targetVar)) provenance = `a storage variable (${c.targetVar}) that an unguarded function can set`;
-      if (!provenance || this.guardedBefore(ev, i)) continue;
+      if (!provenance || this.guardedBefore(ev, i, fn.contract)) continue;
       if (ev.some((g) => g.k === "guard" && g.reverting && !g.cond && g.text.includes(`[${c.targetText}]`))) continue; // the target must be a member of a stored allow-list
       return [this.mk(fn, "delegatecall", c.line, c.file, {
         claim: `${fn.contract}.${fn.name} delegatecalls to ${c.targetText} (${c.file}:${c.line}), whose address is ${provenance}, with no caller-authorisation check before it.`,
@@ -202,7 +205,7 @@ export class Analyzer {
   private attackerWritable(contract: string, variable: string): boolean {
     for (const c of this.ix.linearize(contract)) for (const f of this.ix.entryPoints(c.name)) {
       const t = this.trace(f);
-      for (let i = 0; i < t.events.length; i++) { const e = t.events[i]!; if (e.k === "write" && e.variable === variable && !this.guardedBefore(t.events, i)) return true; }
+      for (let i = 0; i < t.events.length; i++) { const e = t.events[i]!; if (e.k === "write" && e.variable === variable && !this.guardedBefore(t.events, i, c.name)) return true; }
     }
     return false;
   }
@@ -226,7 +229,7 @@ export class Analyzer {
   private selfdestruct(fn: FunctionDef, tr: TraceResult): Finding[] {
     const ev = tr.events;
     for (let i = 0; i < ev.length; i++) {
-      const d = ev[i]!; if (d.k !== "destruct" || this.guardedBefore(ev, i)) continue;
+      const d = ev[i]!; if (d.k !== "destruct" || this.guardedBefore(ev, i, fn.contract)) continue;
       return [this.mk(fn, "selfdestruct", d.line, d.file, {
         claim: `${fn.contract}.${fn.name} can selfdestruct the contract (${d.file}:${d.line}) and no caller-authorisation check dominates it.`,
         rationale: "Any caller can destroy the contract and redirect its ether.", requiredChecks: ["Confirm no authorisation outside the analysed files applies"],

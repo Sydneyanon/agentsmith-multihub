@@ -1,0 +1,95 @@
+{
+ "command": "REQUIRE_INTEGRATION=1 npx vitest run apps/api/src/analysis/solidity apps/api/src/integration/structural-workflow",
+ "mutations": [
+  {
+   "name": "P3: callee-side guards treated as caller-side",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "if (g.contract !== component && ix.contracts.get(g.contract)?.kind !== \"library\") return \"callee-side\";",
+   "new": "if (false) return \"callee-side\";"
+  },
+  {
+   "name": "P3: library guards treated as callee-side",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "&& ix.contracts.get(g.contract)?.kind !== \"library\") return \"callee-side\";",
+   "new": ") return \"callee-side\";"
+  },
+  {
+   "name": "P3: assumed checks not marked",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "if (g.assumed) return \"assumed\";",
+   "new": ""
+  },
+  {
+   "name": "P3: open authority writers reported as guarded",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "else { control = \"open\"; rule = \"no-caller-side-check-on-path\"; }",
+   "new": "else { control = \"guarded\"; rule = \"no-caller-side-check-on-path\"; }"
+  },
+  {
+   "name": "P3: one-time initialiser not recognised",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "if (once && once.k === \"guard\") {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "P3: deploying-contract holder not attributed",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "const heldBy = ctorAt && immutableOrFixed && myDeployers.length",
+   "new": "const heldBy = false"
+  },
+  {
+   "name": "P3: factory path outer guard ignored",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "const ev = t.events; const outerGuarded = callerGuards(ev).length > 0;",
+   "new": "const ev = t.events; const outerGuarded = false;"
+  },
+  {
+   "name": "P3: factory paths dropped",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "if (calleeChecks.length) factoryPaths.push(",
+   "new": "if (false) factoryPaths.push("
+  },
+  {
+   "name": "P3: proxy implementation claimed resolved",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "const impl = ix.contracts.get(tp)?.kind === \"contract\" ? tp : \"unresolved\";",
+   "new": "const impl = tp || \"Implementation\";"
+  },
+  {
+   "name": "P3: constructor lock of initialisers ignored",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "const locked = ctorWrites.has(w.flag);",
+   "new": "const locked = false;"
+  },
+  {
+   "name": "P3: name-only authority not reported as unresolved",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "...roleFacts.filter((r) => r.strength === \"weak\").map(",
+   "new": "...roleFacts.filter((r) => false).map("
+  },
+  {
+   "name": "P3: holder-only transfer misclassified",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "after.every((w) => w.control === \"guarded\" && w.guardedBy.includes(v.variable)) ? \"by-holder\"",
+   "new": "false ? \"by-holder\""
+  },
+  {
+   "name": "P3 consumer: specialists count callee-side checks again",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "guardSide(this.ix, contract, g) !== \"callee-side\" &&",
+   "new": ""
+  },
+  {
+   "name": "P3: protected-branch writes treated as open",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "else if (cg.length || w.prot) {",
+   "new": "else if (cg.length) {"
+  },
+  {
+   "name": "P3: any guard-then-write treated as a one-time initialiser",
+   "file": "apps/api/src/analysis/solidity/authority.ts",
+   "old": "!authorityVars.has(r) && isUnsetCheck(g, r) && ev.some(",
+   "new": "!authorityVars.has(r) && ev.some("
+  }
+ ]
+}
