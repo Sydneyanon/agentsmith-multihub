@@ -59,7 +59,8 @@ export class Analyzer {
           const other = isCaller(e.l) ? e.r : isCaller(e.r) ? e.l : null; const r = other ? root(other) : null;
           if (r && this.ix.stateVar(contract, r)) out.add(r);
         }
-        if (e.k === "index" && e.idx && isCaller(e.idx)) { const r = root(e.obj); if (r && this.ix.stateVar(contract, r)) { const v = this.ix.stateVar(contract, r)!; if (/bool|mapping\s*\([^)]*=>\s*bool\)/.test(v.type) || AUTH_VAR_NAME.test(r) || /role|admin|operator|minter|whitelist|allow/i.test(r)) out.add(r); } }
+        // a caller-keyed flag such as `claimed[msg.sender]` is one-shot bookkeeping, not an authority, so only role-like names count
+        if (e.k === "index" && e.idx && isCaller(e.idx)) { const r = root(e.obj); if (r && this.ix.stateVar(contract, r)) { const v = this.ix.stateVar(contract, r)!; if (AUTH_VAR_NAME.test(r) || /role|admin|operator|minter|whitelist|allowlist|authori[sz]ed|guardian|governor|keeper|manager|staff|signer/i.test(r)) out.add(r); } }
       });
     }
     this.authCache.set(contract, out); return out;

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ProgramIndex } from "./index.js";
 import { lex } from "./lexer.js";
 import { parseSolidity } from "./parser.js";
+import { challengeFinding } from "./challenge.js";
 import { validateReentrancy } from "./simulate.js";
 import { analyzeSources } from "./specialists.js";
 
@@ -119,5 +120,30 @@ describe("independent validation by execution", () => {
   it("abstains when it meets something it does not model", () => {
     const u = new ProgramIndex([{ path: "u.sol", text: `contract U { IFoo f; mapping(address=>uint) b; function w(uint a) external { require(b[msg.sender] >= a); f.hook(a); (bool ok,) = msg.sender.call{value: a}(""); b[msg.sender] = 0; } }` }]);
     expect(validateReentrancy(u, u.findFunction("U", "w", 1)!).verdict).toBe("inconclusive");
+  });
+});
+
+describe("independent challenge by unprivileged-caller execution", () => {
+  const run = (text: string, fn: string) => { const r = one(text); const f = r.findings.find((x) => x.function === fn)!; expect(f, `${fn} must be flagged by the specialist`).toBeTruthy(); return challengeFinding(r.index, f)!; };
+  it("validates an open privileged write, an open selfdestruct, an open initializer and an open delegatecall by reaching them as an attacker", () => {
+    expect(run(`contract A { address owner; function set(address o) external { owner = o; } }`, "set").verdict).toBe("validated");
+    expect(run(`contract A { function die() external { selfdestruct(payable(msg.sender)); } }`, "die").verdict).toBe("validated");
+    expect(run(`contract A { address owner; function initialize(address o) external { owner = o; } }`, "initialize").verdict).toBe("validated");
+    expect(run(`contract A { function fwd(address t, bytes calldata d) external { (bool ok,) = t.delegatecall(d); require(ok); } }`, "fwd").verdict).toBe("validated");
+  });
+  it("REFUTES a lead the specialist raised when execution shows the unprivileged call reverts", () => {
+    const o = run(`contract A { address owner; function configure(address o) external { require(owner == address(0) || msg.sender == owner); owner = o; } }`, "configure");
+    expect(o.verdict).toBe("refuted"); expect(o.reason).toMatch(/reverts/);
+  });
+  it("says plainly that reachability is not proof the statement is privileged", () => {
+    expect(run(`contract A { address owner; function set(address o) external { owner = o; } }`, "set").trace.join(" ")).toMatch(/REACHABILITY/);
+  });
+  it("validates an ignored failing call that retains ether, and abstains on an unresolved modifier", () => {
+    expect(run(`contract A { function pay(address to) external payable { to.call{value: msg.value}(""); } }`, "pay").verdict).toBe("validated");
+    const r = one(`contract A { address owner; function s(address o) external whenSomething { owner = o; } }`); const f = r.findings[0]!;
+    expect(challengeFinding(r.index, f)!.verdict).toBe("inconclusive");
+  });
+  it("does not treat a one-shot flag keyed by the caller as an authority", () => {
+    expect(one(`contract A { mapping(address=>bool) claimed; function c() external { require(!claimed[msg.sender]); claimed[msg.sender] = true; } }`).findings).toEqual([]);
   });
 });

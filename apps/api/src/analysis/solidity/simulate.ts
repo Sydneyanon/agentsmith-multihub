@@ -10,26 +10,30 @@ import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
  * something it does not model, it ABSTAINS. The attacker's hook fires only from the ENTRY function's own external call (depth 1), so a
  * re-entered function that is itself vulnerable cannot be mis-attributed to the entry under test. It never reports a verified vulnerability: the model is a bounded abstraction.
  */
-type Value = bigint | boolean | string | Value[] | null;
-class Revert extends Error { constructor(readonly why: string) { super(why); } }
+export type Value = bigint | boolean | string | Value[] | null;
+export class Revert extends Error { constructor(readonly why: string) { super(why); } }
 export class Unsupported extends Error { constructor(readonly why: string) { super(why); } }
 type Signal = { kind: "next" } | { kind: "return"; value: Value };
 
 const ETHER = 10n ** 18n; const MAX = 2n ** 256n;
 export type SimOutcome = { verdict: "validated" | "refuted" | "inconclusive"; reason: string; trace: string[]; scenarios: number; detail: Record<string, string | number | boolean> };
 
-type Frame = { fn: FunctionDef; contract: string; sender: string; value: bigint; locals: Map<string, Value>; unchecked: boolean };
+export type Frame = { fn: FunctionDef; contract: string; sender: string; value: bigint; locals: Map<string, Value>; unchecked: boolean };
 
-class World {
+export class World {
   storage = new Map<string, Value>(); balance = 0n; received = 0n; payouts = 0; trace: string[] = []; steps = 0;
   clone(): World { const w = new World(); w.storage = new Map(this.storage); w.balance = this.balance; w.received = this.received; w.payouts = this.payouts; w.trace = [...this.trace]; w.steps = this.steps; return w; }
   restore(o: World): void { this.storage = new Map(o.storage); this.balance = o.balance; this.received = o.received; this.payouts = o.payouts; this.trace = [...o.trace]; this.steps = o.steps; }
 }
 
-type Plan = { reenter: Array<{ fn: FunctionDef; args: Value[] }>; maxDepth: number; callbacks: boolean };
+export type Plan = { reenter: Array<{ fn: FunctionDef; args: Value[] }>; maxDepth: number; callbacks: boolean };
 
-class Interp {
+export class Interp {
   w = new World(); depth = 0; plan: Plan; entryFn: FunctionDef | null = null;
+  /** statements executed, as `file:line`; used by the challenge methods to ask whether a sensitive statement is reachable */
+  reached = new Set<string>(); delegated: string[] = []; destructed = false;
+  /** challenge-mode switches: low-level calls fail; unset address state defaults to a third party ('owner0') instead of the zero address */
+  failCalls = false; thirdPartyAddressDefault = false;
   constructor(private readonly ix: ProgramIndex, private readonly contract: string, plan: Plan) { this.plan = plan; }
 
   key(name: string, ks: Value[]): string { return [name, ...ks.map((k) => String(k))].join("|"); }
@@ -39,6 +43,7 @@ class Interp {
     const sv = this.ix.stateVar(this.contract, name); if (!sv) throw new Unsupported(`unknown identifier ${name}`);
     const k = this.key(name, ks); if (this.w.storage.has(k)) return this.w.storage.get(k) ?? null;
     if (ks.length === 0 && sv.init) { try { return this.eval(sv.init, this.dummyFrame()); } catch { /* fall through to the type default */ } }
+    if (this.thirdPartyAddressDefault && /^address/.test(sv.type) && ks.length === 0) return "owner0";
     return this.defaultFor(sv.type);
   }
   dummyFrame(): Frame { return { fn: this.entryFn as FunctionDef, contract: this.contract, sender: "zero", value: 0n, locals: new Map(), unchecked: false }; }
@@ -123,17 +128,23 @@ class Interp {
       const n = fn.name;
       if (n === "require" || n === "assert") { const c = e.args[0]; if (!c) throw new Unsupported("require without condition"); if (!this.truthy(this.eval(c, f))) throw new Revert(`${n} failed: ${exprText(c)}`); return null; }
       if (n === "payable" || /^address$|^u?int\d*$/.test(n)) { const a = e.args[0]; return a ? (n === "address" && a.k === "num" && a.v === 0n ? "zero" : this.eval(a, f)) : null; }
+      if (n === "selfdestruct" || n === "suicide") { if (e.args[0]) this.eval(e.args[0], f); this.destructed = true; this.w.trace.push(`${f.fn.name}: selfdestruct executed (line ${e.line})`); return null; }
       if (this.ix.isContractLike(n)) throw new Unsupported(`interface cast ${n}`);
       const callee = this.ix.findFunction(f.contract, n, e.args.length); if (!callee || !callee.body) throw new Unsupported(`unresolved call ${n}`);
       return this.runFunction(callee, f.contract, e.args.map((a) => this.eval(a, f)), f.sender, 0n);
     }
     if (fn.k === "member") {
       const target = fn.obj; const name = fn.name;
+      if (name === "delegatecall" && !(target.k === "id" && this.ix.contracts.has(target.name))) {
+        const to = this.eval(target, f); for (const a of e.args) this.eval(a, f); this.delegated.push(String(to));
+        this.w.trace.push(`${f.fn.name}: delegatecall to ${String(to)} executed (line ${e.line})`); return [true, ""];
+      }
       if ((name === "call" || name === "send" || name === "transfer") && !(target.k === "id" && this.ix.contracts.has(target.name))) {
         const to = this.eval(target, f); if (typeof to !== "string") throw new Unsupported("call target is not an address");
         const valExpr = e.opts["value"] ?? (name === "call" ? null : e.args[0] ?? null);
         const v = valExpr ? this.num(this.eval(valExpr, f), "value") : 0n;
         if (name === "call" && !valExpr) throw new Unsupported("low-level call without value");
+        if (this.failCalls) { this.w.trace.push(`${f.fn.name}: ${name} to ${String(to)} FAILS (modelled failure, line ${e.line})`); if (name === "transfer") throw new Revert("transfer failed"); return name === "send" ? false : [false, ""]; }
         if (this.w.balance < v) { if (name === "transfer") throw new Revert("transfer: insufficient balance"); return name === "send" ? false : [false, ""]; }
         this.w.balance -= v;
         if (to === "attacker") { this.w.received += v; this.w.payouts += 1; this.w.trace.push(`${f.fn.name}: ${name} sends ${fmt(v)} to the attacker (line ${e.line})`); }
@@ -188,6 +199,7 @@ class Interp {
     return { kind: "next" };
   }
   stmt(s: Stmt, f: Frame): Signal {
+    this.reached.add(`${f.fn.file}:${s.line}`);
     switch (s.k) {
       case "expr": this.eval(s.e, f); return { kind: "next" };
       case "decl": {
@@ -210,12 +222,13 @@ class Interp {
 
 const fmt = (v: bigint) => (v % ETHER === 0n ? `${v / ETHER} ether` : `${v} wei`);
 
-function sampleArgs(fn: FunctionDef, amounts: bigint[]): Value[] | null {
+export function sampleArgs(fn: FunctionDef, amounts: bigint[]): Value[] | null {
   const out: Value[] = []; let ai = 0;
   for (const p of fn.params) {
     if (/^u?int/.test(p.type)) out.push(amounts[ai++ % amounts.length] ?? ETHER);
     else if (/^address/.test(p.type)) out.push("attacker");
     else if (/^bool/.test(p.type)) out.push(true);
+    else if (/^bytes/.test(p.type)) out.push("0x");
     else return null;
   }
   return out;

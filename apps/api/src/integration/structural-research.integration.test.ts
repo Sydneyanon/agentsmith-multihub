@@ -50,7 +50,10 @@ describe.skipIf(skipIntegration)("structural research run over real Postgres", (
     for (const e of re) expect(e.evaluations.map((v) => v.evaluator)).toEqual(["reentrancy-execution-validator"]);
     const verdicts = re.flatMap((e) => e.evaluations.map((v) => v.outcome)).sort();
     expect(verdicts).toEqual(["supports", "supports", "weakens", "weakens"]); // two validated by execution, two refuted under checked 0.8 arithmetic
-    for (const e of d.entries.filter((x) => x.class !== "reentrancy")) expect(e.evaluations.map((v) => v.evaluator)).toEqual(["no-independent-validator"]);
+    for (const e of d.entries.filter((x) => x.class !== "reentrancy")) {
+      expect(e.evaluations.map((v) => v.evaluator)).toEqual(e.class === "tx-origin" ? ["no-independent-validator"] : [`execution-challenge-${e.class}`]); // tx.origin has no independent method and says so
+    }
+    expect(d.entries.some((e) => e.class === "access-control" && e.evaluations[0]!.outcome === "supports")).toBe(true);
     // status comes from the database view: a refuted lead is `weakened_by_static_check`; nothing is called reviewed or confirmed
     expect(d.entries.filter((e) => e.class === "reentrancy" && e.evaluations[0]!.outcome === "weakens").every((e) => e.status === "weakened_by_static_check")).toBe(true);
     expect(d.entries.some((e) => /confirm|verified vulnerability/i.test(e.status ?? ""))).toBe(false);

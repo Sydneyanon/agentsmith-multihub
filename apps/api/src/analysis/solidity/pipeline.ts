@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { ProgramIndex } from "./index.js";
+import { challengeFinding } from "./challenge.js";
 import { validateReentrancy, type SimOutcome } from "./simulate.js";
 import { analyzeSources, type Finding } from "./specialists.js";
 import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
@@ -51,8 +52,15 @@ export async function runChallenge(pool: Pool, store: ResearchStore, lease: Step
   for (const h of stored) {
     const primary = h.spanIds[0]!;
     if (h.finding.class !== "reentrancy") {
-      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive",
-        rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by the specialist and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim) });
+      const c = challengeFinding(index, h.finding);
+      if (!c) {
+        await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive",
+          rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by the specialist and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim) });
+        continue;
+      }
+      const outcome = c.verdict === "validated" ? "supports" : c.verdict === "refuted" ? "weakens" : "inconclusive";
+      const text = `${c.method}: ${c.reason}.${c.trace.length ? " Trace: " + c.trace.join(" | ") : ""}${c.verdict === "refuted" ? " This weakens (does not eliminate) the lead: the model is a bounded abstraction." : ""}`;
+      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: `execution-challenge-${h.finding.class}`, evaluatorVersion: "1", outcome, rationale: text.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${c.verdict}|${c.reason}`) });
       continue;
     }
     const fn = index.findFunctions(h.finding.contract, h.finding.function)[0];
@@ -102,7 +110,7 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
   for (const e of entries) summary[e.status ?? "unknown"] = (summary[e.status ?? "unknown"] ?? 0) + 1;
   const limitations = [
     "Every item is a lead produced by deterministic rules over source text; nothing was compiled, run against a chain or tested with a fuzzer.",
-    "Only reentrancy leads have an independent challenge (bounded execution of a modelled contract); all other classes are unchallenged.",
+    "Reentrancy, access-control, initializer, delegatecall, selfdestruct and unchecked-call leads are challenged by bounded execution of a modelled contract (a different method from the specialists); tx.origin leads have no independent method and stay unchallenged.",
     "No human review is recorded for any item. Status values come from the database view and say so.",
     "The analysis is intra-repository: calls into code outside the snapshot, inline assembly and unresolved modifiers are not analysed (they are listed as assumptions where they affect a lead).",
   ];

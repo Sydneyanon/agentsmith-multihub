@@ -1,0 +1,41 @@
+## structural-analyzer on eval/heldout2/contracts
+labels: 96; findings: 54; reproducible across file order: true; findings in unlabelled functions (unscored): 0
+TOTAL tp=27 fp=10 fn=10 tn=49 precision=0.73 recall=0.73; key line exact 26/27, within 2 lines 26/27
+  reentrancy      tp=7 fp=1 fn=2 tn=8 precision=0.875 recall=0.778
+  access-control  tp=9 fp=3 fn=2 tn=12 precision=0.75 recall=0.818
+  initializer     tp=1 fp=0 fn=4 tn=6 precision=1 recall=0.2
+  delegatecall    tp=2 fp=3 fn=1 tn=6 precision=0.4 recall=0.667
+  selfdestruct    tp=2 fp=1 fn=0 tn=5 precision=0.667 recall=1
+  tx-origin       tp=2 fp=1 fn=0 tn=4 precision=0.667 recall=1
+  unchecked-call  tp=4 fp=1 fn=1 tn=8 precision=0.8 recall=0.8
+MISSED (false negatives):
+  contracts/Kiosk.sol:16 sweep (reentrancy)
+  contracts/Hooks.sol:43 take (reentrancy)
+  contracts/Minter.sol:23 halt (access-control)
+  contracts/Throttle.sol:16 setLimit (access-control)
+  contracts/Staking.sol:25 reconfigure (initializer)
+  contracts/Hub.sol:22 upgradeTo (initializer)
+  contracts/Vesting.sol:11 init (initializer)
+  contracts/Gateway.sol:27 bootstrap (initializer)
+  contracts/Conduit.sol:24 fallback (delegatecall)
+  contracts/Settler.sol:19 settleQuiet (unchecked-call)
+FALSE POSITIVES:
+  contracts/Dispenser.sol:31 pullChecked (reentrancy) flagged at line 31
+  contracts/Tap.sol:26 setFlow (access-control) flagged at line 26
+  contracts/Operators.sol:12 join (access-control) flagged at line 26
+  contracts/Purse.sol:14 flush (access-control) flagged at line 14
+  contracts/Switchboard.sol:19 forward (delegatecall) flagged at line 19
+  contracts/Plugins.sol:26 invoke (delegatecall) flagged at line 26
+  contracts/Plugins.sol:32 invokeFromFactory (delegatecall) flagged at line 32
+  contracts/Caller.sol:12 pingLogged (unchecked-call) flagged at line 12
+  contracts/Expiry.sol:19 expire (selfdestruct) flagged at line 19
+  contracts/Tracker.sol:24 approveVia (tx-origin) flagged at line 24
+REENTRANCY VALIDATION (execution):
+  contracts/Cashier.sol:cashOut -> refuted (label vulnerable=true) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: ledger[ms
+  contracts/Dispenser.sol:pull -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering p
+  contracts/Dispenser.sol:pullChecked -> refuted (label vulnerable=false) no exploit in 20 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant run extracted no more than an honest sequence
+  contracts/Dispenser.sol:claim -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering c
+  contracts/Dispenser.sol:drip -> refuted (label vulnerable=true) no exploit in 20 bounded scenarios: the re-entrant transaction reverts (require failed: taken + n <= cap)
+  contracts/Escrow.sol:release -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering r
+  contracts/Lockbox.sol:redeem -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering r
+  contracts/Pool.sol:exit -> inconclusive (label vulnerable=true) some scenarios could not be modelled (external call IListener(hooks[msg.sender]).onFunds); the rest found no exploit
