@@ -549,7 +549,7 @@ Used: T-010 to T-144 as listed below (T-137 and T-145 to T-149 are unused and re
 ## APEX series (reserved T-150 to T-162; proposed, not authorised; see `docs/apex.md`)
 
 ### T-150: APEX: prior-art research and novelty assessment
-**Status 2026-11-26: first pass in `docs/apex-prior-art.md` (no paper read directly). Second pass with full texts where reachable is in progress: publisher sites stay unreachable from this environment (the allowlist change was not approved at the prompt), so full texts are read only where authors publish them on GitHub, and Foundry's official docs from their source repository.**
+**Status 2026-11-26: first pass in `docs/apex-prior-art.md` (no paper read directly). Second pass done in `docs/apex-prior-art-pass2.md`: 23 papers read in full (copies the authors published on GitHub), 7 official documentation sets including the Foundry book at a0f150db, and 28 README-only sources. Ratings: (1) existing/integration; (2) meaningful extension at most; (3) integration; (4) integration, possibly extension; (5) integration (lowered); (6) integration, possibly extension; (7) existing (lowered); (8) meaningful extension, provisional. None potentially novel. Publisher sites were still unreachable (the allowlist change was not approved at the prompt), so papers available only there are not read, and are listed in that document's section 6.**
 | Field | |
 |---|---|
 | Phase | 5.5-APEX |

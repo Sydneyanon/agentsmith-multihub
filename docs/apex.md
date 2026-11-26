@@ -45,6 +45,12 @@ APEX is a **dedicated workstream under 5.5 Specialist Research Intelligence**, w
 ## 5. Novelty and prior-art requirement (before any implementation)
 **T-150 first pass done 2026-11-26: `docs/apex-prior-art.md`.** Conservative, provisional verdicts (papers could not be read from this environment): capabilities 1 and 7 existing or integration; 3 integration; 2, 4 and 6 integration, possibly a meaningful extension under stated conditions; 5 a meaningful extension at most; 8 provisionally a meaningful extension. None is rated potentially novel. A second pass with paper access is required before T-151 relies on the verdicts.
 
+**T-150 second pass done 2026-11-26: `docs/apex-prior-art-pass2.md`.**
+- **Sources:** 23 full texts (author-published copies on GitHub) and 7 official documentation sets, including the Foundry book at a0f150db.
+- **Verdicts:** capabilities 5 and 7 are lowered. Foundry now documents multi-agent property hunting with a verifier agent (`forge properties`, experimental), and concrete replay of symbolic counterexamples. The other ratings are unchanged. None is potentially novel.
+- **Gaps the authors leave open, which T-151 should target:** automated domain oracles (Web3Bugs), business-flow atomicity across transactions (Web3Bugs, DeFiScope), and negative-evidence memory across sessions (Hound).
+- **Still unread:** papers available only from publishers (listed in that document's section 6).
+
 T-150 must be a serious, cited review before design is frozen. Starting scope (named from memory; **unverified here, to be confirmed against primary sources**): static analysis frameworks and detectors (for example Slither, Aderyn); symbolic and concolic execution for EVM (Manticore- and Mythril-class tools, hevm, Halmos); property-based and invariant fuzzing (Echidna, Medusa, Foundry invariant testing); formal verification and specification-driven provers (the Certora Prover, SMTChecker); cross-contract and protocol-level analysis; learning-guided and model-assisted search for vulnerabilities; published protocol-level incident and exploit analyses; and the bug-bounty and audit-contest findings literature.
 The review must report: what already exists; what can be reused (and on what licence); what is unsolved or insufficiently addressed; where APEX could plausibly hold a measurable advantage; and for **each of the eight capabilities, whether it is novel or a useful combination of existing methods**. **No originality is claimed without evidence.** A capability judged a combination is still valuable if it measurably helps.
 

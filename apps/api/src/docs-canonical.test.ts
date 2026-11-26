@@ -118,6 +118,11 @@ describe("this cycle's decisions are recorded without overclaiming", () => {
     expect(mem).toMatch(/No migration is written or applied/); expect(mem).toMatch(/`confirmed` requires at least one `supports` evaluation from an evaluator different from the generator/);
     expect(mem).toMatch(/Nothing here creates a separate memory per specialist or engine/);
   });
+  it("the second prior-art pass marks its evidence and still claims no novelty", () => {
+    const p2 = read("docs/apex-prior-art-pass2.md");
+    expect(p2).toMatch(/No capability is rated "potentially novel"/); expect(p2).toMatch(/FULL TEXT READ/); expect(p2).toMatch(/README ONLY/);
+    expect(p2).toMatch(/makes \*\*no originality claim for AgentSmith\*\*/);
+  });
   it("labels the prior-art first pass as provisional and claims no novelty", () => {
     expect(pa).toMatch(/no paper was read directly/); expect(pa).toMatch(/no capability is rated "potentially novel"/);
   });

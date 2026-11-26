@@ -1,6 +1,8 @@
 <!-- T-150 (APEX prior-art and novelty assessment), FIRST PASS, 2026-11-26. Research only: no APEX implementation, no analyzer change. -->
 > **Maintainer's note on evidence quality.** Written by a research agent that could open only github.com: arXiv, USENIX, ACM, IEEE and NDSS were unreachable from this environment, so **no paper was read directly**; paper titles and claims are as stated by the tools' own repositories and documentation. I independently confirmed that all 38 cited GitHub repositories exist (`git ls-remote`, 38/38); I did not re-read their contents. The capability ratings are therefore **provisional and conservative**; no capability is rated "potentially novel". A second pass with access to arxiv.org, usenix.org, dl.acm.org, ieeexplore.ieee.org, ndss-symposium.org and getfoundry.sh is required before T-151 relies on these ratings (an environment change only the owner can approve).
 
+> **Superseded for ratings by the second pass, `docs/apex-prior-art-pass2.md` (full texts where reachable on GitHub; 2026-11-26).** Kept as the README-level record.
+
 # APEX prior-art review: EVM/Solidity vulnerability discovery
 
 Date of review: 2026-11-26. Research only: web pages were read, and no tools were run.
