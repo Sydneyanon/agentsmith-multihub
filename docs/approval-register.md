@@ -1,5 +1,10 @@
 # Owner approval register (prepared 2026-11-26; NO approval is assumed or recorded here)
 
+> **Recorded decisions (2026-11-26, from the decision log):**
+> - **APPROVED:** A16 (T-149 authority), A17 (D10), A4 (T-144 design; a draft on throwaway databases only), A20 (protocol model v1 design and staged plan, incremental).
+> - **DEFERRED:** A18.
+> - **Everything else below is still pending.** The rows are kept as written; the decision log is authoritative.
+
 Approvals are recorded only by the owner, in the decision log (`research-intelligence-plan.md` section 10). This register lists what
 is pending. "Blocks" says what cannot start without the decision.
 
@@ -26,6 +31,7 @@ is pending. "Blocks" says what cannot start without the decision.
 | A18 | **T-149 S3:** intake handover (`identify_project` creates a `repository_research` run) and retirement of the legacy template stages behind a switch | Approve after A16 | Code change on the branch, tests, switch default to the new path | Deleting legacy code, runs or `source_snapshots` (contract stage, A19) | Old URL-intake behaviour changes; history stays readable | Gap tests 1, 2, 5 |
 | A19 | **Contract stage (later):** deprecate empty 0001 `finding_evidence`, `verification_reviews`, `knowledge_*`; drop retired legacy code | Defer until after soak | — | — | Irreversible drops; emptiness asserted first | Nothing now |
 | A20 | **5.3 protocol model v1** (`protocol-representation-design.md`, steps P1–P7) | Approve after A16 | Building the model as a derived artifact on development fixtures; consumer migration specialist by specialist | Storing it in production (needs the T-144/T-149 migrations) | Large but foundational; done stepwise with no-regression gates | APEX, Weirdness, specialists beyond templates |
+| A21 | **T-041 migration apply** (after its draft exists) | Decide after reviewing the draft | Applying it to the named environment | Anything else | Production schema change | Production use of the opportunity model |
 | Standing | S1/T-061 (human-event integrity), S2/T-060 (R1 role), S4/T-138 (Hunt vs MultiHub discovery ownership), Immunefi access route, merging PRs #11–#20, production worker | Unchanged from ROADMAP section 5 | — | — | — | Any production research |
 
 ## T-147 freeze-before-score protocol (corpus 4 is a one-time evaluation set)

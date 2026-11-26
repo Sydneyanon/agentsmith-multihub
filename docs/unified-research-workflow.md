@@ -1,6 +1,6 @@
 # T-149: One research workflow (architectural authority)
 
-**Status: DESIGN for owner approval, 2026-11-26.**
+**Status: DESIGN, APPROVED as the architectural authority (A16, 2026-11-26). Implementation stages remain individually gated (section 10).**
 - No implementation, no migration, no production change.
 - When approved, this document is the authority for identities, schemas, provenance and the research lifecycle. Every other design
   (5.0 discovery, T-040/T-041, T-144 memory, 5.3 protocol representation, the Priority Engine, APEX, Weirdness, domain packs) conforms
@@ -121,7 +121,7 @@ contract step that has its own approval.
 | Existing thing | Fate | How history is preserved |
 |---|---|---|
 | Intake steps `resolve_source`, `identify_project` | **Kept** as the intake front end; `identify_project` writes a project, repository and opportunity claim, then **creates a `repository_research` run** (handover) | Old runs untouched |
-| `locate_official_repositories` (unpinned sampling), `map_attack_surface` (regex), `generate_hypotheses` (templates), `independent_challenge` (checklist), `prepare_research_brief` | **Retired** behind a switch (stop scheduling) once the handover exists; code removed only at the contract step | Historical runs, their step outputs and `source_snapshots` stay **read-only and viewable**. They are **not imported** as hypotheses: they are template scaffolding, and importing them would pollute memory with non-research. An optional import tagged `generator_kind='legacy_template'` can be done only on owner request. |
+| `locate_official_repositories` (unpinned sampling), `map_attack_surface` (regex), `generate_hypotheses` (templates), `independent_challenge` (checklist), `prepare_research_brief` | **Kept running until replaced (owner condition, A18 deferred).** They are switched off only after the new intake path passes the **behavioural-equivalence tests** below; code is removed only at the contract step | Historical runs, step outputs and `source_snapshots` stay **readable**. Template hypotheses are **preserved as historical records**, presented as `legacy_template`, **non-validated**: never a hypothesis in the research store, never evidence, never an outcome, never a learning input |
 | `establish_authorization` | Folded into the run as a **passive authorization record** that reads the 0001 scope tables (still `unverified` until a human confirms scope) | — |
 | `source_snapshots` (0006) | **Frozen**: no new writers after the switch; remains as historical evidence | Rows immutable (existing trigger) |
 | 0001 `programs`, scope, assets, approvals | **Extended** (canonical program and scope identity) | Additive columns |
@@ -129,6 +129,15 @@ contract step that has its own approval.
 | 0001 `knowledge_items`, `knowledge_links` | **Deprecated** in favour of T-144 memory | Same emptiness assertion |
 | 0008 discovery tables | **Extended in place** (D7) | Events unchanged; hash checked |
 | 0007 research store | **Unchanged meaning**; adds `repository_id` to snapshots | — |
+
+**Behavioural-equivalence tests (gate for A18).** For every input the old chain accepts (GitHub repository URL, GitHub URL with a path or ref, X post URL, web URL, free-text idea), the new path must:
+- accept or decline it **identically**;
+- reach the same project and repository identity (GitHub cases);
+- produce a sealed snapshot of a superset of the files the old chain sampled;
+- surface at least the old chain's rule families as coverage or leads (the regex families are a floor, not the target);
+- leave non-GitHub inputs with an explicit, recorded "cannot acquire yet" outcome instead of silently dropping them.
+
+The old stages are switched off only when all of these pass on development fixtures and on the approved real repository.
 
 **Rollback.** Every expand step leaves the old code working: the previous release runs against the expanded schema. The switch is a
 configuration flag; turning it back restores the old scheduling. Contract steps (drops) are separate and late.
@@ -188,10 +197,10 @@ today, so the suite stays green while the gap exists. When a gap is closed, its 
 | Stage | Content | Gate |
 |---|---|---|
 | S0 | This design, gap tests, conforming designs (done in this cycle) | Owner approval of T-149 (A16) and D10 |
-| S1 | T-144 migration draft (memory) + T-041 migration draft (identity, amended per D10), on disposable databases only | A4 and A5–A13 + D10 |
+| S1 | T-144 migration **draft** (memory): **done 2026-11-26** in `db/drafts/t144-research-memory/` (14 throwaway-database tests, 10/10 rule mutants killed). T-041 migration draft (identity, amended per D10): waits for D1–D9 | T-144: A4 (approved). T-041: A5–A13. **Each draft is applied to production only by its own later decision** (A4b, A21) |
 | S2 | Human-review and outcome API (stages 7–8), with S1 caveat visible | S1 drafts approved |
-| S3 | Intake handover: `identify_project` creates the research run; retire legacy steps behind a switch | T-149 approval |
-| S4 | Protocol model v1 (5.3) built at stage 4 and consumed by analysis | T-149 approval; design `protocol-representation-design.md` |
+| S3 | Intake handover: `identify_project` creates the research run; the legacy stages are switched off **only after the behavioural-equivalence tests pass** | A18 (**deferred**) |
+| S4 | Protocol model v1 (5.3), **incremental**: P1–P3 first (`docs/protocol-model-p1-p3-plan.md`). Each step must produce evidence-backed output **and** have at least one real consumer that measurably uses it; stop/go review after P3 | A20 (approved for design and staged plan) |
 | S5 | Live 5.2 check through the GitHub API (T-010) | A15 (environment) |
 | S6 | Apply migrations anywhere other than disposable databases | Separate approval per environment |
 | S7 | Contract step (drop retired code; deprecate empty tables) | Separate approval, after soak |

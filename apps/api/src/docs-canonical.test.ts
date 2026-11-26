@@ -184,9 +184,9 @@ describe("roadmap reconciliation (2026-11-26) stays evidence-based", () => {
 });
 
 describe("T-149 design stays a design and remains the authority", () => {
-  it("is marked as a design for approval with no implementation", () => {
+  it("is marked as an approved design whose implementation stages stay individually gated", () => {
     const d = read("docs/unified-research-workflow.md");
-    expect(d).toMatch(/DESIGN for owner approval/); expect(d).toMatch(/No implementation, no migration, no production change/);
+    expect(d).toMatch(/DESIGN, APPROVED as the architectural authority \(A16, 2026-11-26\)\. Implementation stages remain individually gated/); expect(d).toMatch(/No implementation, no migration, no production change/);
     expect(d).toMatch(/Only stage 8, with an independent supporting evaluation \*\*and\*\* a human `supports` review, can produce `confirmed`/);
   });
   it("the conforming designs point to T-149", () => {
@@ -194,6 +194,22 @@ describe("T-149 design stays a design and remains the authority", () => {
   });
   it("the corpus-4 checklist runs only after approval and forbids inspection before scoring", () => {
     const c = read("docs/corpus4-freeze-before-score-checklist.md"); expect(c).toMatch(/Executes ONLY after owner approval A2/); expect(c).toMatch(/Nobody opens/);
+  });
+});
+
+describe("approved designs stay within their approvals (A16, A17, A4, A20; A18 deferred)", () => {
+  it("the T-144 draft is outside db/migrations and documented as a draft", () => {
+    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+    expect(readdirSync(join(root, "db", "migrations")).some((f: string) => /0009|research_memory/.test(f))).toBe(false);
+    expect(read("db/drafts/t144-research-memory/README.md")).toMatch(/draft only/);
+  });
+  it("legacy stages are not retired before behavioural equivalence, and template hypotheses stay non-validated history", () => {
+    const d = read("docs/unified-research-workflow.md");
+    expect(d).toMatch(/Kept running until replaced/); expect(d).toMatch(/\*\*Behavioural-equivalence tests \(gate for A18\)\.\*\*/);
+    expect(d).toMatch(/\*\*non-validated\*\*/);
+  });
+  it("protocol model steps require a real consumer, with a stop/go review after P3", () => {
+    const p = read("docs/protocol-model-p1-p3-plan.md"); expect(p).toMatch(/at least one real\s+consumer/); expect(p).toMatch(/Stop\/go review with the owner after P3/);
   });
 });
 

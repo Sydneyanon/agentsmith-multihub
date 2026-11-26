@@ -1,6 +1,6 @@
 # 5.3 Protocol and architecture representation (design; conforms to T-149)
 
-**Status: design, 2026-11-26. Not implemented.**
+**Status: design and staged plan APPROVED (A20, 2026-11-26), incremental. Not implemented. P1–P3 first (`docs/protocol-model-p1-p3-plan.md`). No step counts as done without evidence-backed output and a real consumer.**
 
 **Today.**
 - Function-level structure (level 4): `analysis/solidity/index.ts` and `trace.ts` give contracts, inheritance, functions, modifiers and

@@ -696,6 +696,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 
 ### T-144: Research outcomes and coverage records
 **Update 2026-11-26: design proposal in `docs/research-memory-design.md` (three provenance planes; outcomes, missed, duplicates, ground-truth adjudications, effort, coverage, contributions; database rules; consumers). No migration.**
+**Update 2026-11-26: design APPROVED (A4). Migration DRAFT written in `db/drafts/t144-research-memory/` (outside `db/migrations`, so the runner cannot apply it): outcomes with the confirmed/refuted/missed/duplicate rules, ground-truth adjudications, coverage, effort, missed-in-runs, external references, evaluation artifacts; 14 throwaway-database tests (both roles, existing records, scope guard, rollback, compatibility), 10/10 rule mutants killed. Applying it anywhere is A4b (not approved).**
 | Field | |
 |---|---|
 | Phase | 5.1 / cross-phase |
@@ -756,6 +757,7 @@ Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserv
 
 ### T-149: One research workflow (proposed; design only until approved)
 **Status 2026-11-26: DESIGN written (`docs/unified-research-workflow.md`) with conforming designs for 5.0 (`discovery-intake-design.md`), 5.2 (`acquisition-verification-2026-11-26.md`), 5.3 (`protocol-representation-design.md`) and 5.1 (`research-memory-design.md`); 8 expected-failing gap tests in `apps/api/src/architecture-gaps.test.ts`. Implementation NOT started; awaiting A16 and the per-stage approvals A17, A18, A20.**
+**Update 2026-11-26: design APPROVED as the architectural authority (A16) with D10 (A17). Owner conditions recorded: legacy stages stay until behavioural-equivalence tests pass (A18 deferred); template hypotheses preserved as non-validated history; migrations approved stage by stage.**
 | Field | |
 |---|---|
 | Phase | 5.0-5.7 (foundation) |
