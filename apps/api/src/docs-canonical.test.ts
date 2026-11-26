@@ -168,6 +168,21 @@ describe("cycle-5 design documents stay proposals", () => {
   });
 });
 
+describe("roadmap reconciliation (2026-11-26) stays evidence-based", () => {
+  const rm = read("docs/ROADMAP.md");
+  it("keeps the previous status table as history and adds a dated reconciled status", () => {
+    expect(rm).toMatch(/### Reconciled status \(2026-11-26/); expect(rm).toMatch(/Previous verification, kept as history/);
+    expect(rm).toMatch(/\*\*5\.0 Bounty discovery\*\* \| \*\*Implemented but unverified\*\*/);
+  });
+  it("does not overstate the foundation: multi-source discovery, architecture mapping and the review path are not done", () => {
+    expect(rm).toMatch(/\| 5\.0 Multi-source discovery \| 1 \|/); expect(rm).toMatch(/\| 5\.3 Architecture and attack-surface intelligence \| 1/);
+    expect(rm).toMatch(/\| 5\.1 Research-state store \| 4 \| \*\*Corrected\*\*/); expect(rm).toMatch(/two research pipelines coexist/);
+  });
+  it("the approval register assumes no approval", () => {
+    expect(read("docs/approval-register.md")).toMatch(/NO approval is assumed or recorded here/);
+  });
+});
+
 describe("stale statements are corrected", () => {
   it("fly.toml no longer calls agentsmith-multihub the existing production app", () => {
     const head = read("fly.toml").split("\n").slice(0, 4).join("\n");

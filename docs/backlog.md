@@ -11,7 +11,7 @@ so it can proceed now. In parallel, the single most valuable **owner-side** acti
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-148 as listed below (T-137 and T-149 are unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (T-137 is unused and reserved free). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -753,6 +753,18 @@ Used: T-010 to T-148 as listed below (T-137 and T-149 are unused and reserved fr
 | Required tests | `eval/verify-frozen.sh` in a fresh clone. |
 | Security considerations | None. |
 | Approval required | Owner choice among the residual-risk options in `eval/CANDIDATES.md`. |
+
+### T-149: One research workflow (proposed; design only until approved)
+**Status 2026-11-26: proposed by the roadmap reconciliation; not started; owner approval A16.**
+| Field | |
+|---|---|
+| Phase | 5.0-5.7 (foundation) |
+| Dependencies | none for the design; T-144 and D1-D9 for the implementation |
+| Scope | Design one path from any entry (discovery approval, URL intake, manual import) to a sealed snapshot in the 5.1 research store, then analysis, challenge, review and dossier. Decide the fate of the legacy intake chain (`worker-runtime.ts` steps that write `source_snapshots` and step output): retire it, or reduce it to an intake front end that hands over to `repository_research`. Specify the human-review API and where shared context (protocol representation, coverage, outcomes) attaches for specialists, APEX, Weirdness and the Priority Engine. |
+| Acceptance criteria | A written design with a step-by-step migration of the flows; gap tests that currently fail and describe the target behaviour; no change to production; no migration. |
+| Required tests | Gap tests (expected-failing, clearly marked) for: URL intake reaching acquisition; no hypothesis outside the research store; a human review recordable through the API. |
+| Security considerations | S1 (human-event integrity) stays open; no new active capability. |
+| Approval required | Design approval (A16); any migration separately. |
 
 ## Multi-domain series (reserved T-170 to T-179; proposed, not authorised; see `docs/multi-domain-research.md`)
 

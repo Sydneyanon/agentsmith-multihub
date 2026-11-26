@@ -4,7 +4,7 @@
 Individual task prompts, PR descriptions and summaries must not contradict it. If a task needs a change to the architecture or a phase, change this document
 first (through review), not the task. History and the original audit stay in `research-intelligence-plan.md`; the task list is `docs/backlog.md`.
 
-Last verified against the repository: 2026-11-26, branch `claude/phase-5-2-audit-and-5-0-discovery` (stack PRs #11-#20 draft and unmerged; `main` at `b50ff6f`).
+**Reconciled 2026-11-26 against branch `claude/structural-validation-and-workflow` @ `89ad63d` (contains `main` and every stacked branch): see section 3 "Reconciled status" and `docs/roadmap-reconciliation-2026-11-26.md`.** Previous verification, kept as history: Last verified against the repository: 2026-11-26, branch `claude/phase-5-2-audit-and-5-0-discovery` (stack PRs #11-#20 draft and unmerged; `main` at `b50ff6f`).
 Everything in section 3 was re-checked against code, migrations and docs on that date, not copied from earlier summaries. Nothing here approves implementation,
 deployment, spending or testing; approvals are recorded only in the decision log (`research-intelligence-plan.md` section 10).
 
@@ -129,6 +129,54 @@ Status vocabulary: **Implemented and verified** / **Implemented but unverified**
 | **MD Multi-domain research** (workstream) | **Future work** (committed; planning only) | `docs/multi-domain-research.md`: shared kernel plus domain packs for Web application, API, cloud, supply chain and identity; smart contracts remain the immediate focus; tasks T-170 to T-179. | Waits for an independently evaluated smart-contract engine and generalised kernel interfaces; active testing needs verified authorisation. |
 
 Platform and release state: Release 1 (security foundation, engine idle) is **live** at `hub.agentsmithdesk.xyz` (image digest `sha256:c0eaf87d...`, Docker-less build, R1 owner role accepted temporarily). Not merged: PRs #11-#20. No worker, no CI (GitHub Actions unavailable), no genuine Dockerfile build pipeline.
+
+### Reconciled status (2026-11-26, branch `claude/structural-validation-and-workflow` @ `89ad63d`)
+**Why this was added.** The table above was verified on an earlier branch. It is kept unchanged as history. This subsection re-rates
+each item against the code, tests and records on the current branch, using a six-level scale:
+
+| Level | Meaning |
+|---|---|
+| 1 | not started |
+| 2 | designed, not implemented |
+| 3 | implemented, not adequately tested |
+| 4 | tested in development only |
+| 5 | independently evaluated |
+| 6 | operational in production |
+
+Evidence for every row is in `docs/roadmap-reconciliation-2026-11-26.md` section 2. Production facts are as recorded on 2026-11-25/26,
+**not re-probed**.
+
+| Item | Level (2026-11-26) | Change against the table above, and why |
+|---|---|---|
+| 5.0 GitHub-organisation adapter | 4 | Unchanged in substance ("implemented but unverified"). Stated plainly: **a single adapter, never run live, is not multi-source discovery.** |
+| 5.0 Multi-source discovery | 1 | Previously folded into the 5.0 row; split out so it cannot be mistaken for done. |
+| 5.0 URL intake | 3 (classification) / 2 (content) | Unchanged. |
+| 5.0 Unified opportunity model | 2 | Was "requirements only"; T-040 design, T-041 review and the D1–D9 brief now exist. Awaiting owner. |
+| 5.1 Research-state store | 4 | **Corrected** from "Implemented and verified". Its tests are development tests, and no production run has used it. Outcome, coverage and adjudication records and the human-review API are missing (T-144 design only). |
+| 5.1 Human review path | 3 | **New row.** Store method only; no API. "Confirmed" is therefore unreachable. |
+| 5.2 Repository acquisition | 4 | Clarified: verified on **one real public repository** through the clone path in a disposable database (`eval/real-runs/`). The GitHub API path is still never live. |
+| 5.3 Function-level structure | 4 | Unchanged in substance. |
+| 5.3 Architecture and attack-surface intelligence | 1 (legacy regex mapper: 3) | **Corrected.** The previous row implied mapping existed; only function-level structure does. |
+| 5.4 Structural analysis | 5 (synthetic held-out corpora) | **Raised** on evidence: three sealed, independently authored corpora scored once each (`eval/results/README.md`, `eval/candidates.json`). Not real-world, not tool-compared. |
+| 5.4B Toolchain | 2 | Unchanged. |
+| 5.5 Seven deterministic specialists | 5 (with 5.4) | As 5.4. Other specialist kinds: 1. |
+| 5.5A Weirdness Engine | 1 | Unchanged (no definition). |
+| 5.6 Execution validators | 4 | Six classes now (was one); reentrancy cross-checked against EVM ground truth; two wrong refutations found by adjudication and fixed in development. |
+| 5.6 Independent review | 2 | No operational review loop. |
+| 5.7 Dossiers | 4 | Ran on the real repository (development). |
+| 5.8 Frozen benchmarks | 4 (instrument in use) | Four sealed corpora, candidate registry, adjudication records. Blind rediscovery benchmark: 1. Learning: 1 (gated). |
+| Priority Engine | 4 (fixtures and synthetic) | Was "designed"; T-051/T-052/T-057 built offline. The diagnosis found v1 design gaps. No real data. |
+| Control Room | 3 (alpha, read-only) | Unchanged. |
+| 5.5-APEX | 1 (prior-art research T-150 complete) | Unchanged for implementation. |
+| MD | 1 | Unchanged. |
+
+**New structural finding: two research pipelines coexist.**
+- The intake chain (regex mapper, template hypotheses, its own `source_snapshots`) does not feed the 5.1 research store.
+- `repository_research` (acquisition → structural analysis → challenge → dossier) does.
+- Discovery approval feeds `repository_research`; URL intake feeds the legacy chain.
+
+Unifying them is proposed as **T-149** and is the recommended next task. Pending owner decisions are listed in
+`docs/approval-register.md`.
 
 ## 4. Dependencies and blockers
 | Item | Needs | Blocked by |
