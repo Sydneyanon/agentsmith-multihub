@@ -8,6 +8,7 @@ import { registerResearchRoutes } from "./research-api.js";
 import { registerDiscoveryRoutes } from "./discovery/api.js";
 import { registerHubStatic } from "./hub-static.js";
 import { registerHostGuard } from "./host-guard.js";
+import { expectedMigrations, readBuildInfo, registerEngineStatusRoutes, type EngineInfo } from "./engine-status.js";
 
 export type AppOptions = {
   pool: Pool | undefined;
@@ -21,6 +22,8 @@ export type AppOptions = {
   trustedProxyCidrs?: readonly string[];
   /** Called for every route as it is registered (used by the route-coverage test). */
   onRouteRegistered?: (route: { method: string; url: string }) => void;
+  /** Build identity, data label and shipped migrations for GET /v1/engine/status. Default: read from the build; data unlabelled. */
+  engineInfo?: Partial<EngineInfo>;
 };
 
 /** Builds the whole HTTP application without reading the environment or opening a socket, so tests can exercise the real thing. */
@@ -65,6 +68,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerWorkflowRoutes(app, pool);
   registerResearchRoutes(app, pool);
   registerDiscoveryRoutes(app, pool);
+  registerEngineStatusRoutes(app, pool, { build: options.engineInfo?.build ?? readBuildInfo(), dataKind: options.engineInfo?.dataKind ?? "unlabelled", expectedMigrations: options.engineInfo?.expectedMigrations !== undefined ? options.engineInfo.expectedMigrations : expectedMigrations() });
   registerHubStatic(app);
   app.addHook("onClose", async () => { await pool?.end(); });
   return app;

@@ -11,6 +11,10 @@ import { chromium, type Browser } from "playwright-core";
 import { registerBearerAuth } from "../apps/api/src/auth.js";
 import { registerHubStatic } from "../apps/api/src/hub-static.js";
 import { registerResearchRoutes } from "../apps/api/src/research-api.js";
+import { registerDiscoveryRoutes } from "../apps/api/src/discovery/api.js";
+import { expectedMigrations, registerEngineStatusRoutes, workerApplicationName } from "../apps/api/src/engine-status.js";
+import { buildProtocolModel } from "../apps/api/src/analysis/solidity/protocol-model.js";
+import pg from "pg";
 import { assertIntegrationConfigured, migratedTestDatabase, seedRun } from "../apps/api/src/integration/harness.js";
 import { ResearchFixture, VAULT } from "../apps/api/src/integration/research-helpers.js";
 
@@ -24,7 +28,8 @@ export interface Demo {
   close(): Promise<void>;
 }
 
-export async function startDemo(): Promise<Demo> {
+/** `empty: true` serves a freshly migrated database with no records at all (the honest idle Control Room). */
+export async function startDemo(options: { empty?: boolean } = {}): Promise<Demo> {
   assertIntegrationConfigured();
   const token = randomBytes(36).toString("base64url");
   const db = await migratedTestDatabase();
@@ -33,10 +38,18 @@ export async function startDemo(): Promise<Demo> {
   try {
     registerBearerAuth(app, token);
     registerResearchRoutes(app, db.pool);
+    registerDiscoveryRoutes(app, db.pool);
+    // the demo database is labelled SYNTHETIC by the server, so every Control Room screen carries the banner
+    registerEngineStatusRoutes(app, db.pool, { build: { commit: null, image: null, built_at: null, source: "none" }, dataKind: options.empty ? "test" : "synthetic", expectedMigrations: expectedMigrations() });
     registerHubStatic(app, { assetsDir: resolve("dist/web") });
     await app.listen({ port: 0, host: "127.0.0.1" });
     const address = app.server.address();
     const base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+    if (options.empty) return { base, token, ids: { project: "", snapshot: "", hypothesis: "", span: "" }, routes: [["control-idle", "#/control"]], close: async () => { await app.close(); await db.drop(); } };
+    // SYNTHETIC worker session: the name a real worker uses, so presence detection is exercised (it runs nothing)
+    const worker = new pg.Pool({ connectionString: db.url, max: 1, application_name: workerApplicationName("worker-a", { STRUCTURAL_ANALYSIS_ENABLED: "true" }) });
+    worker.on("error", () => undefined);
+    await worker.query("SELECT 1");
 
     async function legacy(value: string, finished: boolean) {
       const { runId, stepIds } = await seedRun(db.pool, LEGACY);
@@ -51,6 +64,8 @@ export async function startDemo(): Promise<Demo> {
     await legacy("SYNTHETIC lead: bridge audit notes", true);
 
     const ctx = await fx.step();
+    // the fixture's run carries the structural workflow type (the snapshot, model and hypotheses belong to the T-149 lane)
+    await db.ownerPool.query("UPDATE workflow_runs SET workflow_type = 'repository_research' WHERE id = $1", [ctx.runId]);
     await db.pool.query("UPDATE workflow_runs SET input = $2::jsonb, status = 'running' WHERE id = $1", [ctx.runId, JSON.stringify({ kind: "idea", value: "SYNTHETIC demo: fixture vault research run", source: "user" })]);
     const snapshotId = await fx.store.createSnapshot(ctx.lease, { repository: "synthetic/demo-vault", commitSha: fx.commit(), refName: "main", acquisitionReport: {
       // SYNTHETIC: shaped like a real acquisition report (docs/repository-acquisition.md) so the dashboard's Acquisition panel is exercised; nothing here was acquired.
@@ -91,16 +106,25 @@ export async function startDemo(): Promise<Demo> {
     await fx.review(h1, "operator-1", "supports", "disclosed_adjudication");
     await fx.review(h3, "operator-1", "needs_more_evidence", "blinded_independent_assessment");
     await fx.store.withdraw("operator-1", h4, "Superseded by a narrower claim.");
+    // SYNTHETIC protocol model: the real P1–P3 builder over the demo's own synthetic files, stored as the analysis step would store it
+    const pm = buildProtocolModel(files.filter(([p]) => p.endsWith(".sol")).map(([path, , text]) => ({ path, text })));
+    await fx.store.putBlob(ctx.lease, Buffer.from(pm.json, "utf8"));
+    await db.pool.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, status, attempt, output, started_at, completed_at)
+      VALUES ($1, 'analyze_structure', 100, 'analysis', 'succeeded', 1, $2::jsonb, now(), now())`, [ctx.runId, JSON.stringify({ protocol_model_sha256: pm.sha256, protocol_model_stored: true })]);
+    // SYNTHETIC failure, so the shaped last-failure line is exercised
+    const failed = await seedRun(db.pool, ["resolve_source"]);
+    await db.pool.query("UPDATE workflow_runs SET status='failed', input=$2::jsonb, completed_at=now() WHERE id=$1", [failed.runId, JSON.stringify({ kind: "url", value: "https://example.invalid/SYNTHETIC-unreachable", source: "user" })]);
+    await db.pool.query(`UPDATE workflow_steps SET status='failed', attempt=3, completed_at=now(), error='{"message":"SYNTHETIC: GET https://example.invalid/x failed after 3 attempts","retryable":false}'::jsonb WHERE id=$1`, [failed.stepIds[0]]);
 
     const list = (await (await fetch(`${base}/v1/research/projects`, { headers: { authorization: `Bearer ${token}` } })).json()) as { items: Array<{ id: string }> };
     const ids = { project: list.items[0]!.id, snapshot: snapshotId, hypothesis: h1, span: fn };
     const routes: Array<[string, string]> = [
-      ["home", "#/home"], ["projects", "#/projects"], ["project", `#/projects/${ids.project}`],
+      ["control", "#/control"], ["home", "#/home"], ["projects", "#/projects"], ["project", `#/projects/${ids.project}`],
       ["repository-list", "#/repository"], ["repository", `#/repository/${snapshotId}?path=${encodeURIComponent("contracts/Vault.sol")}`],
       ["hypotheses", "#/hypotheses"], ["hypothesis", `#/hypotheses/${h1}`], ["evidence-list", "#/evidence"], ["evidence", `#/evidence/${fn}`],
       ["activity", "#/activity"], ["later", "#/reviews"],
     ];
-    return { base, token, ids, routes, close: async () => { await app.close(); await db.drop(); } };
+    return { base, token, ids, routes, close: async () => { await worker.end(); await app.close(); await db.drop(); } };
   } catch (error) {
     await app.close(); await db.drop();
     throw error;

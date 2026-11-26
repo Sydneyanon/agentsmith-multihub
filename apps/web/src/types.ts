@@ -92,3 +92,48 @@ export interface ActivityItem {
   run_id: string | null; hypothesis_id: string | null; step_key: string | null; reason: string | null;
 }
 export interface ActivityPage { items: ActivityItem[]; limit: number; has_more: boolean; next: { before: string; before_id: string } | null; automation_basis: string }
+
+/** GET /v1/engine/status (apps/api/src/engine-status.ts). The backend computes every state; the client only words it. */
+export interface StepQueueRow { step_key: string; queued: number; running_live: number; running_expired_lease: number; awaiting_approval: number; succeeded: number; failed: number; failed_24h: number; oldest_queued_age_seconds: number | null }
+export interface EngineStatus {
+  version: string; generated_at: string; data_kind: "production" | "synthetic" | "test" | "unlabelled";
+  build: { commit: string | null; image: string | null; built_at: string | null; source: string };
+  schema: { ledger_readable: boolean; applied: string[] | null; expected: string[] | null; missing: string[] | null; unknown: string[] | null; discovery_installed: boolean };
+  engine: { state: "idle" | "queued" | "working" | "attention"; reasons: string[] };
+  workers: {
+    connected: Array<{ worker_id: string; structural_analysis: boolean; connections: number }>; live_lease_owners: string[]; presence_basis: string;
+    running: Array<{ worker: string; workflow_type: string; step_key: string; live: boolean; lease_expires_at: string | null }>;
+  };
+  queue: { totals: { queued: number; running_live: number; running_expired_lease: number; failed_24h: number }; order_basis: string;
+    by_lane: Array<{ workflow_type: string; label: string; kind: "structural" | "legacy" | "other"; steps: StepQueueRow[] }> };
+  runs: Array<{ workflow_type: string; lane: string; status: string; count: number; last_created_at: string }>;
+  last: {
+    run: { id: string; workflow_type: string; status: string; created_at: string; created_by: string } | null;
+    step_success: { workflow_type: string; step_key: string; completed_at: string } | null;
+    failure: { run_id: string; workflow_type: string; step_key: string; attempt: number; at: string | null; error: { message: string; retryable: boolean | null } } | null;
+  };
+  stages: {
+    discovery: { installed: true; sources: number; enabled_sources: number; last_success_at: string | null; opportunities_by_state: Counts } | { installed: false; reason: string };
+    acquisition: { snapshots_sealed: number; snapshots_building: number };
+    protocol_mapping: { stored_models: number; schema: string };
+    hypotheses: { total: number; by_status: Counts; note: string };
+    evidence_spans: number;
+    validation: { evaluations: number; blinded_reviews: number };
+    adjudication: { disclosed_adjudications: number; human_confirmed_findings: null; note: string };
+    memory: { installed: boolean; built: boolean; note: string };
+  };
+}
+export interface DiscoverySource { source_key: string; adapter: string; display_name: string; enabled: boolean; min_interval_seconds: number; last_attempt_at: string | null; last_success_at: string | null; consecutive_failures: number }
+export interface Opportunity { id: string; platform: string; title: string; state: string; priority_score: number; first_seen_at: string; last_seen_at: string }
+
+/** The dossier's architecture section (apps/api/src/analysis/solidity/pipeline.ts, ArchitectureSection). */
+export interface AuthoritySummary {
+  roles: Array<{ variable: string; strength: string; holder: string; held_by: string | null; transfer: string; writers: string[] }>;
+  open_authority_writes: string[]; callee_side_checks: string[]; factory_paths: string[]; proxy: string[]; initialisers: string[]; assumptions: string[]; unresolved: string[];
+}
+export type ArchitectureSection =
+  | { available: false; reason: string }
+  | { available: true; model_sha256: string; builder: string; unknowns: Array<{ at: string; what: string }>;
+      components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; state_roles: Array<{ variable: string; status: string; roles: string[] }>; authority: AuthoritySummary | null;
+        entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; resolved_callee: string | null; at: string }>; unresolved_calls: Array<{ name: string; at: string }> }> }> };
+export interface DossierBrief { snapshot: { id: string; repository: string; commit_sha: string; verified: boolean }; architecture: ArchitectureSection; content_sha256: string }

@@ -24,6 +24,8 @@ export function buildPoolConfig(env: Env, options: {
   urlVariable?: UrlVariable;
   /** Called when a security-reducing setting is in effect. */
   onWarning?: (message: string) => void;
+  /** The session name other sessions can see in pg_stat_activity (Control Room worker presence). Never carries a secret. */
+  applicationName?: string;
 }): PoolConfig {
   const urlVariable = options.urlVariable ?? "DATABASE_URL";
   const url = env[urlVariable];
@@ -47,6 +49,7 @@ export function buildPoolConfig(env: Env, options: {
     connectionTimeoutMillis: timeout,
     idleTimeoutMillis: 30_000,
     maxLifetimeSeconds: 600,
+    ...(options.applicationName ? { application_name: options.applicationName } : {}),
     ...(useTls ? { ssl: { rejectUnauthorized: verify !== "false" } } : {}),
   };
 }

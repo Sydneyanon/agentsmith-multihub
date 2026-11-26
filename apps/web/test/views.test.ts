@@ -209,7 +209,7 @@ describe("shell and unlock", () => {
     expect(headers["authorization"]).toBe("Bearer tok");
     expect(location.href).not.toContain("tok");
     expect(root.querySelectorAll(".sidebar .nav-later")).toHaveLength(4);
-    expect(root.querySelectorAll(".tabbar a")).toHaveLength(6);
+    expect(root.querySelectorAll(".tabbar a")).toHaveLength(7);
     vi.unstubAllGlobals();
   });
   it("returns to the unlock screen with a message when the backend rejects the token", async () => {

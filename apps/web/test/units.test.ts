@@ -62,22 +62,23 @@ describe("vocabulary", () => {
     expect(STAGES).toHaveLength(7);
   });
   it("lists only built sections as links in navigation", () => {
-    expect(NAV.filter((n) => !n.later).map((n) => n.id)).toEqual(["home", "projects", "repository", "hypotheses", "evidence", "activity"]);
+    expect(NAV.filter((n) => !n.later).map((n) => n.id)).toEqual(["control", "home", "projects", "repository", "hypotheses", "evidence", "activity"]);
     expect(NAV.filter((n) => n.later).every((n) => n.later)).toBe(true);
   });
 });
 
 describe("router", () => {
   it("parses hash routes, ids, sub paths and queries", () => {
-    expect(parseHash("")).toMatchObject({ name: "home" });
+    expect(parseHash("")).toMatchObject({ name: "control" });
+    expect(parseHash("#/home")).toMatchObject({ name: "home" });
     expect(parseHash("#/projects/abc")).toMatchObject({ name: "projects", id: "abc" });
     expect(parseHash("#/repository/abc?path=a%2Fb.sol&prefix=a%2F")).toMatchObject({ name: "repository", id: "abc", query: { path: "a/b.sol", prefix: "a/" } });
     expect(parseHash("#/reviews")).toMatchObject({ name: "later", sub: "reviews" });
   });
-  it("falls back to home for unknown or prototype-named routes", () => {
-    expect(parseHash("#/nope").name).toBe("home");
-    expect(parseHash("#/constructor").name).toBe("home");
-    expect(parseHash("#/__proto__").name).toBe("home");
+  it("falls back to the Control Room for unknown or prototype-named routes", () => {
+    expect(parseHash("#/nope").name).toBe("control");
+    expect(parseHash("#/constructor").name).toBe("control");
+    expect(parseHash("#/__proto__").name).toBe("control");
   });
   it("round-trips encoded links", () => {
     expect(parseHash(link("hypotheses", "a/b")).id).toBe("a/b");

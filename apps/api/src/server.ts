@@ -3,11 +3,12 @@ import { config } from "./config.js";
 import { buildApp } from "./app.js";
 import { buildPoolConfig, stderrWarning } from "./db-config.js";
 import { runRoleGuard } from "./db-roles.js";
+import { API_APP_NAME } from "./engine-status.js";
 
-const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning })) : undefined;
+const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning, applicationName: API_APP_NAME })) : undefined;
 
 export function buildServer() {
-  return buildApp({ pool, apiBearerToken: config.apiBearerToken, hubAllowedHosts: config.hubAllowedHosts, trustedProxyCidrs: config.trustedProxyCidrs, logLevel: config.logLevel });
+  return buildApp({ pool, apiBearerToken: config.apiBearerToken, hubAllowedHosts: config.hubAllowedHosts, trustedProxyCidrs: config.trustedProxyCidrs, logLevel: config.logLevel, engineInfo: { dataKind: config.dataKind } });
 }
 
 const app = buildServer();

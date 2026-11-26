@@ -6,6 +6,7 @@ import { link, linkWith } from "./router.js";
 import type { Ctx } from "./ctx.js";
 import type { AcquisitionReport, FileRow, FileText, Page, SnapshotDetail, SnapshotSummary, Surface } from "./types.js";
 import { HYPOTHESIS_STATUS, word } from "./vocab.js";
+import { architecturePanel } from "./view-architecture.js";
 
 export function renderRepository(ctx: Ctx, id: string | undefined, query: Record<string, string>): HTMLElement {
   return id ? renderSnapshot(ctx, id, query) : renderSnapshotList(ctx, query);
@@ -54,7 +55,7 @@ function renderSnapshot(ctx: Ctx, id: string, query: Record<string, string>): HT
     });
 
     const browser = h("div", { class: "split" }, h("div", { class: "split-side" }, fileList(ctx, id, prefix)), h("div", { class: "split-main" }, path ? fileViewer(ctx, id, path) : empty("Select a file", "Choose a file in the list or the map to read it with its evidence spans.")));
-    return h("div", { class: "stack" }, h("div", { class: "view-head" }, h("h1", {}, snap.repository)), header, acquisitionPanel(snap), panel("Attack-surface map", [mapBox]), panel("Files and code", [browser]));
+    return h("div", { class: "stack" }, h("div", { class: "view-head" }, h("h1", {}, snap.repository)), header, acquisitionPanel(snap), panel("Protocol architecture (P1–P3)", [snap.sealed ? architecturePanel(ctx, id) : empty("Not sealed", "The architecture is shown only for sealed snapshots.")]), panel("Attack-surface map", [mapBox]), panel("Files and code", [browser]));
   });
   return root;
 }

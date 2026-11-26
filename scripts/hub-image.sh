@@ -36,6 +36,8 @@ build() {
   # Dockerfile build stage: COPY package*.json, tsconfig.json, apps, scripts, db; npm ci; npm run build
   git -C "$ROOT" archive HEAD package.json package-lock.json tsconfig.json tsconfig.build.json apps scripts db | tar -x -C "$WORK/stage1"
   (cd "$WORK/stage1" && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null)
+  # build identity for GET /v1/engine/status (commit, image tag, commit time: deterministic, so two builds stay byte-identical)
+  printf '{"commit":"%s","image":"registry.fly.io/%s:%s","built_at":"%s"}\n' "$SHA" "$APP" "$TAG" "$(date -u -d "@$SDE" +%Y-%m-%dT%H:%M:%SZ)" > "$WORK/stage1/dist/build-info.json"
   # Dockerfile runtime stage: COPY package*.json; npm ci --omit=dev; COPY dist, db
   cp "$WORK/stage1/package.json" "$WORK/stage1/package-lock.json" "$WORK/stage2/app/"
   (cd "$WORK/stage2/app" && npm ci --omit=dev --no-audit --no-fund >/dev/null)

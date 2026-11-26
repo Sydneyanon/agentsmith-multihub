@@ -11,8 +11,12 @@ import { renderRepository } from "./view-repository.js";
 import { renderHypotheses } from "./view-hypotheses.js";
 import { renderEvidence } from "./view-evidence.js";
 import { renderActivity } from "./view-activity.js";
+import { ENGINE_STATE, renderControl } from "./view-control.js";
+import { REFRESH_MS } from "./live.js";
+import type { EngineStatus } from "./types.js";
+import { word } from "./vocab.js";
 
-const NAV_ICON: Record<string, string> = { home: "◈", projects: "▤", repository: "⌥", hypotheses: "✦", evidence: "▣", activity: "≋", reviews: "◐", findings: "⚑", knowledge: "❖", system: "⚙" };
+const NAV_ICON: Record<string, string> = { control: "◉", home: "◈", projects: "▤", repository: "⌥", hypotheses: "✦", evidence: "▣", activity: "≋", reviews: "◐", findings: "⚑", knowledge: "❖", system: "⚙" };
 
 function brand(): HTMLElement {
   return h("div", { class: "brand" }, h("span", { class: "brand-mark", "aria-hidden": "true" }, "A"), h("span", { class: "brand-text" }, h("strong", {}, "AgentSmith"), h("span", {}, "MultiHub")));
@@ -31,7 +35,7 @@ function shell(route: Route, content: HTMLElement, lock: () => void, healthChip:
   const activeId = route.name === "later" ? route.sub : route.name;
   const item = (n: (typeof NAV)[number], compact: boolean) => n.later
     ? h("span", { class: "nav-item nav-later", title: `Built in ${n.later}` }, h("span", { class: "nav-icon", "aria-hidden": "true" }, NAV_ICON[n.id]), h("span", {}, n.label), compact ? null : h("small", {}, n.later))
-    : h("a", { class: `nav-item${activeId === n.id ? " is-active" : ""}`, href: n.hash, "aria-current": activeId === n.id ? "page" : null }, h("span", { class: "nav-icon", "aria-hidden": "true" }, NAV_ICON[n.id]), h("span", {}, n.label));
+    : h("a", { class: `nav-item${activeId === n.id ? " is-active" : ""}`, href: n.hash, "aria-current": activeId === n.id ? "page" : null }, h("span", { class: "nav-icon", "aria-hidden": "true" }, NAV_ICON[n.id]), h("span", {}, compact ? (n.short ?? n.label) : n.label));
   return h("div", { class: "app" },
     h("nav", { class: "sidebar", "aria-label": "Primary" }, brand(), h("ul", {}, ...NAV.map((n) => h("li", {}, item(n, false))))),
     h("div", { class: "main" },
@@ -48,6 +52,7 @@ function laterView(sub: string | undefined): HTMLElement {
 
 export function renderRoute(ctx: Ctx, route: Route): HTMLElement {
   switch (route.name) {
+    case "control": return renderControl(ctx);
     case "home": return renderHome(ctx);
     case "projects": return renderProjects(ctx, route.id, route.query);
     case "repository": return renderRepository(ctx, route.id, route.query);
@@ -58,13 +63,23 @@ export function renderRoute(ctx: Ctx, route: Route): HTMLElement {
   }
 }
 
+/** The top-bar engine chip: engine state from GET /v1/engine/status, refreshed while visible; stops when the chip leaves the page. */
 async function healthChip(api: Api): Promise<HTMLElement> {
-  const el = h("span", { class: "health-chip tone-grey" }, "Engine: checking…");
-  api.get<{ pipeline: { health: { state: string } } }>("/v1/research/overview").then((o) => {
-    const state = o.pipeline.health.state;
-    el.className = `health-chip tone-${state === "attention" ? "amber" : state === "working" ? "cyan" : "grey"}`;
-    el.textContent = `Engine: ${state === "attention" ? "needs attention" : state}`;
-  }, (e: unknown) => { el.className = "health-chip tone-amber"; el.textContent = `Engine: ${describeError(e).title}`; });
+  const el = h("a", { class: "health-chip tone-grey", href: "#/control" }, "Engine: checking…");
+  let seen = false;
+  const refresh = () => {
+    if (seen && !el.isConnected) return;
+    if (el.isConnected) seen = true;
+    if (document.visibilityState !== "hidden") api.get<EngineStatus>("/v1/engine/status").then((s) => {
+      if (!s?.engine) { el.className = "health-chip tone-grey"; el.textContent = "Engine: status unrecognised"; return; }
+      const w = word(ENGINE_STATE, s.engine.state);
+      el.className = `health-chip tone-${w.tone}`;
+      el.textContent = `Engine: ${w.label.toLowerCase()}${s.data_kind === "synthetic" ? " · SYNTHETIC" : ""}`;
+      el.title = `Server time ${s.generated_at}`;
+    }, (e: unknown) => { el.className = "health-chip tone-amber"; el.textContent = `Engine: ${describeError(e).title}`; });
+    setTimeout(refresh, REFRESH_MS);
+  };
+  refresh();
   return el;
 }
 

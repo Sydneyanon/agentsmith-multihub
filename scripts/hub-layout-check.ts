@@ -68,7 +68,7 @@ async function main(): Promise<void> {
           expectThat(state.display !== "none" && state.position === "fixed", where, `tab bar is ${state.display}/${state.position}, expected a visible fixed bar`);
           expectThat(Math.abs(state.barBottom - state.vh) <= 1, where, `tab bar bottom ${state.barBottom} is not at the viewport bottom ${state.vh}`);
           expectThat(state.lastBottom <= state.barTop + 1, where, `last content ends at ${Math.round(state.lastBottom)}, under the tab bar that starts at ${Math.round(state.barTop)}`);
-          expectThat(state.items === 6, where, `tab bar has ${state.items} links, expected 6`);
+          expectThat(state.items === 7, where, `tab bar has ${state.items} links, expected 7`);
         }
       }
       expectThat((await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).length === 0, `${name}`, "CSP violation during normal use");

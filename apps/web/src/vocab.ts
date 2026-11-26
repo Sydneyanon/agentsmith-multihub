@@ -70,8 +70,9 @@ export function stageStates(p: ProjectRecordCounts): Array<StageSlot & { state: 
   return STAGES.map((slot) => ({ ...slot, state: slot.notBuilt ? "not_built" : has[slot.key] ? "done" : "none" }));
 }
 
-export const NAV: Array<{ id: string; label: string; hash: string; later?: string }> = [
-  { id: "home", label: "Research Home", hash: "#/home" },
+export const NAV: Array<{ id: string; label: string; hash: string; later?: string; short?: string }> = [
+  { id: "control", label: "Control Room", hash: "#/control", short: "Control" },
+  { id: "home", label: "Research Home", hash: "#/home", short: "Home" },
   { id: "projects", label: "Projects", hash: "#/projects" },
   { id: "repository", label: "Repository", hash: "#/repository" },
   { id: "hypotheses", label: "Hypotheses", hash: "#/hypotheses" },

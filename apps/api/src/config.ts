@@ -24,6 +24,8 @@ const configSchema = z.object({
   }).optional(),
   HUB_REQUIRE_RESTRICTED_DB_ROLE: z.enum(["true", "false"]).default("false"),
   AI_BUDGET_EMERGENCY_STOP: z.enum(["true", "false"]).default("false"),
+  /** What the connected database holds, as declared by the operator; shown on the Control Room. Never inferred. */
+  HUB_DATA_KIND: z.enum(["production", "synthetic", "test", "unlabelled"]).default("unlabelled"),
 });
 
 const parsed = configSchema.safeParse(process.env);
@@ -40,4 +42,5 @@ export const config = {
   trustedProxyCidrs: (parsed.data.HUB_TRUSTED_PROXY_CIDRS ?? "").split(",").map((c) => c.trim()).filter(Boolean),
   requireRestrictedDbRole: parsed.data.HUB_REQUIRE_RESTRICTED_DB_ROLE === "true",
   aiBudgetEmergencyStop: parsed.data.AI_BUDGET_EMERGENCY_STOP === "true",
+  dataKind: parsed.data.HUB_DATA_KIND,
 } as const;
