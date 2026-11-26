@@ -76,21 +76,29 @@ CREATE INDEX opportunity_events_opportunity_idx ON opportunity_events (opportuni
 CREATE TRIGGER opportunity_events_immutable BEFORE UPDATE OR DELETE ON opportunity_events
   FOR EACH ROW EXECUTE FUNCTION research_reject_mutation();
 
--- The projection may not claim a human decision that the append-only log does not contain. Without this, any role allowed to UPDATE
--- bounty_opportunities (the monitor) could mark an opportunity approved/queued/dismissed with no human event behind it, and a human
--- decision cannot be silently reversed to 'discovered'.
+-- Guard on the projection. It stops the MONITOR PATH and accidental writes from claiming a human decision the log lacks. It is NOT tamper-proof
+-- against a compromised runtime role: that role can INSERT opportunity_events rows itself (including a forged 'human' one), so the label "human"
+-- is only as trustworthy as the application holding the single operator bearer token. Closing that needs a separate role/function for human
+-- events (see docs/production-readiness-checklist-5-0.md). A row may only be CREATED as 'discovered' or 'closed'; a state may only become
+-- approved/queued/dismissed when a human event of that type exists; and once decided it cannot change state through UPDATE.
 CREATE FUNCTION bounty_opportunity_guard_state() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.state NOT IN ('discovered','closed') THEN
+      RAISE EXCEPTION 'a new opportunity must start as discovered or closed, not %', NEW.state USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF NEW.state IS DISTINCT FROM OLD.state THEN
+    IF OLD.state IN ('approved','queued','dismissed') THEN
+      RAISE EXCEPTION 'a human decision cannot be changed' USING ERRCODE = 'check_violation';
+    END IF;
     IF NEW.state IN ('approved','queued','dismissed') AND NOT EXISTS (
       SELECT 1 FROM opportunity_events e WHERE e.opportunity_id = NEW.id AND e.event_type = NEW.state AND e.actor_kind = 'human') THEN
       RAISE EXCEPTION 'state % requires a recorded human % event', NEW.state, NEW.state USING ERRCODE = 'check_violation';
     END IF;
-    IF OLD.state IN ('approved','queued','dismissed') AND NEW.state = 'discovered' THEN
-      RAISE EXCEPTION 'a human decision cannot be reverted to discovered' USING ERRCODE = 'check_violation';
-    END IF;
   END IF;
   RETURN NEW;
 END $$;
-CREATE TRIGGER bounty_opportunities_guard_state BEFORE UPDATE ON bounty_opportunities
+CREATE TRIGGER bounty_opportunities_guard_state BEFORE INSERT OR UPDATE ON bounty_opportunities
   FOR EACH ROW EXECUTE FUNCTION bounty_opportunity_guard_state();

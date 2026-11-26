@@ -63,7 +63,11 @@ export async function monitorSource(options: MonitorOptions): Promise<MonitorRes
   if (!options.force && src.last_attempt_at && now().getTime() - src.last_attempt_at.getTime() < src.min_interval_seconds * 1000) return { outcome: "skipped", reason: "too_soon" };
 
   const gap = options.minForceGapSeconds ?? 0;
-  if (options.force && gap > 0 && src.last_attempt_at && now().getTime() - src.last_attempt_at.getTime() < gap * 1000) return { outcome: "skipped", reason: "too_soon" };
+  if (options.force && gap > 0) {
+    // Claimed atomically in the database so concurrent "check now" calls cannot all pass the gap and each fetch.
+    const claimed = await pool.query(`UPDATE discovery_sources SET last_attempt_at = now() WHERE id = $1 AND (last_attempt_at IS NULL OR last_attempt_at <= now() - make_interval(secs => $2)) RETURNING id`, [src.id, gap]);
+    if (!claimed.rowCount) return { outcome: "skipped", reason: "too_soon" };
+  }
 
   const record = async (fields: { url: string; status: number | null; outcome: "ok" | "not_modified" | "failed"; error?: string; sha?: string; bytes?: number; items?: number }, client?: PoolClient): Promise<string> => {
     const db = client ?? pool;
@@ -145,7 +149,8 @@ export async function monitorSource(options: MonitorOptions): Promise<MonitorRes
       } else {
         await client.query(`UPDATE bounty_opportunities SET last_seen_at = now() WHERE id = $1`, [existing.id]);
       }
-      if (item.closed && existing.state !== "closed" && existing.state !== "dismissed") {
+      const alreadyClosed = existing.state === "closed" || existing.state === "dismissed" || (await client.query(`SELECT 1 FROM opportunity_events WHERE opportunity_id = $1 AND event_type = 'closed' LIMIT 1`, [existing.id])).rowCount! > 0;
+      if (item.closed && !alreadyClosed) {
         // A queued (or approved) opportunity keeps its state so the link to its research run is not lost; the closure is still recorded.
         const keepsState = existing.state === "queued" || existing.state === "approved";
         await client.query(`UPDATE bounty_opportunities SET ${keepsState ? "" : "state = 'closed', "}priority_score = 0, updated_at = now() WHERE id = $1`, [existing.id]);
@@ -159,6 +164,9 @@ export async function monitorSource(options: MonitorOptions): Promise<MonitorRes
     return { outcome: "ok", seen, discovered, updated, closed };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    // An unexpected failure (for example a database error on an item) must not leave the source "due" every tick: record it and back off to the normal interval.
+    await record({ url, status: 200, outcome: "failed", error: "internal_error" }).catch(() => undefined);
+    await pool.query(`UPDATE discovery_sources SET last_attempt_at = now(), consecutive_failures = consecutive_failures + 1, updated_at = now() WHERE id = $1`, [src.id]).catch(() => undefined);
     throw error;
   } finally { client.release(); }
 }

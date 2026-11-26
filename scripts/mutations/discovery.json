@@ -146,9 +146,9 @@
    "new": "IF false AND NOT EXISTS ("
   },
   {
-   "name": "db: a human decision may be reverted to discovered",
+   "name": "db: a decided opportunity may change state",
    "file": "db/migrations/0008_discovery.sql",
-   "old": "IF OLD.state IN ('approved','queued','dismissed') AND NEW.state = 'discovered' THEN",
+   "old": "IF OLD.state IN ('approved','queued','dismissed') THEN",
    "new": "IF false THEN"
   },
   {
@@ -174,6 +174,48 @@
    "file": "apps/api/src/discovery/api.ts",
    "old": ", minForceGapSeconds: 60",
    "new": ""
+  },
+  {
+   "name": "db: a row may be inserted already queued",
+   "file": "db/migrations/0008_discovery.sql",
+   "old": "IF NEW.state NOT IN ('discovered','closed') THEN",
+   "new": "IF false THEN"
+  },
+  {
+   "name": "monitor: closed events repeat every pass",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (item.closed && !alreadyClosed) {",
+   "new": "if (item.closed && existing.state !== \"closed\" && existing.state !== \"dismissed\") {"
+  },
+  {
+   "name": "adapter: a payload html_url is trusted",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "if (repo.html_url !== `https://github.com/${repo.full_name}`) continue;",
+   "new": ""
+  },
+  {
+   "name": "adapter: NUL is kept",
+   "file": "apps/api/src/discovery/github-org.ts",
+   "old": "v.replace(/\\u0000/g, \"\")",
+   "new": "v"
+  },
+  {
+   "name": "monitor: unexpected failure does not back off",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "consecutive_failures = consecutive_failures + 1, updated_at = now() WHERE id = $1`, [src.id]).catch(() => undefined);\n    throw error;",
+   "new": "consecutive_failures = consecutive_failures + 0, updated_at = now() WHERE id = $1 AND false`, [src.id]).catch(() => undefined);\n    throw error;"
+  },
+  {
+   "name": "store: re-approving a different repository returns the old run",
+   "file": "apps/api/src/discovery/store.ts",
+   "old": "if (queuedRepo && queuedRepo.toLowerCase() !== parsed.repository.toLowerCase())",
+   "new": "if (false)"
+  },
+  {
+   "name": "monitor: gap claim is not atomic",
+   "file": "apps/api/src/discovery/monitor.ts",
+   "old": "if (!claimed.rowCount) return",
+   "new": "if (false) return"
   }
  ]
 }

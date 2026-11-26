@@ -180,10 +180,27 @@ describe.skipIf(skipIntegration)("bounty discovery over real Postgres", () => {
     it("the projection cannot claim a human decision the event log lacks, and a decision cannot be reverted (database rule)", async () => {
       for (const state of ["approved", "queued", "dismissed"]) await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = $2 WHERE id = $1", [oppId, state])).rejects.toThrow(/requires a recorded human/);
       await approveOpportunity(db.pool, oppId, { repository: (await db.ownerPool.query("SELECT repository_candidates->0->>'repository' AS r FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!.r }, "operator");
-      await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'discovered' WHERE id = $1", [oppId])).rejects.toThrow(/cannot be reverted/);
-      // A human event of a DIFFERENT type is not enough: 'dismissed' needs a human 'dismissed' event, not the human 'queued' one.
-      await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'dismissed' WHERE id = $1", [oppId])).rejects.toThrow(/requires a recorded human dismissed/);
+      await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'discovered' WHERE id = $1", [oppId])).rejects.toThrow(/cannot be changed/);
       expect((await db.ownerPool.query("SELECT state FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!.state).toBe("queued");
+    });
+
+    it("a human event of a different type is not enough to reach a state", async () => {
+      await db.ownerPool.query("INSERT INTO opportunity_events (opportunity_id, event_type, actor_kind, actor_id) VALUES ($1,'dismissed','human','x')", [oppId]);
+      await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'approved' WHERE id = $1", [oppId])).rejects.toThrow(/requires a recorded human approved/);
+    });
+
+    it("a row cannot be created already decided, and a decided row cannot move to closed either (database rule)", async () => {
+      const sid = (await db.ownerPool.query("SELECT id FROM discovery_sources WHERE source_key = $1", [key])).rows[0]!.id;
+      await expect(db.ownerPool.query("INSERT INTO bounty_opportunities (canonical_key, source_id, platform, title, state, source_url) VALUES ('github:x/forged', $1, 'pp', 't', 'queued', 'https://github.com/x/forged')", [sid])).rejects.toThrow(/must start as discovered or closed/);
+      const repository = (await db.ownerPool.query("SELECT repository_candidates->0->>'repository' AS r FROM bounty_opportunities WHERE id = $1", [oppId])).rows[0]!.r;
+      await approveOpportunity(db.pool, oppId, { repository }, "operator");
+      await expect(db.ownerPool.query("UPDATE bounty_opportunities SET state = 'closed' WHERE id = $1", [oppId])).rejects.toThrow(/cannot be changed/);
+    });
+
+    it("re-approving with a different repository is refused instead of silently returning the other run", async () => {
+      const repository = `code-423n4/2026-11-q${n}`;
+      await approveOpportunity(db.pool, oppId, { repository }, "operator");
+      await expect(approveOpportunity(db.pool, oppId, { repository: "code-423n4/other" }, "operator")).rejects.toMatchObject({ code: "invalid_state" });
     });
 
     it("an upstream archive of a queued opportunity records the closure but keeps it queued, so approval stays idempotent", async () => {
@@ -196,6 +213,28 @@ describe.skipIf(skipIntegration)("bounty discovery over real Postgres", () => {
       expect(o).toMatchObject({ state: "queued", priority_score: 0 });
       expect((await getOpportunity(db.pool, oppId))!.events.map((e) => e.event_type)).toEqual(["discovered", "approved", "queued", "updated", "closed"]);
       expect((await approveOpportunity(db.pool, oppId, { repository }, "operator")).reused).toBe(true);
+      // The closure is recorded once, not on every later pass.
+      expect(await run(script([json([repo(name, { archived: true })])]).fetcher, { force: true })).toMatchObject({ closed: 0 });
+      expect((await getOpportunity(db.pool, oppId))!.events.filter((e) => e.event_type === "closed")).toHaveLength(1);
+    });
+
+    it("concurrent forced checks inside the gap make at most one request", async () => {
+      await db.ownerPool.query("UPDATE discovery_sources SET last_attempt_at = now() - interval '10 minutes' WHERE source_key = $1", [key]);
+      const s = script([json([repo(`2026-11-r${n}`)]), json([repo(`2026-11-r${n}`)]), json([repo(`2026-11-r${n}`)])]);
+      const results = await Promise.all([1, 2, 3].map(() => run(s.fetcher, { force: true, minForceGapSeconds: 60 })));
+      expect(results.filter((r) => r.outcome === "skipped")).toHaveLength(2);
+      expect(s.calls).toHaveLength(1);
+    });
+
+    it("an unexpected failure records itself and backs the source off instead of leaving it due every tick", async () => {
+      await db.ownerPool.query("UPDATE discovery_sources SET last_attempt_at = now() - interval '2 hours' WHERE source_key = $1", [key]);
+      await db.ownerPool.query("ALTER TABLE bounty_opportunities ADD CONSTRAINT zz_boom CHECK (title <> '2026-11-boom') NOT VALID");
+      try {
+        await expect(run(script([json([repo("2026-11-boom")])]).fetcher, { force: true })).rejects.toThrow();
+      } finally { await db.ownerPool.query("ALTER TABLE bounty_opportunities DROP CONSTRAINT zz_boom"); }
+      const row = (await db.ownerPool.query("SELECT consecutive_failures, last_attempt_at > now() - interval '1 minute' AS fresh FROM discovery_sources WHERE source_key = $1", [key])).rows[0]!;
+      expect(row).toMatchObject({ consecutive_failures: 1, fresh: true });
+      expect((await obs()).at(-1)).toMatchObject({ outcome: "failed", error_code: "internal_error" });
     });
 
     it("a human 'check now' still respects a minimum gap when one is given", async () => {

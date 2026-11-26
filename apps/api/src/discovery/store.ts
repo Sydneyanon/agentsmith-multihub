@@ -91,6 +91,8 @@ export async function approveOpportunity(pool: Pool, id: string, input: z.input<
     if (!row) throw new DiscoveryError("not_found", "no such opportunity");
     if (row.state === "queued") {
       const prior = (await client.query<{ research_run_id: string }>(`SELECT research_run_id FROM opportunity_events WHERE opportunity_id = $1 AND event_type = 'queued' ORDER BY seq DESC LIMIT 1`, [id])).rows[0]!;
+      const queuedRepo = (await client.query<{ payload: { repository?: string } }>(`SELECT payload FROM opportunity_events WHERE opportunity_id = $1 AND event_type = 'queued' ORDER BY seq DESC LIMIT 1`, [id])).rows[0]?.payload.repository;
+      if (queuedRepo && queuedRepo.toLowerCase() !== parsed.repository.toLowerCase()) throw new DiscoveryError("invalid_state", `already queued for ${queuedRepo}, not ${parsed.repository}`);
       await client.query("COMMIT");
       return { runId: prior.research_run_id, stepId: null, reused: true };
     }

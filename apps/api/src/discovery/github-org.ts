@@ -8,7 +8,7 @@ import { DiscoveryError, GITHUB_API_ORIGIN, type GithubOrgConfig, type Normalize
 const repoSchema = z.object({
   name: z.string().min(1).max(200),
   full_name: z.string().min(3).max(300),
-  html_url: z.string().url().max(2000),
+  html_url: z.string().max(2000),
   description: z.string().max(5000).nullable().optional(),
   archived: z.boolean().optional(),
   fork: z.boolean().optional(),
@@ -26,6 +26,9 @@ export function orgReposUrl(config: GithubOrgConfig): string {
 const DATE_PREFIX = /^\d{4}-(0[1-9]|1[0-2])-/;
 
 /** Parses a response body into opportunities. Throws DiscoveryError("bad_shape") when the body is not what the API documents. */
+/** Text from the source is untrusted: NUL cannot be stored in jsonb and would make a pass fail forever. */
+const clean = (v: string | null | undefined) => (typeof v === "string" ? v.replace(/\u0000/g, "") : v);
+
 export function parseOrgRepos(body: unknown, config: GithubOrgConfig): { items: NormalizedOpportunity[]; seen: number } {
   const parsed = listSchema.safeParse(body);
   if (!parsed.success) throw new DiscoveryError("bad_shape", `unexpected response shape: ${parsed.error.issues[0]?.message ?? "unknown"} at ${parsed.error.issues[0]?.path.join(".") ?? "?"}`);
@@ -36,19 +39,20 @@ export function parseOrgRepos(body: unknown, config: GithubOrgConfig): { items: 
     if (!repo.full_name.toLowerCase().startsWith(`${config.org.toLowerCase()}/`)) continue; // the API must not hand us another owner's repository
     if (prefix && !repo.name.toLowerCase().startsWith(prefix)) continue;
     if (config.requireDatePrefix && !DATE_PREFIX.test(repo.name)) continue;
+    if (repo.html_url !== `https://github.com/${repo.full_name}`) continue; // the link we store is derived from the name, never trusted from the payload
     const key = `github:${repo.full_name.toLowerCase()}`;
     if (!/^[a-z0-9:_./-]{3,255}$/.test(key)) continue; // a name the database would refuse is skipped, not guessed at
     items.push({
       canonicalKey: key,
       platform: config.platform,
-      title: repo.name,
+      title: clean(repo.name)!,
       sourceUrl: repo.html_url,
       details: {
-        description: repo.description ?? null,
+        description: clean(repo.description) ?? null,
         created_at: repo.created_at ?? null,
         pushed_at: repo.pushed_at ?? null,
         archived: repo.archived === true,
-        topics: repo.topics ?? [],
+        topics: (repo.topics ?? []).map((t) => clean(t)!),
       },
       repositoryCandidates: [{ repository: repo.full_name, signal: `public repository in the ${config.org} GitHub organisation (${config.platform} publishes one per contest)`, confidence: "high" }],
       closed: repo.archived === true,

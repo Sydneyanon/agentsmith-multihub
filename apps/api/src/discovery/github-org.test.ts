@@ -16,6 +16,14 @@ describe("github_org_repos adapter (documented GET /orgs/{org}/repos shape)", ()
   it("builds one fixed URL on api.github.com from a validated organisation name", () => {
     expect(orgReposUrl(config)).toBe("https://api.github.com/orgs/code-423n4/repos?type=public&sort=created&direction=desc&per_page=100");
   });
+  it("never trusts the link in the payload: a repository whose html_url is not https://github.com/<full_name> is skipped", () => {
+    expect(parseOrgRepos([repo({ html_url: "javascript:alert(1)" }), repo({ name: "2026-11-b", full_name: "code-423n4/2026-11-b", html_url: "https://evil.example/code-423n4/2026-11-b" })], config).items).toHaveLength(0);
+  });
+  it("strips NUL characters from source text, which jsonb cannot store", () => {
+    const { items } = parseOrgRepos([repo({ description: "bad\u0000text", topics: ["a\u0000b"] })], config);
+    expect(JSON.stringify(items[0]!.details)).not.toContain("\\u0000");
+    expect(items[0]!.details).toMatchObject({ description: "badtext", topics: ["ab"] });
+  });
   it("normalises a contest repository into an opportunity with a high-confidence candidate and provenance fields", () => {
     const { items, seen } = parseOrgRepos([repo()], config);
     expect(seen).toBe(1);
@@ -49,7 +57,7 @@ describe("github_org_repos adapter (documented GET /orgs/{org}/repos shape)", ()
     expect(parseOrgRepos([repo({ archived: true })], config).items[0]!.closed).toBe(true);
   });
   it("rejects a body that is not the documented shape (fails closed, no guessing)", () => {
-    for (const body of [{ message: "Not Found" }, "x", null, [{ name: 1 }], [{ ...repo(), html_url: "not a url" }], Array.from({ length: 201 }, () => repo())]) {
+    for (const body of [{ message: "Not Found" }, "x", null, [{ name: 1 }], Array.from({ length: 201 }, () => repo())]) {
       expect(() => parseOrgRepos(body, config)).toThrow(DiscoveryError);
     }
   });
