@@ -1,4 +1,4 @@
-# A25 production release checklist (prepared 2026-11-26; NOT approved, nothing deployed)
+# A25 production release checklist (prepared 2026-11-26; APPROVED and DEPLOYED 2026-11-26 as release v6, see section 11)
 
 **Proposed release candidate: commit `837aeb9b48ed9c0b439b10a3dc236be177592ce8`** on `claude/structural-validation-and-workflow`.
 Later commits that change only `docs/` do not change what is built, but the image records its commit. Build from exactly this commit
@@ -126,3 +126,31 @@ local databases.
 - The image is a Docker-less build (as in Release 1).
 - **A26 is not part of A25.** After A25 is released and verified, I will propose the first controlled worker run separately: program,
   repository and commit, permitted activities, resource limits and stop conditions.
+
+## 11. A25 deployment record (2026-11-26, owner-approved for candidate `837aeb9`, Option 1: auto-stop kept)
+**Approval:** the owner approved A25 for `837aeb9`, with Fly auto-stop kept, no sizing change, migrations 0001–0007 only and not
+applied, no grant or secret change, and no worker. The owner added a card earlier the same day; Fly billing is `CURRENT`.
+
+| Step | Result |
+|---|---|
+| Pre-flight state | release v5 = Release 1 digest `sha256:c0eaf87d…`; rollback image confirmed present in the registry |
+| Pre-flight database (read-only transaction inside the machine) | 32 tables; non-empty only `budget_policies` 9 and `schema_migrations` 7; ledger 0001–0007 (0007 checksum `2ec89f696c90`), identical to the Release 1 record |
+| Build from the exact commit | `git checkout --detach 837aeb9`; `HUB_RELEASE_LAST_MIGRATION=0007`; layer diff_id `221d68e8d450924c…` (identical to the verified candidate); 0008 and drafts excluded |
+| Image smoke test | 31 passed, 0 failed |
+| Push | `registry.fly.io/agentsmith-hub@sha256:7f99bf270b0178274680281a80f85836a561567f377d46b8c4d6e2be7ba29e16` (tag `hub-837aeb9b48ed`); pushed config and last layer match the tested layer |
+| Deploy | `fly deploy --config fly.hub.toml --app agentsmith-hub --image …@sha256:7f99bf27… --ha=false`, 22:28:24Z–22:29:33Z; **release v6** complete; machine `2870320f99dd68` updated (shared-cpu-1x 512 MB, syd, unchanged); `auto_stop_machines = "stop"`, `min_machines_running = 0` unchanged |
+| Health | `/health/live` 200, `/health/ready` 200; health check passing since 22:29:53Z (one failure at 22:29:48Z during boot, before the server listened) |
+| Website | `/` 302 to `/hub/`; `/hub/` and assets 200; the Control Room module is served; CSP, HSTS, nosniff, no-referrer and CORP headers unchanged |
+| Authentication | `/v1/engine/status`, `/v1/research/overview`, `/v1/research/projects`, `/v1/discovery/sources` all 401 without a token and with a wrong token; default `agentsmith-hub.fly.dev` hostname 421 |
+| Engine status (authenticated, run inside the machine with its own token; the token was never printed or stored) | 200; engine `idle`, no reasons; `data_kind: production`; build `837aeb9b48ed…` from `build-info.json`; 7 of 7 migrations, none missing or unknown; discovery not installed; no workers, no leases; queue empty; no runs; last run, success and failure none; 0 hypotheses; 0 protocol models; human-confirmed not recorded; token not in the response |
+| Other routes | `/v1/research/projects` 200 with 0 items; `/v1/research/overview` 200; `/v1/discovery/sources` 503 `discovery_not_installed` |
+| Database after deploy | read-only snapshot **identical** to the pre-flight snapshot (no migration ran, no data changed) |
+| Logs (last 100 lines) | 0 `Bearer`, 0 database URLs; the only long strings are the public image digest; the expected R1 warning is present |
+| Auto-stop | the machine stopped after deploy and woke on the first request (Option 1 working) |
+| Hunt | `hunt.agentsmithdesk.xyz` 200 (read-only GET) |
+
+**Not done (by instruction):** no migration, no grant, role or secret change, no worker, no research run. **Rollback** remains:
+`fly deploy --config fly.hub.toml --app agentsmith-hub --image registry.fly.io/agentsmith-hub@sha256:c0eaf87d35e26af4bae688e9209959f263fb92d6a6d623901bb87f706048f577 --ha=false`
+(no database action).
+
+**Owner check outstanding:** opening the Control Room on the iPhone with the token.
