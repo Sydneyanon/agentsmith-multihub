@@ -148,3 +148,27 @@ several findings. It is not enough for fine per-class rates; the report says so.
 4. **E3 (T-182, needs A23):** register candidates; score once each; store raw results.
 5. **E4 (T-183):** independent review of new leads; adjudication records; human sign-off by the owner or a named reviewer.
 6. **E5 (T-184):** report: recall, precision, new findings per stage, missed classes, coverage, reproducibility, time, cost.
+
+## 8. Benchmark integrity (T-205, 2026-11-27)
+**Why:** in T-203 a blind specialist disagreed with two dev labels marked safe. Executed tests showed both functions are ownership
+takeovers. A tool tuned to those labels scores perfectly against them and still misses both. Agreeing with an answer key is not the
+same as finding vulnerabilities, so the measurement itself needs rules.
+
+**Rules (enforced by `eval/integrity/`, tested in `eval/integrity/integrity.test.ts`):**
+1. **Original labels are immutable.** Every labels file and answer key is pinned in `eval/LABELS.sha256`; frozen corpora keep their
+   `MANIFEST.sha256`. Both are checked by `eval/verify-frozen.sh` and by the test suite. A changed label fails the suite: it can only
+   change through a visible manifest update and a note in the results.
+2. **Disputed labels are adjudicated separately** (`eval/adjudications/`). A record must quote the original label exactly, name the
+   disputing source and carry evidence; otherwise it is invalid and nothing is scored.
+3. **Independent human sign-off is mandatory.** Only a record signed by a named human independent of the disputant changes the
+   adjudicated reading. Who adjudicates is A41.
+4. **Results are reported against the original and the adjudicated labels separately.** A third, provisional reading (pending
+   records applied as if signed) is shown and marked "not adopted".
+5. **Exposure is declared** (`eval/exposure.json`): for every capability and corpus, whether it was **tuned**, **blind**,
+   **blind-labels**, **seen** or **same-family-authored**, plus whether the corpus could be in a model's training data. No declaration
+   means no score.
+6. **No disputed label silently changes a score.** The original reading never moves; the report names the labels hash and the records
+   it applied.
+
+**First report:** `eval/results/dev-dual-reading.md` (generated; `npx tsx eval/integrity/score-dual.ts --check` verifies it is
+current). The structural analyzer's 17/0/0/14 on dev is labelled **tuned**. Under the provisional reading it would miss 2.

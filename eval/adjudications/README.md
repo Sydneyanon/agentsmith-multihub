@@ -9,6 +9,12 @@ When a label in a frozen corpus is disputed, the label is **never edited**. An a
 Scores are always computed from the original labels. When an adjudication overturns a label, results are reported both ways, with
 the adjudicated reading clearly marked.
 
+**Enforced since T-205** (`eval/integrity/`):
+- a record must quote its label exactly and carry evidence;
+- only a record with `humanSignOff: signed`, `adjudicator.signedBy` (a named human) and `adjudicator.independentOfDisputant: true`
+  changes the adjudicated reading;
+- pending records appear only in a provisional reading marked "not adopted".
+
 | Record | Subject | Outcome | Human sign-off |
 |---|---|---|---|
 | `heldout3-reentrancy.json` | corpus 3: `EtherShareVault.redeem`, `MerchantEscrow.release` (reentrancy) | **Labels upheld**: both are exploitable, shown by EVM execution and by an independent assessor. The validator's refutations are **overturned** as artefacts of its model. | pending |

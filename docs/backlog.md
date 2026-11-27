@@ -4,14 +4,14 @@ Source of truth for scope is `docs/ROADMAP.md`; this file lists small, independe
 Tasks are design-first where architecture is involved, to prevent drift. Status of all tasks: **not started** (2026-11-26) unless stated.
 
 ## Recommended next implementation task
-**T-204 Specialists as arms of the pre-registered corpus-5 evaluation, scored with reproduction by the T-202 evaluator** (needs T-180 corpus selection, A40, and A39 for a persistent Foundry). Reason (2026-11-27): T-202 now turns claims into executed evidence; the next question is measured, not anecdotal, discovery ability. In parallel, T-205 (label audit) protects the measurement itself. Earlier recommendations, kept for the record: T-202 (done), T-201 (done), T-199 (done), T-040.
+**T-204 Specialists as arms of the pre-registered corpus-5 evaluation**, scored with the T-205 dual readings and declared exposure, reproduction by the T-202 evaluator. Needs T-180 corpus selection, A40 and A39; the label sign-offs need A41. Reason (2026-11-27): the owner set T-205 before T-204; T-205 is now in place, so a corpus-5 measurement can no longer silently inherit wrong labels. Earlier recommendations, kept for the record: T-205 (done except A41), T-202 (done), T-201, T-199, T-040.
 Today's table is GitHub-only and keyed `github:owner/repo`; adding Immunefi, Code4rena, Sherlock or pasted URLs on top of it would create exactly the disconnected duplicate pipelines the roadmap forbids. It needs no spending, no environment access and no migration,
 so it can proceed now. In parallel, the single most valuable **owner-side** action is T-010 (live GitHub shape check), because 5.0 and 5.2 are both unverified without it.
 
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); assigned 2026-11-27: **T-198 to T-205** (research loop follow-ups); see the series at the end. A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); assigned 2026-11-27: **T-198 to T-206** (research loop follow-ups); see the series at the end. A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -1104,7 +1104,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Security considerations | Read-only, non-secret table; still a least-privilege change. |
 | Approval required | **A30**. |
 
-## Research loop follow-ups (T-198 to T-205; proposed, not authorised; see `docs/research-loop.md`)
+## Research loop follow-ups (T-198 to T-206; proposed, not authorised; see `docs/research-loop.md`)
 
 ### T-198: One opportunity scorer
 | Field | |
@@ -1205,3 +1205,16 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Required tests | Scoring reproducible from records. |
 | Security considerations | None. |
 | Approval required | **A41**: who adjudicates disputed labels independently, and whether overturned dev labels may be used for development after sign-off. |
+
+**Status 2026-11-27: IMPLEMENTED on the branch except what A41 decides.** Done: immutable-label manifest (`eval/LABELS.sha256`), adjudication validator, exposure registry (`eval/exposure.json`), dual-reading scorer and the first report (`eval/results/dev-dual-reading.md`), tests and `verify-frozen.sh`. Awaiting **A41**: the independent adjudicator and the sign-off of the two dev records; until then they stay pending and change no score.
+
+### T-206: Multiple reproduction rounds per run (architectural limitation, proposed)
+| Field | |
+|---|---|
+| Phase | schema (future) |
+| Dependencies | T-202 |
+| Scope | Today a run holds one step per key (0001 UNIQUE (workflow_run_id, step_key)), so a claim's run gets ONE reproduction round (T-202); a claim that needs reproduction later is deferred with that reason. Design a schema version that allows sequential rounds (for example a round number in the step key or a round table), each with immutable evidence attached to that round, without weakening the one-run history. |
+| Acceptance criteria | A design reviewed before any migration; existing runs unchanged; each round's tests, outputs and evaluations remain distinguishable and append-only. |
+| Required tests | Migration tests on throwaway databases (when drafted). |
+| Security considerations | None beyond the existing append-only rules. |
+| Approval required | Design review; any migration is a separate approval. Not needed for T-202. |
