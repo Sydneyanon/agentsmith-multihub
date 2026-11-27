@@ -25,10 +25,14 @@ function brand(): HTMLElement {
 }
 
 export function unlockScreen(onUnlock: (token: string) => void, note?: string): HTMLElement {
-  const input = h("input", { id: "token", type: "password", autocomplete: "off", required: true, "aria-describedby": "token-help" });
+  // Mobile keyboards auto-capitalize the first letter and autocorrect, which silently corrupts a pasted/typed token; turn all of that
+  // off. A show/hide toggle lets the operator verify the value on a phone where a password field hides it.
+  const input = h("input", { id: "token", type: "password", autocomplete: "off", autocapitalize: "none", autocorrect: "off", spellcheck: "false", inputmode: "text", required: true, "aria-describedby": "token-help" }) as HTMLInputElement;
+  const toggle = h("button", { class: "btn btn-quiet reveal", type: "button", "aria-pressed": "false",
+    onclick: () => { const show = input.type === "password"; input.type = show ? "text" : "password"; toggle.setAttribute("aria-pressed", show ? "true" : "false"); toggle.textContent = show ? "Hide" : "Show"; input.focus(); } }, "Show");
   return h("main", { class: "unlock" }, h("form", { class: "unlock-card", onsubmit: (e: Event) => { e.preventDefault(); if (input.value.trim()) onUnlock(input.value.trim()); } },
     brand(), h("h1", {}, "Private research hub"), note ? h("p", { class: "callout callout-warn", role: "alert" }, note) : null,
-    h("label", { for: "token" }, "Access token"), input,
+    h("label", { for: "token" }, "Access token"), h("div", { class: "token-row" }, input, toggle),
     h("p", { id: "token-help", class: "muted small" }, "The token is kept in this tab only and is sent to this server as a bearer token. It is never placed in a URL."),
     h("button", { class: "btn btn-primary", type: "submit" }, "Unlock")));
 }
