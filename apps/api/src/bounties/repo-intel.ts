@@ -77,3 +77,28 @@ export async function repositoryIntel(pool: Pool, repository: string): Promise<R
   const commits = await analysedCommits(pool, repository);
   return { repository, analysed: commits.length > 0, sealedCommits: commits.length, latest: commits[0] ?? null };
 }
+
+export type ResearchPlan = {
+  decision: "already_analysed" | "incremental" | "full";
+  baseSnapshotId: string | null;
+  baseCommit: string | null;
+  reason: string;
+};
+
+/**
+ * Decide how to research a repository at a given head commit, so a new commit triggers analysis of what changed rather than repeating
+ * the whole process (task 6):
+ * - already_analysed: this exact commit was sealed before — nothing to do.
+ * - full: the repository has never been analysed — do a first full pass.
+ * - incremental: the repository was analysed at an earlier commit — analyse the files changed since that baseline (via
+ *   changedFilesBetween once the new snapshot is sealed).
+ * This is the pure decision a repository monitor makes; it fetches nothing itself.
+ */
+export async function planRepositoryResearch(pool: Pool, repository: string, headCommit: string): Promise<ResearchPlan> {
+  if (await hasAnalysedCommit(pool, repository, headCommit)) {
+    return { decision: "already_analysed", baseSnapshotId: null, baseCommit: headCommit, reason: "this commit has already been sealed and analysed" };
+  }
+  const base = await latestSealedSnapshot(pool, repository);
+  if (!base) return { decision: "full", baseSnapshotId: null, baseCommit: null, reason: "repository has never been analysed; do a first full pass" };
+  return { decision: "incremental", baseSnapshotId: base.snapshotId, baseCommit: base.commitSha, reason: `new commit since ${base.commitSha.slice(0, 12)}; analyse files changed against that baseline` };
+}

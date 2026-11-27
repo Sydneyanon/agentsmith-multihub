@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { analysedCommits, changedFilesBetween, hasAnalysedCommit, latestSealedSnapshot, repositoryIntel } from "../bounties/repo-intel.js";
+import { analysedCommits, changedFilesBetween, hasAnalysedCommit, latestSealedSnapshot, planRepositoryResearch, repositoryIntel } from "../bounties/repo-intel.js";
 import { migratedTestDatabase, skipIntegration, type TestDatabase } from "./harness.js";
 
 const sha40 = (c: string) => c.repeat(40).slice(0, 40);
@@ -65,5 +65,19 @@ describe.skipIf(skipIntegration)("repository intelligence over real Postgres", (
     const byPath = Object.fromEntries(changes.map((c) => [c.path, c.change]));
     expect(byPath).toEqual({ "src/Vault.sol": "modified", "src/Token.sol": "removed", "src/Oracle.sol": "added" });
     expect(changes.some((c) => c.path === "README.md")).toBe(false); // unchanged files are excluded
+  });
+
+  it("plans full / already_analysed / incremental research for a head commit", async () => {
+    const repo = "acme/gamma";
+    // never analysed -> full
+    expect((await planRepositoryResearch(db.pool, repo, sha40("1"))).decision).toBe("full");
+    // analyse commit 1
+    const r1 = await run(); await sealedSnapshot(r1, repo, sha40("1"), "2026-11-20T00:00:00Z");
+    expect((await planRepositoryResearch(db.pool, repo, sha40("1"))).decision).toBe("already_analysed");
+    // a new commit 2 -> incremental against commit 1
+    const plan = await planRepositoryResearch(db.pool, repo, sha40("2"));
+    expect(plan.decision).toBe("incremental");
+    expect(plan.baseCommit).toBe(sha40("1"));
+    expect(plan.baseSnapshotId).toBeTruthy();
   });
 });

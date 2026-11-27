@@ -45,6 +45,27 @@ research automatically — without a second scanning pipeline and without manual
 The bridge creates only **queued** runs and calls no model. All AI spend is behind the worker + `AiBudgetGateway` ($25/mo global,
 daily, per-workflow and per-tier caps), which this code does not touch. `maxNewRuns` bounds how many runs a single pass can create.
 
+## Repository intelligence & incremental rescanning (task 6)
+
+`repo-intel.ts` provides cross-run knowledge the per-run `findSnapshot` could not:
+- `analysedCommits(repo)` / `hasAnalysedCommit(repo, commit)` / `latestSealedSnapshot(repo)` — which commits of a repository any run has
+  already sealed.
+- `changedFilesBetween(base, head)` — the added/removed/modified files between two sealed snapshots, by git blob identity: the set an
+  incremental rescan should analyse instead of repeating the whole repository.
+- `planRepositoryResearch(repo, headCommit)` — the decision a repository monitor makes: `already_analysed` (skip), `full` (never seen),
+  or `incremental` (analyse files changed since the latest sealed baseline).
+
+The bridge already uses `latestSealedSnapshot` to reuse a run that analysed a repository via any path (not only a bounty link). A
+repository monitor that resolves the current HEAD and calls `planRepositoryResearch` + `changedFilesBetween` is the remaining piece to
+make rescans fully automatic; the decision layer and primitives are built and tested, the HEAD-resolution/fetch wiring is not.
+
+## Worker reliability (audited — already robust, no change)
+
+The existing worker was audited for the autonomy concerns (stuck/lost jobs, duplicate execution, recovery). It already: reclaims steps
+whose lease expired (`status='running' AND lease_expires_at < now()`), claims with `FOR UPDATE … SKIP LOCKED` (no duplicate execution),
+reaps exhausted leases, extends leases by heartbeat, backs off exponentially on infrastructure failure, and bounds retry attempts —
+all covered by `worker-loop.test.ts` / `worker.ts`. No change was warranted; this is recorded so it is not re-audited blindly.
+
 ## Current operational state (honest)
 
 - Implemented and tested (unit + real-Postgres integration). **Not deployed** (0012 is out of the production image).
