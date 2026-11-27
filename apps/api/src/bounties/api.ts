@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import { runCollection } from "./collect.js";
 import { createHttpGet, type HttpGet } from "./http.js";
-import { runImport } from "./import.js";
+import { fetchPolicy, runImport } from "./import.js";
 import { health, listDuplicates, listImports, listPrograms, overview, programDetail, publicFeed } from "./queries.js";
 import { addCorrection, CORRECTABLE, decideDuplicate } from "./store.js";
 import { BountyError } from "./types.js";
@@ -38,7 +38,7 @@ function fail(reply: FastifyReply, error: unknown) {
   throw error;
 }
 
-export function registerBountyRoutes(app: FastifyInstance, pool: Pool | undefined, options: { http?: HttpGet; publicCacheMs?: number } = {}) {
+export function registerBountyRoutes(app: FastifyInstance, pool: Pool | undefined, options: { http?: HttpGet; publicCacheMs?: number; fetchPolicy?: "respect" | "user_initiated" } = {}) {
   const need = (reply: FastifyReply) => (pool ? null : reply.code(503).send({ error: "database_not_configured" }));
   let http: HttpGet | null = options.http ?? null;
   const getHttp = () => (http ??= createHttpGet());
@@ -85,7 +85,7 @@ export function registerBountyRoutes(app: FastifyInstance, pool: Pool | undefine
     if (need(reply)) return reply;
     try {
       const b = importBody.parse(request.body ?? {});
-      const report = await runImport(pool!, getHttp(), { url: b.url ?? null, text: b.text ?? null, kind: b.kind ?? null, submittedBy: OPERATOR });
+      const report = await runImport(pool!, getHttp(), { url: b.url ?? null, text: b.text ?? null, kind: b.kind ?? null, submittedBy: OPERATOR }, () => new Date(), options.fetchPolicy ?? fetchPolicy());
       cached = null;
       return reply.code(report.status === "failed" ? 422 : 201).send(report);
     } catch (error) { return fail(reply, error); }

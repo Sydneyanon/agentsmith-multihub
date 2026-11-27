@@ -27,13 +27,41 @@ export type ImportReport = {
 const MAX_TEXT = 50_000;
 const SOURCE_FOR_PLATFORM: Record<string, string> = { sherlock: "sherlock", hackenproof: "hackenproof", immunefi: "immunefi", cantina: "cantina" };
 
-export async function runImport(pool: Pool, http: HttpGet, input: ImportInput, now = () => new Date()): Promise<ImportReport> {
+/**
+ * Fetch policy for links an operator pastes (owner decision; default "respect"):
+ * - "respect": robots.txt applies to pasted links as it does to automated collection; X is fetched only if the `x` source is enabled.
+ * - "user_initiated": a pasted link is a single retrieval the operator asked for, like opening it in a browser, so robots.txt (which
+ *   governs crawlers) does not block it; X posts are read through X's documented oEmbed endpoint; short links (t.co, bit.ly, ...)
+ *   are expanded by reading one redirect each. Still: one page per submission, no link following beyond expansion, no login,
+ *   no CAPTCHA bypass, honest user agent. Automated collection always respects robots.txt, whatever this setting.
+ */
+export type FetchPolicy = "respect" | "user_initiated";
+export function fetchPolicy(env: Record<string, string | undefined> = process.env): FetchPolicy { return env.BOUNTY_IMPORT_FETCH_POLICY === "user_initiated" ? "user_initiated" : "respect"; }
+const SHORTENERS = new Set(["t.co", "bit.ly", "buff.ly", "lnkd.in", "ow.ly", "tinyurl.com", "dlvr.it", "trib.al"]);
+
+/** Follows up to 3 redirects of a short link by reading Location headers only; every hop is URL-checked. */
+async function expandShortLink(http: HttpGet, url: string): Promise<string> {
+  let cur = url;
+  for (let i = 0; i < 3 && SHORTENERS.has(new URL(cur).hostname); i += 1) {
+    const r = await http(cur, { followRedirects: false, maxBytes: 64 * 1024, timeoutMs: 15_000 });
+    if (!r.location) break;
+    assertPublicHttpUrl(r.location); cur = r.location;
+  }
+  return cur;
+}
+
+export async function runImport(pool: Pool, http: HttpGet, input: ImportInput, now = () => new Date(), policy: FetchPolicy = fetchPolicy()): Promise<ImportReport> {
   const text = input.text?.trim() ? input.text.trim() : null;
   const rawUrl = input.url?.trim() ? input.url.trim().replace(/^http:\/\//i, "https://") : null;
   if (!text && !rawUrl) throw new BountyError("invalid_request", "give a URL, pasted text, or both");
   if (text && text.length > MAX_TEXT) throw new BountyError("text_too_long", `pasted text is limited to ${MAX_TEXT} characters`);
   let url: string | null = null;
   if (rawUrl) { assertPublicHttpUrl(rawUrl); url = normaliseUrl(rawUrl); if (!url) throw new BountyError("invalid_url", "not a valid http(s) URL"); }
+  let expandedFrom: string | null = null;
+  if (url && SHORTENERS.has(new URL(url).hostname) && !text && policy === "user_initiated") {
+    const target = normaliseUrl(await expandShortLink(http, url));
+    if (target && target !== url) { expandedFrom = url; url = target; }
+  }
   const x = url ? classifyXUrl(url) : null;
   const canonical = url ? canonicalFromUrl(url) : null;
   const host = url ? new URL(url).hostname : null;
@@ -44,6 +72,7 @@ export async function runImport(pool: Pool, http: HttpGet, input: ImportInput, n
     [url, text, urlKind, input.submittedBy, now()]);
   const importId = imp.rows[0]!.id;
   const report: ImportReport = { importId, status: "succeeded", urlKind, retrieved: false, retrieval: "", discovered: 0, added: 0, matched: 0, updated: 0, needsVerification: 0, items: [], limitations: [], unresolvedLinks: [], ignoredSegments: 0 };
+  if (expandedFrom) report.limitations.push(`short link ${expandedFrom} expanded to ${url}`);
   const done = async () => {
     await pool.query("UPDATE bounty_imports SET status = $2, report = $3, extracted_at = $4, fetched_at = CASE WHEN $5 THEN $4 ELSE fetched_at END WHERE id = $1",
       [importId, report.status, JSON.stringify(report), now(), report.retrieved]);
@@ -67,7 +96,7 @@ export async function runImport(pool: Pool, http: HttpGet, input: ImportInput, n
         report.limitations.push("X profiles cannot be read without the paid X API, and x.com robots.txt disallows crawling. Paste the posts' text together with the profile URL.");
         return await done();
       }
-      if (!xs?.enabled) {
+      if (!xs?.enabled && policy !== "user_initiated") {
         report.status = "blocked"; report.retrieval = "not retrieved";
         report.limitations.push("Retrieving X posts is off: x.com and publish.x.com/oembed are disallowed by robots.txt, and enabling the oEmbed path is an owner decision. Paste the post or thread text together with this URL.");
         return await done();
@@ -76,6 +105,15 @@ export async function runImport(pool: Pool, http: HttpGet, input: ImportInput, n
       const r = await http(oembedUrl, { accept: "application/json", maxBytes: 512 * 1024, timeoutMs: 20_000 });
       if (r.status !== 200) { report.status = "failed"; report.retrieval = `X oEmbed answered HTTP ${r.status}; the post may be deleted, private or age-restricted`; return await done(); }
       doc = parseOembed(JSON.parse(r.body), x.url); report.retrieved = true; report.retrieval = "one post through X's oEmbed endpoint";
+      // A post's links are t.co short links: expand each (one redirect read, at most 10) so platform programmes are recognised.
+      if (policy === "user_initiated") {
+        const expanded: typeof doc.links = [];
+        for (const l of doc.links.slice(0, 10)) {
+          if (!SHORTENERS.has(new URL(l.href).hostname)) { expanded.push(l); continue; }
+          try { expanded.push({ href: await expandShortLink(http, l.href), text: l.text }); } catch { expanded.push(l); }
+        }
+        doc = { ...doc, links: [...expanded, ...doc.links.slice(10)] };
+      }
       if (input.kind === "x_thread") report.limitations.push("oEmbed returns only the first post of a thread; paste the rest of the thread's text to import it");
     } else if (canonical) {
       // A platform programme URL: identity is known from the URL itself.
@@ -103,8 +141,10 @@ export async function runImport(pool: Pool, http: HttpGet, input: ImportInput, n
       return await done();
     } else {
       const robots = await checkRobots(http, url!);
-      if (!robots.allowed) { report.status = "blocked"; report.retrieval = `not retrieved: robots.txt (${robots.reason})`; report.limitations.push("paste the page text together with the URL to import it without fetching"); return await done(); }
+      if (!robots.allowed && policy !== "user_initiated") { report.status = "blocked"; report.retrieval = `not retrieved: robots.txt (${robots.reason})`; report.limitations.push("paste the page text together with the URL to import it without fetching"); return await done(); }
+      if (!robots.allowed) report.limitations.push(`robots.txt disallows crawlers here (${robots.reason}); fetched once because you submitted this link (user-initiated import policy)`);
       const r = await http(url!, { maxBytes: 2 * 1024 * 1024, timeoutMs: 30_000 });
+      if (r.status === 401 || r.status === 403) { report.status = "failed"; report.retrieval = `HTTP ${r.status}: the page needs a login or refuses automated clients; paste its text instead`; return await done(); }
       if (r.status !== 200) { report.status = "failed"; report.retrieval = `HTTP ${r.status}`; return await done(); }
       if (!/text\/html|text\/plain|application\/json|application\/xhtml/i.test(r.contentType)) { report.status = "failed"; report.retrieval = `unsupported content type ${r.contentType || "(none)"}`; return await done(); }
       const d = /html/i.test(r.contentType) ? htmlToDocument(r.body, r.finalUrl) : { text: r.body, links: [], title: null };
@@ -113,8 +153,9 @@ export async function runImport(pool: Pool, http: HttpGet, input: ImportInput, n
       if (d.text.length < 200 && /<script/i.test(r.body)) report.limitations.push("the page is built by JavaScript in the browser; its content may be missing. Paste the visible text instead.");
     }
 
-    const ex = extractOpportunities(doc!, refBase);
+    const ex = extractOpportunities(doc!, refBase, sourceKey === "web-import" && doc!.baseUrl ? { page: doc!.baseUrl } : {});
     report.ignoredSegments = ex.ignoredSegments; report.unresolvedLinks = ex.unresolvedLinks;
+    if (ex.pageNote) report.limitations.push(ex.pageNote);
     if (ex.unresolvedLinks.length) report.limitations.push(`${ex.unresolvedLinks.length} shortened link(s) could not be expanded; include the full URLs in pasted text`);
     // Platform links in the content: refresh each enabled platform listing once, so the opportunity gets the platform's own data.
     const platforms = new Set(ex.items.map((o) => canonicalFromUrl(o.officialUrl)?.platform).filter((p): p is string => !!p));

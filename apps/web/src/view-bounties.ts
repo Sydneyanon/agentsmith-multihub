@@ -69,7 +69,7 @@ function importTab(ctx: Ctx): HTMLElement {
   } },
     h("label", { for: "imp-url" }, "URL"), url, h("label", { for: "imp-text" }, "Pasted text (optional)"), text,
     h("label", { class: "muted small" }, thread, " The pasted text is a thread (several posts)"),
-    h("p", { class: "muted small" }, "X is never fetched automatically: x.com and its oEmbed endpoint disallow crawling. Paste the post or thread text with its URL. Immunefi and Cantina pages are not fetched either (terms / robots.txt); their programmes are recorded from the URL and enriched from the community board."),
+    h("p", { class: "muted small" }, "Paste any link: a programme page, a project security page, a roundup, a community listing or an X post. Pages built by JavaScript are read from the data they carry. If a page cannot be read (login, robots.txt under the default policy, X threads and profiles), the report says why: paste its text with the URL. Immunefi pages are never fetched (their terms); their programmes are recorded from the URL and enriched from the community board."),
     button);
   loadHistory();
   return h("div", {}, panel("Add bounty / Import URL", [form, out]), panel("Recent imports", [history]));

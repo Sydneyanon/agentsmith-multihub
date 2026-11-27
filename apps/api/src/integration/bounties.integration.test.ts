@@ -145,6 +145,44 @@ describe.skipIf(skipIntegration)("bounty intelligence collection over real Postg
     });
   });
 
+  describe("any pasted link: the user-initiated fetch policy (owner decision; default respect)", () => {
+    // SYNTHETIC oEmbed response (written for this test, not a real post): same format as the recorded X response in fixtures.
+    const postUrl = "https://x.com/bountyfeed/status/1866000000000000009";
+    const oembed = JSON.stringify({ url: postUrl, author_name: "Bounty Feed", author_url: "https://x.com/bountyfeed",
+      html: '<blockquote class="twitter-tweet"><p lang="en" dir="ltr">New: Hyperlane bug bounty up to $2.5M <a href="https://t.co/hyp">immunefi.com/bug-bounty/hy…</a></p>&mdash; Bounty Feed (@bountyfeed) <a href="' + postUrl + '">November 26, 2026</a></blockquote>' });
+    const routes = () => fakeHttp({ ...standardRoutes(),
+      "https://blocked.example/robots.txt": { body: "User-agent: *\nDisallow: /\n", contentType: "text/plain" },
+      "https://blocked.example/roundup": { body: '<html><head><title>Roundup</title></head><body><a href="https://audits.sherlock.xyz/bug-bounties/56">Usual</a> up to $16M</body></html>' },
+      [`https://publish.x.com/oembed?url=${encodeURIComponent(postUrl)}&omit_script=1&dnt=true`]: { body: oembed, contentType: "application/json" },
+      "https://t.co/hyp": { status: 301, body: "", location: "https://immunefi.com/bug-bounty/hyperlane/information/" },
+      "https://t.co/post": { status: 301, body: "", location: postUrl } });
+
+    it("a page whose robots.txt disallows crawlers: blocked under 'respect', fetched once and labelled under 'user_initiated'", async () => {
+      expect(await runImport(db.pool, routes(), { url: "https://blocked.example/roundup", submittedBy: "operator" }, at(13.5), "respect")).toMatchObject({ status: "blocked", retrieved: false });
+      const r = await runImport(db.pool, routes(), { url: "https://blocked.example/roundup", submittedBy: "operator" }, at(13.5), "user_initiated");
+      expect(r).toMatchObject({ status: "succeeded", retrieved: true, discovered: 1, matched: 1 });
+      expect(r.limitations.join(" ")).toMatch(/robots\.txt disallows crawlers here .*user-initiated import policy/);
+    });
+    it("an X post: read through oEmbed, its t.co links expanded, matched by platform link and attributed to the author", async () => {
+      expect(await runImport(db.pool, routes(), { url: postUrl, submittedBy: "operator" }, at(13.6), "respect")).toMatchObject({ status: "blocked" });
+      const h = routes();
+      const r = await runImport(db.pool, h, { url: postUrl, submittedBy: "operator" }, at(13.6), "user_initiated");
+      expect(r).toMatchObject({ status: "succeeded", urlKind: "x_post", retrieved: true, retrieval: "one post through X's oEmbed endpoint", discovered: 1, matched: 1 });
+      expect(r.items[0]).toMatchObject({ project: "Hyperlane", matchBasis: "canonical_key" });
+      expect(h.calls).toContain("https://t.co/hyp");
+      const o = (await owner().query("SELECT source_author, published_at FROM bounty_observations WHERE source_key = 'x' AND source_url = $1", [postUrl])).rows[0];
+      expect(o.source_author).toBe("Bounty Feed (@bountyfeed)");
+    });
+    it("a pasted short link is expanded to the post it points to", async () => {
+      const r = await runImport(db.pool, routes(), { url: "https://t.co/post", submittedBy: "operator" }, at(13.7), "user_initiated");
+      expect(r).toMatchObject({ urlKind: "x_post", status: "succeeded", matched: 1 });
+      expect(r.limitations.join(" ")).toMatch(/short link https:\/\/t\.co\/post expanded to https:\/\/x\.com\/bountyfeed\/status\/1866000000000000009/);
+    });
+    it("an X profile stays text-only under either policy (no API access)", async () => {
+      expect(await runImport(db.pool, routes(), { url: "https://x.com/bountyfeed", submittedBy: "operator" }, at(13.8), "user_initiated")).toMatchObject({ status: "blocked", urlKind: "x_profile" });
+    });
+  });
+
   it("corrections are recorded with their author and win, with history; merging duplicates keeps every source", async () => {
     const zeta = (await owner().query("SELECT id FROM bounty_programs WHERE name_key = 'zetachain'")).rows[0].id;
     await expect(addCorrection(db.pool, zeta, { field: "maxReward", value: 200000, note: "", by: "operator" })).rejects.toMatchObject({ code: "note_required" });

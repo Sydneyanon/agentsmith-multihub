@@ -1,3 +1,4 @@
+import { rscFlight } from "./adapters.js";
 import { canonicalFromUrl, nameKey, normaliseUrl } from "./canonical.js";
 import { amountsIn } from "./money.js";
 import { emptyOpportunity, type ExtractedOpportunity } from "./types.js";
@@ -26,8 +27,72 @@ export function htmlToDocument(html: string, baseUrl: string): { text: string; l
     try { links.push({ href: new URL(href, baseUrl).toString(), text: decode(m[4]!.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim() }); } catch { /* unparseable href */ }
   }
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(noScript)?.[1];
-  const text = decode(noScript.replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|li|p|h[1-6])\b[^>]*>/gi, "\n").replace(/<[^>]+>/g, " ")).replace(/[ \t\f\v]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
-  return { text, links, title: title ? decode(title).trim().slice(0, 300) : null };
+  const visible = decode(noScript.replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|li|p|h[1-6])\b[^>]*>/gi, "\n").replace(/<[^>]+>/g, " ")).replace(/[ \t\f\v]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+  // Pages built by JavaScript carry their content as data, not markup: read it too (nothing is executed).
+  const embedded = embeddedData(html, baseUrl);
+  const seen = new Set(links.map((l) => l.href));
+  for (const l of embedded.links) if (!seen.has(l.href)) { seen.add(l.href); links.push(l); }
+  const text = embedded.lines.length ? `${visible}\n${embedded.lines.join("\n")}` : visible;
+  return { text, links, title: title ? decode(title).trim().slice(0, 300) : embedded.title };
+}
+
+const NAME_KEY = /^(name|title|project|projectName|project_name|programName|program_name|programmeName|displayName|org|organization)$/;
+const URL_KEY = /^(url|href|link|website|programUrl|program_url|bountyUrl|bounty_url|canonicalUrl)$/i;
+const REWARD_KEY = /(bounty|reward|payout|prize)/i;
+
+/**
+ * Text and links that a page carries as data: meta descriptions, JSON-LD, Next.js page data (__NEXT_DATA__ and the React Server
+ * Components stream) and other <script type="application/json"> blocks. JSON is parsed, never evaluated. A record with a name and a
+ * link or a stated reward becomes one line ("<name>: reward up to $<n> <url>"); a reward is read only from a field whose own name says
+ * bounty, reward, payout or prize. Bounded: at most 20,000 values walked and 2,000 lines.
+ */
+export function embeddedData(html: string, baseUrl: string): { lines: string[]; links: Link[]; title: string | null } {
+  const lines: string[] = []; const links: Link[] = []; let title: string | null = null;
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    const key = /\b(?:property|name)\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]?.toLowerCase();
+    const content = /\bcontent\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1];
+    if (!key || !content) continue;
+    if (key === "og:title" || key === "twitter:title") title ??= decode(content).slice(0, 300);
+    if (key === "og:description" || key === "twitter:description" || key === "description") lines.push(decode(content).slice(0, 1000));
+  }
+  const blobs: unknown[] = [];
+  for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    const attrs = m[1] ?? ""; const body = (m[2] ?? "").trim();
+    if (!body || !/type\s*=\s*["']application\/(ld\+)?json["']/i.test(attrs)) continue;
+    try { blobs.push(JSON.parse(body)); } catch { /* not JSON */ }
+  }
+  const flight = rscFlight(html);
+  if (flight) {
+    for (const row of flight.split("\n")) {
+      const rest = row.slice(row.indexOf(":") + 1);
+      if (/^[[{]/.test(rest)) { try { blobs.push(JSON.parse(rest)); } catch { /* partial row */ } }
+    }
+  }
+  let budget = 20_000;
+  const asUrl = (v: unknown): string | null => {
+    if (typeof v !== "string" || v.length > 600) return null;
+    if (!/^https?:\/\//.test(v) && !v.startsWith("/")) return null;
+    try { const u = new URL(v, baseUrl); return /^https?:$/.test(u.protocol) ? u.toString() : null; } catch { return null; }
+  };
+  const walk = (v: unknown, depth: number): void => {
+    if (budget-- <= 0 || depth > 40 || lines.length >= 2000) return;
+    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return; }
+    if (!v || typeof v !== "object") return;
+    const o = v as Record<string, unknown>;
+    const entries = Object.entries(o);
+    const name = entries.find(([k, x]) => NAME_KEY.test(k) && typeof x === "string" && x.trim().length >= 2 && x.length <= 120)?.[1] as string | undefined;
+    const url = entries.map(([k, x]) => (URL_KEY.test(k) ? asUrl(x) : null)).find((x): x is string => !!x);
+    const reward = entries.find(([k, x]) => REWARD_KEY.test(k) && typeof x === "number" && x > 0 && Number.isFinite(x))?.[1] as number | undefined;
+    for (const [, x] of entries) {
+      const u = typeof x === "string" && /^https?:\/\//.test(x) ? asUrl(x) : null;
+      if (u) links.push({ href: u, text: name && u === url ? name : "" });
+    }
+    if (name && (url || reward !== undefined)) lines.push(`${name.trim()}${reward !== undefined ? `: reward up to $${reward.toLocaleString("en-US")}` : ""}${url ? ` ${url}` : ""}`);
+    for (const [, x] of entries) if (x && typeof x === "object") walk(x, depth + 1);
+  };
+  for (const b of blobs) walk(b, 0);
+  return { lines, links: links.slice(0, 5000), title };
 }
 
 export function decode(s: string): string {
@@ -65,7 +130,12 @@ function linkAround(segment: string, links: Link[]): Link | undefined {
   return links.find((l) => l.text && l.text.length > 1 && segment.includes(l.text));
 }
 
-export function extractOpportunities(doc: TextDocument, refPrefix: string): { items: ExtractedOpportunity[]; ignoredSegments: number; unresolvedLinks: string[] } {
+/**
+ * `page` (a fetched web page's URL) switches to page mode: one opportunity per linked programme; otherwise, when the page itself is a
+ * single programme or security page (bounty wording and a stated reward), exactly one opportunity for the page. Line-by-line
+ * "name + amount" extraction is for posts and pasted text only: on real web pages it turns card fragments into fake programmes.
+ */
+export function extractOpportunities(doc: TextDocument, refPrefix: string, opts: { page?: string } = {}): { items: ExtractedOpportunity[]; ignoredSegments: number; unresolvedLinks: string[]; pageNote?: string } {
   const items: ExtractedOpportunity[] = []; const byKey = new Map<string, ExtractedOpportunity>(); const unresolvedLinks: string[] = [];
   const segs = segments(doc.text); let n = 0;
   const add = (o: ExtractedOpportunity, key: string) => { if (byKey.has(key)) return byKey.get(key)!; byKey.set(key, o); items.push(o); return o; };
@@ -81,10 +151,10 @@ export function extractOpportunities(doc: TextDocument, refPrefix: string): { it
     const seg = segs.find((s) => (l.text && s.includes(l.text)) || s.includes(l.href) || (url && s.includes(url.replace(/^https:\/\//, "")))) ?? "";
     // Several anchors often point at one programme (logo, title, "details"); the shortest real name among them is the title.
     const anchorName = allLinks.filter((x) => x.text && canonicalFromUrl(normaliseUrl(x.href))?.key === c.key).map((x) => cleanAnchor(x.text))
-      .filter((t) => t.length >= 2 && t.length <= 60 && /\p{L}/u.test(t) && !/[/]|\.(com|xyz|io)\b|^(here|link|apply|details|view|program(me)?|learn more|submit)$/i.test(t) && !GENERIC_NAME.test(t)).sort((a, b) => a.length - b.length)[0];
+      .filter((t) => t.length >= 2 && t.length <= 60 && /\p{L}/u.test(t) && !/[/]|\.(com|xyz|io)\b|^(here|link|apply|details|view|program(me)?|learn more|read more|submit( a)?( report| bug)?|report( a)? (bug|vulnerability)|open|visit|go|more|scope|rewards?)$/i.test(t) && !GENERIC_NAME.test(t)).sort((a, b) => a.length - b.length)[0];
     const name = anchorName ?? nameFrom(seg) ?? (c.platform === "immunefi" || c.platform === "hackenproof" ? c.programmeId.replace(/-/g, " ") : null) ?? c.key;
     const o = add(attribution(emptyOpportunity(`${refPrefix}#${c.key}`, titleCase(name))), c.key);
-    o.officialUrl = url && canonicalFromUrl(url)?.key === c.key ? url : `https://${platformHost(c.platform)}/${c.platform === "sherlock" ? "bug-bounties" : c.platform === "hackenproof" ? "programs" : c.platform === "immunefi" ? "bug-bounty" : "bounties"}/${c.programmeId}`;
+    o.officialUrl = url && canonicalFromUrl(url)?.key === c.key ? url.split(/[?#]/)[0]! : `https://${platformHost(c.platform)}/${c.platform === "sherlock" ? "bug-bounties" : c.platform === "hackenproof" ? "programs" : c.platform === "immunefi" ? "bug-bounty" : "bounties"}/${c.programmeId}`;
     o.platform = platformName(c.platform);
     const amounts = seg ? amountsIn(seg) : [];
     if (amounts.length && o.maxReward === null) { o.maxReward = Math.max(...amounts); o.rewardCurrency = "USD"; o.rewardType = /up to|max/i.test(seg) ? "up_to" : "fixed"; o.rewardText = seg.slice(0, 200); }
@@ -93,7 +163,8 @@ export function extractOpportunities(doc: TextDocument, refPrefix: string): { it
   // 2. Segments that announce a bounty with an amount and a name, but no platform link. Skipped for HTML pages that link programmes
   //    directly: their card text (descriptions, "Up to: $250,000") belongs to the linked programmes, not to new ones.
   //    On such pages a line is still accepted when it says "bug bounty" and links a project security page itself.
-  const structuredPage = doc.links.some((l) => canonicalFromUrl(normaliseUrl(l.href)));
+  const pageKey = opts.page ? canonicalFromUrl(normaliseUrl(opts.page))?.key ?? null : null;
+  const structuredPage = !!opts.page || doc.links.some((l) => canonicalFromUrl(normaliseUrl(l.href)));
   const ownSecurityLink = (seg: string) => /bug ?bount/i.test(seg) && [...seg.matchAll(URL_IN_TEXT)].some((m) => SECURITY_PATH.test(m[0]) && !canonicalFromUrl(normaliseUrl(m[0])));
   for (const seg of structuredPage ? segs.filter(ownSecurityLink) : segs) {
     if (!BOUNTY_WORD.test(seg)) { n += 1; continue; }
@@ -109,8 +180,38 @@ export function extractOpportunities(doc: TextDocument, refPrefix: string): { it
     if (pageLink) o.officialUrl = pageLink; else o.unresolved.push("officialUrl");
     o.unresolved.push("platform");
   }
-  for (const o of items) if (o.maxReward === null) o.unresolved.push("maxReward");
-  return { items, ignoredSegments: n, unresolvedLinks: [...new Set(unresolvedLinks)] };
+  // 3. Page mode: a programme page names itself (its own links such as "Report a bug" are not other programmes), and a single
+  //    project security page with no programme links is one opportunity, named from its title.
+  let pageNote: string | undefined;
+  if (opts.page) {
+    const own = pageKey ? items.find((o) => canonicalFromUrl(o.officialUrl)?.key === pageKey) : undefined;
+    const titleName = cleanTitle(doc.title);
+    if (own && titleName) own.projectName = titleName;
+    const others = items.filter((o) => o !== own);
+    if (!items.length) {
+      const bountyish = /bug ?bount|security program|vulnerability disclosure|responsible disclosure|whitehat/i.test(`${doc.title ?? ""}\n${doc.text.slice(0, 20000)}`);
+      const sentences = doc.text.split(/(?<=[.!?])\s+|\n/).filter((x) => /(bount|reward|payout|up to|maximum|max\.?)/i.test(x));
+      const amounts = sentences.flatMap((x) => amountsIn(x).map((a) => ({ a, x })));
+      if (bountyish && titleName) {
+        const top = amounts.sort((p, q) => q.a - p.a)[0];
+        const o = add(attribution(emptyOpportunity(`${refPrefix}#page`, titleName)), `page:${opts.page}`);
+        o.officialUrl = normaliseUrl(opts.page); o.platform = pageKey ? platformName(pageKey.split(":")[0]!) : null;
+        if (top) { o.maxReward = top.a; o.rewardCurrency = "USD"; o.rewardType = /up to|max/i.test(top.x) ? "up_to" : "fixed"; o.rewardText = top.x.trim().slice(0, 200); }
+        o.unresolved.push("platform");
+      } else if (bountyish) pageNote = "the page mentions a bug bounty but carries no programme data in its HTML (it is probably loaded by the browser from an API); paste the visible text to import it";
+    }
+    void others;
+  }
+  for (const o of items) if (o.maxReward === null && !o.unresolved.includes("maxReward")) o.unresolved.push("maxReward");
+  return { items, ignoredSegments: n, unresolvedLinks: [...new Set(unresolvedLinks)], ...(pageNote ? { pageNote } : {}) };
+}
+
+/** "RedStone Smart Contracts: Program Info | HackenProof" -> "RedStone Smart Contracts"; "Usual Labs Bug Bounty - Sherlock" -> "Usual Labs". */
+export function cleanTitle(title: string | null): string | null {
+  if (!title) return null;
+  const first = title.split(/\s[|–—-]\s|\s·\s/)[0]!;
+  const t = first.replace(/:\s*(program info|overview|details|scope|rewards?)$/i, "").replace(/\b(bug ?bounty( program(me)?)?|security program(me)?|program(me)? info)\b/gi, " ").replace(/\s+/g, " ").trim();
+  return t.length >= 2 && /\p{L}/u.test(t) && !GENERIC_NAME.test(t) ? t.slice(0, 120) : null;
 }
 
 const titleCase = (s: string) => (/[A-Z]/.test(s) ? s : s.replace(/\b\p{L}/gu, (c) => c.toUpperCase()));

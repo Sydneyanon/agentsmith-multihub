@@ -12,8 +12,8 @@ import { BountyError } from "./types.js";
  *   It is refused when NODE_ENV=production, and the URL-level checks below still apply.
  * Both cap the body size and the time taken, and never execute anything they download.
  */
-export type HttpResponse = { status: number; finalUrl: string; contentType: string; body: string; bytes: number; sha256: string; retryAfterSeconds: number | null };
-export type HttpGet = (url: string, options?: { accept?: string; maxBytes?: number; timeoutMs?: number }) => Promise<HttpResponse>;
+export type HttpResponse = { status: number; finalUrl: string; contentType: string; body: string; bytes: number; sha256: string; retryAfterSeconds: number | null; location?: string | null };
+export type HttpGet = (url: string, options?: { accept?: string; maxBytes?: number; timeoutMs?: number; followRedirects?: boolean }) => Promise<HttpResponse>;
 
 export const DEFAULT_USER_AGENT = "bounty-collector/1.0 (public programme listings; one request per source per hour)";
 export function userAgent(env: Record<string, string | undefined> = process.env): string {
@@ -74,6 +74,7 @@ export function createHttpGet(env: Record<string, string | undefined> = process.
       // Manual redirects (bounded, each hop re-checked) for every transport.
       for (let hop = 0; hop <= 3; hop += 1) {
         response = await raw(current, { headers: { "user-agent": ua, accept: o.accept ?? "text/html,application/json;q=0.9,*/*;q=0.5" }, redirect: "manual", signal: controller.signal });
+        if (o.followRedirects === false) break;
         if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
           if (hop === 3) throw new BountyError("too_many_redirects", "more than 3 redirects");
           current = new URL(response.headers.get("location")!, current).toString();
@@ -84,7 +85,8 @@ export function createHttpGet(env: Record<string, string | undefined> = process.
       }
       const body = await readCapped(response!, maxBytes);
       return { status: response!.status, finalUrl: current, contentType: response!.headers.get("content-type") ?? "", body: body.toString("utf8"), bytes: body.byteLength,
-        sha256: createHash("sha256").update(body).digest("hex"), retryAfterSeconds: retryAfter(response!.headers) };
+        sha256: createHash("sha256").update(body).digest("hex"), retryAfterSeconds: retryAfter(response!.headers),
+        location: response!.headers.get("location") ? new URL(response!.headers.get("location")!, current).toString() : null };
     } catch (error) {
       if (error instanceof BountyError) throw error;
       if (error instanceof SsrfError) throw new BountyError(`blocked_${error.code}`, error.message);

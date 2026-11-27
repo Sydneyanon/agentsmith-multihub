@@ -12,7 +12,7 @@ export const BOARD_JSON = () => fixture("board-programs-2026-11-27.json.gz");
 export const SHERLOCK_HTML = () => fixture("sherlock-bug-bounties-2026-11-27.html.gz");
 export const HACKENPROOF_HTML = () => fixture("hackenproof-programs-p1-2026-11-27.html.gz");
 
-export type Route = { status?: number; body: string; contentType?: string; headers?: Record<string, string> } | ((url: string) => { status?: number; body: string; contentType?: string });
+export type Route = { status?: number; body: string; contentType?: string; headers?: Record<string, string>; location?: string } | ((url: string) => { status?: number; body: string; contentType?: string; location?: string });
 /** A recorded HttpGet: serves fixtures by exact URL, counts requests, and answers 404 for anything else. */
 export function fakeHttp(routes: Record<string, Route>): HttpGet & { calls: string[] } {
   const calls: string[] = [];
@@ -22,7 +22,7 @@ export function fakeHttp(routes: Record<string, Route>): HttpGet & { calls: stri
     const res = typeof r === "function" ? r(url) : r ?? { status: 404, body: "not found", contentType: "text/plain" };
     const body = Buffer.from(res.body, "utf8");
     const out: HttpResponse = { status: res.status ?? 200, finalUrl: url, contentType: res.contentType ?? "text/html", body: res.body, bytes: body.byteLength,
-      sha256: createHash("sha256").update(body).digest("hex"), retryAfterSeconds: null };
+      sha256: createHash("sha256").update(body).digest("hex"), retryAfterSeconds: null, location: res.location ?? null };
     return out;
   }) as HttpGet & { calls: string[] };
   fn.calls = calls;

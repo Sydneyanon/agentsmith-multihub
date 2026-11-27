@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifyTags, communityBoard, hackenproof, parseBoard, parseHackenproofPage, parseSherlock, sherlock, ADAPTERS } from "./adapters.js";
 import { canonicalFromUrl, nameKey, normaliseUrl } from "./canonical.js";
-import { classifyXUrl, extractOpportunities, htmlToDocument, parseOembed } from "./extract.js";
+import { classifyXUrl, cleanTitle, embeddedData, extractOpportunities, htmlToDocument, parseOembed } from "./extract.js";
 import { assertPublicHttpUrl, createHttpGet, robotsAllows } from "./http.js";
 import { amountsIn, parseTierText, usdComparable } from "./money.js";
 import { scoreProgramme, SCORING_VERSION } from "./rank.js";
@@ -159,6 +159,53 @@ describe("extraction from pages and posts (synthetic inputs)", () => {
   it("shortened links that cannot be expanded are reported", () => {
     const ex = extractOpportunities({ text: "Hyperlane bug bounty up to $2.5M immunefi.com/bug-bounty/hy…", links: [{ href: "https://t.co/abc", text: "immunefi.com/bug-bounty/hy…" }], baseUrl: null, author: null, publishedAt: null, title: null }, "x");
     expect(ex.unresolvedLinks).toHaveLength(1);
+  });
+});
+
+describe("any pasted link: pages built by JavaScript and single programme pages (synthetic inputs)", () => {
+  const spa = `<html><head><title>Bounties | Example Directory</title><meta property="og:description" content="Live bug bounty programmes">
+    <script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"programs":[
+      {"name":"Hyperlane","url":"https://immunefi.com/bug-bounty/hyperlane/information/","maxBounty":2500000},
+      {"name":"Usual","url":"https://audits.sherlock.xyz/bug-bounties/56","tvl":9000000000},
+      {"name":"Not a programme","url":"https://example.org/blog/post"}]}}}</script>
+    <script type="application/ld+json">{"@type":"WebPage","name":"Example Directory"}</script>
+    <script>window.evil = "alert(1)"</script></head><body><div id="root"></div></body></html>`;
+  it("reads the data a JavaScript page carries (JSON is parsed, never run); rewards only from bounty-named fields", () => {
+    const e = embeddedData(spa, "https://dir.example/");
+    expect(e.lines).toContain("Live bug bounty programmes");
+    expect(e.lines).toContain("Hyperlane: reward up to $2,500,000 https://immunefi.com/bug-bounty/hyperlane/information/");
+    expect(e.lines).toContain("Usual https://audits.sherlock.xyz/bug-bounties/56"); // tvl is not a reward
+    const d = htmlToDocument(spa, "https://dir.example/");
+    const ex = extractOpportunities({ ...d, baseUrl: "https://dir.example/", author: null, publishedAt: null }, "p", { page: "https://dir.example/" });
+    expect(ex.items.map((o) => [o.projectName, o.officialUrl, o.maxReward])).toEqual([
+      ["Hyperlane", "https://immunefi.com/bug-bounty/hyperlane/information", 2500000],
+      ["Usual", "https://audits.sherlock.xyz/bug-bounties/56", null],
+    ]);
+  });
+  it("a single programme or security page is one opportunity named from its title; its own links are not other programmes", () => {
+    const page = `<html><head><title>Acme Finance Bug Bounty Program | Acme</title></head><body><h1>Security</h1>
+      <p>Our bug bounty pays up to $75,000 for critical smart contract vulnerabilities.</p><p>High: $10,000.</p>
+      <a href="/security#scope">Scope</a></body></html>`;
+    const d = htmlToDocument(page, "https://acme.example/security");
+    const ex = extractOpportunities({ ...d, baseUrl: "https://acme.example/security", author: null, publishedAt: null }, "p", { page: "https://acme.example/security" });
+    expect(ex.items.map((o) => [o.projectName, o.officialUrl, o.maxReward, o.rewardType])).toEqual([["Acme Finance", "https://acme.example/security", 75000, "up_to"]]);
+    const own = `<html><head><title>Usual Labs Bug Bounty - Sherlock</title></head><body><a href="https://audits.sherlock.xyz/bug-bounties/56?tab=submission">Report a bug</a></body></html>`;
+    const d2 = htmlToDocument(own, "https://audits.sherlock.xyz/bug-bounties/56");
+    const ex2 = extractOpportunities({ ...d2, baseUrl: "https://audits.sherlock.xyz/bug-bounties/56", author: null, publishedAt: null }, "p", { page: "https://audits.sherlock.xyz/bug-bounties/56" });
+    expect(ex2.items.map((o) => [o.projectName, o.officialUrl])).toEqual([["Usual Labs", "https://audits.sherlock.xyz/bug-bounties/56"]]);
+  });
+  it("says so when a page mentions a bounty but carries no data, instead of inventing one", () => {
+    const shell = `<html><head><title>Bug bounties built for the AI era | Cantina</title></head><body><div id="app"></div></body></html>`;
+    const d = htmlToDocument(shell, "https://www.cantina.security/bounties");
+    const ex = extractOpportunities({ ...d, baseUrl: "https://www.cantina.security/bounties", author: null, publishedAt: null }, "p", { page: "https://www.cantina.security/bounties" });
+    expect(ex.items).toEqual([]);
+    expect(ex.pageNote).toMatch(/carries no programme data in its HTML/);
+  });
+  it("cleans page titles into names", () => {
+    expect(cleanTitle("RedStone Smart Contracts: Program Info | HackenProof")).toBe("RedStone Smart Contracts");
+    expect(cleanTitle("Usual Labs Bug Bounty - Sherlock")).toBe("Usual Labs");
+    expect(cleanTitle("Bug Bounty | Somewhere")).toBeNull();
+    expect(cleanTitle(null)).toBeNull();
   });
 });
 

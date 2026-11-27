@@ -77,6 +77,35 @@ Every fixed source honours robots.txt before fetching, per RFC 9309 (a 4xx answe
   - At most 3 redirects, a 2 MB body cap and a 30 s timeout. robots.txt is honoured, nothing downloaded is executed, links are never followed recursively, and an import never triggers another import.
   - Platform links are resolved through the platform's own adapter (one listing refresh per platform per import), never by scraping programme pages.
 
+## 3a. "Paste any link" (added 2026-11-27)
+
+How a pasted link is read depends on what it is:
+
+| Input | How it is read |
+|---|---|
+| A recognised programme URL (Immunefi, Sherlock, HackenProof, Cantina, Code4rena, Mantis, CodeHawks) | Identity comes from the URL itself. An enabled platform's listing is refreshed once. Immunefi is never fetched (terms) |
+| A web page with programme links | One opportunity per linked programme |
+| A single programme or project security page | One opportunity named from the page title, with the largest reward stated in a bounty or reward sentence |
+| A page built by JavaScript | Read from the data it carries (meta tags, JSON-LD, Next.js page data, server-component data). JSON is parsed, never run. A reward is read only from a field named bounty, reward, payout or prize |
+| A page with no programme data in its HTML (Cantina's listing) | Reported as such, with "paste the visible text"; nothing is invented |
+| Pasted text, an X post or thread | Line by line, several opportunities per post, attributed to the author and URL |
+
+Line-by-line "name + amount" extraction is for posts and pasted text only. On real pages it produced junk names ("Range of", "Up to"), found on HackenProof pages, so pages never use it.
+
+**Owner decision: `BOUNTY_IMPORT_FETCH_POLICY`.** The default is `respect`.
+- **`respect`:** robots.txt applies to pasted links too, and X is not fetched.
+- **`user_initiated`:** a pasted link is one retrieval you asked for, like opening it in a browser, so robots.txt (which governs crawlers) does not block it. X posts are read through X's documented oEmbed endpoint, and short links (t.co, bit.ly, …) are expanded by reading one redirect each. Each such fetch is labelled in the import report.
+- **Under both settings:**
+  - one page per submission, no link following beyond short-link expansion;
+  - no login, no CAPTCHA bypass, an honest user agent;
+  - X threads beyond the first post, and X profiles, still need pasted text (no API access);
+  - automated collection always respects robots.txt.
+
+Live checks (default policy, real pages, 2026-11-27):
+- `audits.sherlock.xyz/bug-bounties/56` gives "Usual Labs".
+- `hackenproof.com/programs/redstone-smart-contracts` gives "RedStone Smart Contracts", up to $250,000.
+- `cantina.xyz/bounties` gives nothing, with the honest note that its data is loaded by the browser.
+
 ## 4. Evidence from real sources (local database `bounty_e2e`, 2026-11-27)
 
 The transport here was the development proxy transport (`BOUNTY_TRANSPORT=env-proxy`), because this sandbox reaches the internet only
