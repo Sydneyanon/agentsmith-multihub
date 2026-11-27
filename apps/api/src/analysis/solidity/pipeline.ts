@@ -28,6 +28,23 @@ export async function readSnapshotSources(pool: Pool, snapshotId: string): Promi
   return r.rows;
 }
 
+/**
+ * A finding may only cite lines that exist in the sealed snapshot. One that does not is an analyzer attribution error: it is rejected
+ * and reported as a problem (never stored, never "fixed up"), so one bad finding cannot abort the analysis of a whole repository and
+ * no unverifiable evidence is ever recorded.
+ */
+export function rejectUncitableFindings(findings: Finding[], sources: ReadonlyArray<{ path: string; text: string }>): { kept: Finding[]; problems: string[] } {
+  const lineCount = new Map(sources.map((s) => [s.path, s.text.split("\n").length]));
+  const citable = (file: string, line: number) => Number.isInteger(line) && line >= 1 && line <= (lineCount.get(file) ?? 0);
+  const kept: Finding[] = []; const problems: string[] = [];
+  for (const f of findings) {
+    const bad = f.spans.filter((s) => !citable(s.file, s.lineStart) || !citable(s.file, s.lineEnd));
+    if (bad.length) problems.push(`finding rejected (analyzer attribution error): ${f.class} ${f.contract}.${f.function} cites ${bad.map((s) => `${s.file}:${s.lineStart}`).join(", ")}, which does not exist in the snapshot`);
+    else kept.push(f);
+  }
+  return { kept, problems };
+}
+
 export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
   const sources = await readSnapshotSources(pool, snapshotId);
   // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
@@ -40,7 +57,8 @@ export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, le
     const key = `${file}:${line}`; const have = spanCache.get(key); if (have) return have;
     const id = await store.createEvidenceSpan(lease, { snapshotId, path: file, lineStart: line, lineEnd: line }); spanCache.set(key, id); return id;
   };
-  for (const f of findings) {
+  const checked = rejectUncitableFindings(findings, sources); problems.push(...checked.problems);
+  for (const f of checked.kept) {
     if (options.include && !options.include(f)) continue; // an assignment scoped to target components stores only their findings
     const seen = new Set<string>(); const spans: Array<{ spanId: string; role: "primary" | "supporting" | "context" }> = [];
     for (const s of f.spans) { const k = `${s.file}:${s.lineStart}`; if (seen.has(k)) continue; seen.add(k); spans.push({ spanId: await span(s.file, s.lineStart), role: spans.length === 0 ? "primary" : s.role === "primary" ? "supporting" : s.role }); }
