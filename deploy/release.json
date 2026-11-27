@@ -1,0 +1,23 @@
+{
+  "schema": "agentsmith-release/1",
+  "note": "The ONE release baseline. Every production machine must run `candidate.image` once approved; scripts/release-check.ts compares production with this file and exits non-zero on any drift. Update this file in the same commit as a new release candidate; set `approved` only when the owner approves it.",
+  "candidate": {
+    "commit": "d09d0c23c39110df4725a8e049e967c124d43a35",
+    "image": "registry.fly.io/agentsmith-hub@sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0",
+    "smoke": "41/41",
+    "built_on": "2026-11-27",
+    "analyzer": "structural-solidity/2 (specialists 1 + storage-reference writes, execution validators 1)",
+    "migrations": ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0011", "0012", "0013", "0014"]
+  },
+  "approved": null,
+  "previous": {
+    "api": { "commit": "563389761c90f67659d013b5be6789072dd4e826", "image": "registry.fly.io/agentsmith-hub@sha256:95c65bb0d39d4af04060d210500cc4312e9e992d12941073fcdad7cf13ebd6c8" },
+    "collector": { "commit": "c3cb953f9fed54a7f517339d761806a76d5ceba7", "image": "registry.fly.io/agentsmith-hub@sha256:faef363a35bca3c63a4d7a8f7e685fbd63a20329551dba3118882a975d28d0f9" }
+  },
+  "critical_fixes": [
+    { "commit": "6f1fbc6", "what": "enrichment honours eligibility; GitHub refusals recorded as deferred, never as verified" },
+    { "commit": "939e17c", "what": "one uncitable finding no longer aborts a repository's analysis" },
+    { "commit": "5d6ccd1", "what": "analyzer citation root cause (cross-file call-chain frames); dossiers state coverage" },
+    { "commit": "63a7e94", "what": "GitHub token: single reader, malformed values never sent, auth failures explicit, redaction" }
+  ]
+}

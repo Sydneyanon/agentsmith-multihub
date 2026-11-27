@@ -14,7 +14,7 @@ import { join } from "node:path";
 export type Desired = { name: string; role: "api" | "job" | "worker"; processGroup?: string; schedule?: string; restart?: string; cmd?: string[];
   env?: Record<string, string>; secrets?: string[]; gate: string; requires?: string[]; managedBy?: string };
 export type Fleet = { app: string; region: string; machines: Desired[] };
-export type Actual = { id: string; name: string; state: string; image: string; schedule: string | null; cmd: string[] | null; env: Record<string, string> };
+export type Actual = { id: string; name: string; state: string; image: string; schedule: string | null; cmd: string[] | null; env: Record<string, string>; revision?: string | null };
 export type Change = { machine: string; kind: "missing" | "image_drift" | "config_drift" | "unexpected"; detail: string; gate: string; requires: string[]; command: string | null };
 
 const digestOf = (image: string) => /@(sha256:[0-9a-f]{64})/.exec(image)?.[1] ?? image;
@@ -50,7 +50,8 @@ export function planFleet(fleet: Fleet, actual: Actual[], targetImage: string): 
 
 export function parseMachines(json: unknown): Actual[] {
   return (json as Array<Record<string, any>>).map((m) => ({ id: m.id, name: m.name, state: m.state, image: m.config?.image ?? "",
-    schedule: m.config?.schedule ?? null, cmd: m.config?.init?.cmd ?? null, env: m.config?.env ?? {} }));
+    schedule: m.config?.schedule ?? null, cmd: m.config?.init?.cmd ?? null, env: m.config?.env ?? {},
+    revision: m.image_ref?.labels?.["org.opencontainers.image.revision"] ?? null }));
 }
 
 if (process.argv[1]?.endsWith("fleet-plan.ts")) {
