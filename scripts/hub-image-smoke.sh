@@ -101,8 +101,8 @@ check "...but the valid operator token is never locked out (200)" '[ "$(H $HOSTN
 check "token never appears in the server log" '! grep -q "$TOKEN" /tmp/hubimg.log'
 if [ -f "$ROOTFS/app/dist/apps/api/src/acquisition/github-live-check.js" ]; then
   echo "== GitHub token handling (no network: both cases stop before any request)"
-  check "GitHub live check ships and refuses to run without a token (exit 2)" 'run_in node dist/apps/api/src/acquisition/github-live-check.js --require-auth >/tmp/ghlc.out 2>&1; [ $? = 2 ] && grep -q "\"mode\":\"unauthenticated\"" /tmp/ghlc.out'
-  check "a malformed GITHUB_TOKEN is not used, and is never echoed" 'run_in GITHUB_TOKEN=not-a-real-token-value-smoke node dist/apps/api/src/acquisition/github-live-check.js --require-auth >/tmp/ghlc2.out 2>&1; [ $? = 2 ] && grep -q "\"mode\":\"misconfigured\"" /tmp/ghlc2.out && ! grep -q "not-a-real-token-value-smoke" /tmp/ghlc2.out'
+  check "GitHub live check ships and refuses to run without a token (exit 2)" 'run_in node /app/dist/apps/api/src/acquisition/github-live-check.js --require-auth >/tmp/ghlc.out 2>&1; [ $? = 2 ] && grep -q "\"mode\":\"unauthenticated\"" /tmp/ghlc.out'
+  check "a malformed GITHUB_TOKEN is not used, and is never echoed" 'run_in GITHUB_TOKEN=not-a-real-token-value-smoke node /app/dist/apps/api/src/acquisition/github-live-check.js --require-auth >/tmp/ghlc2.out 2>&1; [ $? = 2 ] && grep -q "\"mode\":\"misconfigured\"" /tmp/ghlc2.out && ! grep -q "not-a-real-token-value-smoke" /tmp/ghlc2.out'
 fi
 
 
