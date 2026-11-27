@@ -68,6 +68,9 @@ describe.skipIf(skipIntegration)("GET /v1/engine/status over real Postgres (CR2)
 
   it("a connected idle worker is visible through its session name, with its structural switch, even with no lease", async () => {
     worker = new pg.Pool({ connectionString: db.url, max: 1, application_name: workerApplicationName("intake-cr2-test", { STRUCTURAL_ANALYSIS_ENABLED: "true" }) });
+    // Postgres terminates this idle session when the disposable database is dropped in teardown (57P01). Without a listener the
+    // pool turns that into an unhandled error under full-suite load; the application guards its own pools the same way.
+    worker.on("error", () => undefined);
     await worker.query("SELECT 1"); // the pool keeps this idle connection open
     const { body } = await status();
     expect(body.workers.connected).toEqual([{ worker_id: "intake-cr2-test", structural_analysis: true, connections: 1 }]);
