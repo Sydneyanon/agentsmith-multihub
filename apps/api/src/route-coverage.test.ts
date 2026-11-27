@@ -23,8 +23,8 @@ describe("every registered route is either explicitly public or requires the tok
     }
     // The set of public routes is exactly the documented allow-list — adding one is a deliberate, reviewed change.
     // The bounty dashboard page and its read-only feed are public by design (programme facts and provenance links only; no write path).
-    expect(publicSeen.sort()).toEqual(["GET /", "GET /health/live", "GET /health/ready", "GET /hub", "GET /hub/", "GET /hub/assets/:name", "GET /bounties", "GET /bounties/", "GET /public/bounties.json"].sort());
-    expect(PUBLIC_ROUTE_DESCRIPTIONS.length).toBe(9);
+    expect(publicSeen.sort()).toEqual(["GET /", "GET /health/live", "GET /health/ready", "GET /hub", "GET /hub/", "GET /hub/assets/:name", "GET /bounties", "GET /bounties/", "GET /bounties/tv", "GET /public/bounties.json"].sort());
+    expect(PUBLIC_ROUTE_DESCRIPTIONS.length).toBe(10);
   });
 
   it("an unauthenticated client cannot reach any /v1 route by mangling the path", async () => {

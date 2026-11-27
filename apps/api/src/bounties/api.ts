@@ -8,6 +8,8 @@ import { coverageMetrics, enrichmentMetrics, health, lifecycleOverview, listDupl
 import { addCorrection, CORRECTABLE, decideDuplicate, setBountySourceEnabled } from "./store.js";
 import { ADAPTERS } from "./adapters.js";
 import { BountyError } from "./types.js";
+import { renderTvPage } from "./tv-page.js";
+import { HUB_CSP, HUB_HSTS } from "../hub-static.js";
 
 /**
  * Bounty intelligence routes.
@@ -45,6 +47,22 @@ export function registerBountyRoutes(app: FastifyInstance, pool: Pool | undefine
   const getHttp = () => (http ??= createHttpGet());
   const cacheMs = options.publicCacheMs ?? 60_000;
   let cached: { at: number; body: string } | null = null;
+  let tvCached: { at: number; html: string } | null = null;
+
+  // A plain, no-JavaScript HTML board for a TV / old smart-TV browser. Public (same feed as bounties.json), server-rendered,
+  // self-refreshing via <meta refresh>. Strict hub CSP; HSTS in production like the rest of the hub.
+  app.get("/bounties/tv", async (_request, reply) => {
+    reply.header("content-security-policy", HUB_CSP).header("x-content-type-options", "nosniff")
+      .header("referrer-policy", "no-referrer").header("cache-control", "no-cache");
+    if (process.env.NODE_ENV === "production") reply.header("strict-transport-security", HUB_HSTS);
+    if (!pool) return reply.code(503).type("text/html; charset=utf-8").send("<!doctype html><title>AgentSmith</title><p>Database not configured.");
+    if (tvCached && Date.now() - tvCached.at < cacheMs) return reply.type("text/html; charset=utf-8").send(tvCached.html);
+    try {
+      const html = renderTvPage(await publicFeed(pool));
+      tvCached = { at: Date.now(), html };
+      return reply.type("text/html; charset=utf-8").send(html);
+    } catch (error) { return fail(reply, error); }
+  });
 
   app.get("/public/bounties.json", async (_request, reply) => {
     reply.header("cache-control", "public, max-age=60").header("x-content-type-options", "nosniff").header("access-control-allow-origin", "*");

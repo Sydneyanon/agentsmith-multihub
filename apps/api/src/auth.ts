@@ -78,9 +78,9 @@ export class AuthFailureLimiter {
  * methods, odd spellings (`//v1`, `/V1`, encoded slashes, trailing slashes) — requires the bearer token. Matching is on the raw
  * path (query string removed) with exact equality, so a path the router might normalise into a protected handler is never public.
  */
-const PUBLIC_EXACT = new Set(["/health/live", "/health/ready", "/", "/hub", "/hub/", "/bounties", "/bounties/", "/public/bounties.json"]);
+const PUBLIC_EXACT = new Set(["/health/live", "/health/ready", "/", "/hub", "/hub/", "/bounties", "/bounties/", "/bounties/tv", "/public/bounties.json"]);
 const PUBLIC_ASSET = /^\/hub\/assets\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-export const PUBLIC_ROUTE_DESCRIPTIONS = ["GET|HEAD /health/live", "GET|HEAD /health/ready", "GET|HEAD /", "GET|HEAD /hub", "GET|HEAD /hub/", "GET|HEAD /hub/assets/<file>", "GET|HEAD /bounties", "GET|HEAD /bounties/", "GET|HEAD /public/bounties.json"] as const;
+export const PUBLIC_ROUTE_DESCRIPTIONS = ["GET|HEAD /health/live", "GET|HEAD /health/ready", "GET|HEAD /", "GET|HEAD /hub", "GET|HEAD /hub/", "GET|HEAD /hub/assets/<file>", "GET|HEAD /bounties", "GET|HEAD /bounties/", "GET|HEAD /bounties/tv", "GET|HEAD /public/bounties.json"] as const;
 
 /** Path part of a raw request URL (query string removed). */
 export function rawPath(rawUrl: string): string {

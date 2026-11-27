@@ -5,4 +5,5 @@ await cp("apps/web/public/index.html", "dist/web/index.html");
 await cp("apps/web/public/styles.css", "dist/web/assets/styles.css");
 await cp("apps/web/public/bounties.html", "dist/web/bounties.html");
 await cp("apps/web/public/bounties.css", "dist/web/assets/bounties.css");
+await cp("apps/web/public/tv.css", "dist/web/assets/tv.css");
 console.log("copied hub static files to dist/web");
