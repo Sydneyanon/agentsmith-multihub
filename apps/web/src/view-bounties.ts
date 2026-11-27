@@ -15,7 +15,19 @@ type Source = { source_key: string; display_name: string; kind: string; enabled:
   last_error: string | null; consecutive_failures: number; next_attempt_at: string | null; observations: number; listed: number; programs_shown: number;
   last_check: { outcome: string; started_at: string; listings_extracted: number; programs_added: number; programs_updated: number; observations_unchanged: number; duplicates_matched: number; needs_verification: number; delisted: number; error: string | null; http_status: number | null; pages: number } | null };
 
-const TABS: Array<[string, string]> = [["import", "Add bounty / Import URL"], ["health", "Collection health"], ["duplicates", "Possible duplicates"], ["records", "Records"]];
+const TABS: Array<[string, string]> = [["import", "Add bounty / Import URL"], ["health", "Collection health"], ["lifecycle", "Programme lifecycle"], ["duplicates", "Possible duplicates"], ["records", "Records"]];
+
+/** Ordered ladder + side states, with labels and tones. Mirrors apps/api/src/bounties/lifecycle.ts (kept in sync by the counts test). */
+const LIFECYCLE: Array<[string, string, string]> = [
+  ["discovered", "Discovered", "grey"], ["officially_verified", "Officially verified", "cyan"], ["scope_retrieved", "Scope retrieved", "cyan"],
+  ["smart_contract_target_confirmed", "SC target confirmed", "cyan"], ["reward_confirmed", "Reward confirmed", "cyan"], ["eligible_for_research", "Eligible for research", "green"],
+  ["queued_for_scan", "Queued for scan", "amber"], ["scanning", "Scanning", "cyan"], ["scanned", "Scanned", "violet"],
+  ["finding_under_review", "Finding under review", "amber"], ["completed", "Completed", "green"],
+];
+const LIFECYCLE_SIDE: Array<[string, string, string]> = [
+  ["needs_verification", "Needs verification", "amber"], ["out_of_engine_scope", "Out of engine scope", "grey"], ["ineligible", "Not a vuln bounty", "grey"],
+  ["paused", "Paused", "grey"], ["unavailable", "Unavailable", "grey"], ["source_restricted", "Source restricted", "grey"],
+];
 const toneOf = (s: string) => (s === "succeeded" || s === "fetched" || s === "official_confirmed" || s === "active" || s === "added" ? "green" : s === "failed" || s === "conflicting" ? "red" : s === "blocked" || s.startsWith("skipped") || s === "partial" ? "amber" : "grey");
 
 export function renderBounties(ctx: Ctx, sub: string | undefined, id: string | undefined, query: Record<string, string>): HTMLElement {
@@ -28,6 +40,7 @@ export function renderBounties(ctx: Ctx, sub: string | undefined, id: string | u
     body);
   if (tab === "import") body.append(importTab(ctx));
   else if (tab === "health") body.append(healthTab(ctx));
+  else if (tab === "lifecycle") body.append(lifecycleTab(ctx));
   else if (tab === "duplicates") body.append(duplicatesTab(ctx));
   else body.append(id ? recordDetail(ctx, id) : recordsTab(ctx, query));
   return view;
@@ -97,6 +110,24 @@ function healthTab(ctx: Ctx): HTMLElement {
   } }, "Collect now");
   load();
   return panel("Collection health", [h("p", { class: "muted small" }, "Configured is not fetched; fetched is not saved; saved is not shown. Each column below is counted separately."), box, h("div", { class: "toolbar" }, run), out]);
+}
+
+function lifecycleTab(ctx: Ctx): HTMLElement {
+  const box = h("div", {});
+  loadInto(box, () => ctx.api.get<{ total: number; counts: Record<string, number> }>("/v1/bounties/lifecycle"), (d) => {
+    const n = (k: string) => d.counts[k] ?? 0;
+    const ladder = h("ol", { class: "rows lifecycle-ladder" }, ...LIFECYCLE.map(([k, label, tone]) =>
+      h("li", { class: "row-static" }, h("span", { class: "row-main" }, h("strong", {}, label)), chip(String(n(k)), n(k) > 0 ? (tone as never) : "grey"))));
+    const side = h("ul", { class: "chips" }, ...LIFECYCLE_SIDE.map(([k, label, tone]) => h("li", {}, chip(`${label}: ${n(k)}`, tone as never))));
+    return h("div", { class: "stack" },
+      panel("Research pipeline ladder", [
+        h("p", { class: "muted small" }, "Each programme sits at exactly one state. These are evidence-based: discovery is not eligibility, and a programme only advances when the records support it. ",
+          "Scan states appear once the discovery→research bridge is deployed and the worker runs."),
+        ladder], { class: "" }),
+      panel("Off the research path", [side], { class: "" }),
+      h("p", { class: "muted small" }, `Total programmes: ${d.total}.`));
+  });
+  return box;
 }
 
 function duplicatesTab(ctx: Ctx): HTMLElement {

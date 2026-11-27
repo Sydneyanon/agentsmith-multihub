@@ -9,6 +9,7 @@ import { renderRepository } from "../src/view-repository.js";
 import { renderActivity } from "../src/view-activity.js";
 import { renderEvidence } from "../src/view-evidence.js";
 import { renderProjects } from "../src/view-projects.js";
+import { renderBounties } from "../src/view-bounties.js";
 import type { Ctx } from "../src/ctx.js";
 
 type Handler = (path: string, params?: Record<string, unknown>) => unknown;
@@ -328,5 +329,17 @@ describe("acquisition panel: completeness comes only from the stored report, and
       await settled(el, /No acquisition report/);
       expect(el.textContent).not.toMatch(/Complete|Partial/);
     }
+  });
+});
+
+describe("bounty lifecycle tab", () => {
+  const LC = { total: 3, counts: { discovered: 1, officially_verified: 0, scope_retrieved: 0, smart_contract_target_confirmed: 0, reward_confirmed: 0, eligible_for_research: 1, queued_for_scan: 1, scanning: 0, scanned: 0, finding_under_review: 0, completed: 0, needs_verification: 0, out_of_engine_scope: 0, ineligible: 0, paused: 0, unavailable: 0, source_restricted: 0 }, ladder: [] as string[] };
+  it("renders the evidence-based ladder counts, distinct from eligibility", async () => {
+    const el = renderBounties(fakeCtx((path) => path.endsWith("/lifecycle") ? LC : { imports: [] }) as Ctx, "lifecycle", undefined, {});
+    await settled(el, /Research pipeline ladder/);
+    expect(el.textContent).toMatch(/Eligible for research/);
+    expect(el.textContent).toMatch(/Queued for scan/);
+    expect(el.textContent).toMatch(/Total programmes: 3/);
+    expect(el.textContent).toMatch(/discovery is not eligibility/i);
   });
 });
