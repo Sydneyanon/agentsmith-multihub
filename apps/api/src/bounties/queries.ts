@@ -113,7 +113,11 @@ export async function researchCandidates(pool: Pool): Promise<Array<Record<strin
   for (const r of items as Array<Record<string, unknown>>) {
     const e = eligOf(r.resolved, String(r.verification));
     if (!e.engineSuitable || e.tier === "ineligible") continue;
-    out.push({ id: r.id, project: r.project_name, key: r.canonical_key, verification: r.verification, priority: r.priority === null ? null : Number(r.priority), reward: r.reward, eligibility: e });
+    // Programme -> repository mapping (task 6/Priority 2): which GitHub repos a candidate points at, and whether any was resolved.
+    // A candidate with no repository is a mapping GAP the operator/enrichment should target — never invent an association.
+    const repositories = resolveProgrammeRepositories(r.resolved as Resolution["resolved"]).repositories;
+    out.push({ id: r.id, project: r.project_name, key: r.canonical_key, verification: r.verification, priority: r.priority === null ? null : Number(r.priority),
+      reward: r.reward, eligibility: e, repositories, has_repository: repositories.length > 0 });
   }
   return out;
 }
