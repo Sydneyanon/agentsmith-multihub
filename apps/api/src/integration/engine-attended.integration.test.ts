@@ -34,7 +34,8 @@ describe("attended specialist capabilities: declarations (no database)", () => {
     expect(all).not.toContain(ATTENDED_STEP_KEY); expect(all).not.toContain(ATTENDED_CHALLENGE_STEP_KEY);
     expect(producers({}).map((c) => c.id)).toEqual(["solidity-structural-specialists"]); // no operator: no attended specialist is ever assigned
     expect(producers(ENV).map((c) => c.id)).toEqual(["solidity-structural-specialists", "claude-scoping", "claude-accounting", "claude-path", "claude-assumptions", "claude-liveness", "claude-hunter"]);
-    for (const id of ["claude-reproducer", "claude-prior-art"]) expect(availability(ENV).find((a) => a.capability.id === id)).toMatchObject({ available: false, reason: expect.stringMatching(/prepared/) });
+    expect(availability(ENV).find((a) => a.capability.id === "claude-prior-art")).toMatchObject({ available: false, reason: expect.stringMatching(/prepared/) });
+    expect(availability(ENV).find((a) => a.capability.id === "claude-reproducer")).toMatchObject({ available: true });
     expect(availability({}).find((a) => a.capability.id === "claude-challenger")!.reason).toMatch(/AGENTSMITH_ATTENDED_OPERATOR/);
   });
 });
@@ -147,6 +148,9 @@ describe.skipIf(skipIntegration)("attended specialists through the research loop
     // every attended claim was put to the challenger exactly once
     const unchallenged = await q("SELECT h.id FROM hypotheses h WHERE h.generator_kind = 'attended_model' AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.step_key = $1 AND s.input->'claims' @> jsonb_build_array(jsonb_build_object('hypothesisId', h.id::text)))", [ATTENDED_CHALLENGE_STEP_KEY]);
     expect(unchallenged).toEqual([]);
+    // without a pinned forge here, no reproduction is created, and the decision says why (A39), instead of pretending
+    expect((await q("SELECT 1 FROM workflow_steps WHERE step_key = 'specialist_reproduce'")).length).toBe(0);
+    expect((await q("SELECT 1 FROM research_decision_candidates WHERE reason LIKE '%foundry-forge is not available here%A39%'")).length).toBeGreaterThan(0);
     // the next human action: review of claims the challenger supported, never a claim straight from its producer
     const asked = await q<{ ref: string }>("SELECT DISTINCT candidate_ref ref FROM research_decision_candidates WHERE action = 'request_human_review'");
     expect(asked.length).toBeGreaterThan(0);

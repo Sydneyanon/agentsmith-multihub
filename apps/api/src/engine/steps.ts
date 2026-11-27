@@ -8,7 +8,8 @@ import type { Finding, FindingClass } from "../analysis/solidity/specialists.js"
 import { sealedSnapshot, withHeartbeat, type AnalysisStepContext } from "../analysis/solidity/step.js";
 import { MAX_SPAN_LINES, ResearchStore } from "../research-state.js";
 import type { ClaimedStep } from "../worker.js";
-import { ATTENDED_STEP_KEY, capabilityById, SLITHER_STEP_KEY, SLITHER_VERSION } from "./capabilities.js";
+import { ATTENDED_STEP_KEY, capabilityById, FOUNDRY_STEP_KEY, SLITHER_STEP_KEY, SLITHER_VERSION } from "./capabilities.js";
+import { processFoundryValidateStep } from "./reproduction.js";
 import { runSlither } from "./tools/slither.js";
 
 /**
@@ -21,7 +22,7 @@ import { runSlither } from "./tools/slither.js";
  */
 export const INVESTIGATE_STEP_KEY = "investigate_target";
 export const CHALLENGE_TARGET_STEP_KEY = "challenge_target";
-export const ENGINE_STEP_KEYS = [INVESTIGATE_STEP_KEY, SLITHER_STEP_KEY, CHALLENGE_TARGET_STEP_KEY] as const;
+export const ENGINE_STEP_KEYS = [INVESTIGATE_STEP_KEY, SLITHER_STEP_KEY, CHALLENGE_TARGET_STEP_KEY, FOUNDRY_STEP_KEY] as const;
 export const ENGINE_LOOP_SWITCH = "ENGINE_LOOP_ENABLED";
 export type EngineStepContext = AnalysisStepContext & { env?: Record<string, string | undefined> };
 
@@ -177,5 +178,6 @@ export async function dispatchEngineStep(ctx: EngineStepContext, step: ClaimedSt
   if (step.step_key === INVESTIGATE_STEP_KEY) { await processInvestigateTargetStep(ctx, step); return true; }
   if (step.step_key === SLITHER_STEP_KEY) { await processSlitherScanStep(ctx, step); return true; }
   if (step.step_key === CHALLENGE_TARGET_STEP_KEY) { await processChallengeTargetStep(ctx, step); return true; }
+  if (step.step_key === FOUNDRY_STEP_KEY) { await processFoundryValidateStep(ctx, step); return true; }
   return false;
 }

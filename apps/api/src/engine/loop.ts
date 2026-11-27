@@ -10,7 +10,8 @@ import { POLICY_V1 } from "../priority/policy.js";
 import { allocate, scoreOpportunity, type PriorityAssessment } from "../priority/score.js";
 import { ResearchStore } from "../research-state.js";
 import { NOT_MODELLED_CLASSES } from "./classes.js";
-import { ATTENDED_CHALLENGE_STEP_KEY, availability, capabilityById, pinnedVersion, producers, reviewers, TRACKED_CLASSES, type Capability } from "./capabilities.js";
+import { ATTENDED_CHALLENGE_STEP_KEY, ATTENDED_REPRODUCE_STEP_KEY, availability, capabilityById, evaluatorsAvailable, pinnedVersion, producers, reviewers, testAuthors, TRACKED_CLASSES, type Capability } from "./capabilities.js";
+import { appendReproductionIn, reproductionRoundUsed } from "./reproduction.js";
 import { createChallengeRunIn } from "./attended.js";
 import { addCandidates, openDecision, RESEARCH_POLICY_V0, type Candidate, type Db, type Feature } from "./decisions.js";
 import { checkVerdict, readRegistry, recordAssessment, verifiedRepositories, type Assessment, type RegistryEntry } from "./registry.js";
@@ -195,15 +196,15 @@ export type MapStage = {
 };
 
 /** Supported-by-independent-evidence leads on this version with no human outcome yet, not already sent for review by an earlier decision. */
-async function leadsAwaitingHuman(db: Db, snapshotIds: readonly string[]): Promise<Array<{ id: string; family: string; evaluators: string[] }>> {
+async function leadsAwaitingHuman(db: Db, snapshotIds: readonly string[], reviewerSupportCounts = true): Promise<Array<{ id: string; family: string; evaluators: string[] }>> {
   return (await db.query<{ id: string; family: string; evaluators: string[] }>(
     `SELECT h.id, h.family, array_agg(DISTINCT x.who ORDER BY x.who) AS evaluators FROM hypotheses h
        JOIN (SELECT e.hypothesis_id, 'evidence:' || e.evaluator_id AS who FROM hypothesis_evaluations e JOIN hypotheses g ON g.id = e.hypothesis_id WHERE e.outcome = 'supports' AND e.evaluator_id <> g.generator_id
-             UNION ALL SELECT r.hypothesis_id, 'review:' || r.reviewer_id FROM hypothesis_reviews r WHERE r.reviewer_kind = 'attended_model' AND r.verdict = 'supports') x ON x.hypothesis_id = h.id
+             UNION ALL SELECT r.hypothesis_id, 'review:' || r.reviewer_id FROM hypothesis_reviews r WHERE $2::boolean AND r.reviewer_kind = 'attended_model' AND r.verdict = 'supports') x ON x.hypothesis_id = h.id
       WHERE h.snapshot_id = ANY($1::uuid[])
         AND NOT EXISTS (SELECT 1 FROM hypothesis_outcomes o WHERE o.hypothesis_id = h.id)
         AND NOT EXISTS (SELECT 1 FROM research_decision_candidates c WHERE c.candidate_ref = h.id::text AND c.action = 'request_human_review')
-      GROUP BY h.id, h.family ORDER BY h.id`, [snapshotIds])).rows;
+      GROUP BY h.id, h.family ORDER BY h.id`, [snapshotIds, reviewerSupportCounts])).rows;
 }
 
 /**
@@ -266,6 +267,21 @@ async function surfaceMap(db: Db, version: readonly string[]): Promise<SurfaceMa
   return { ranks, source: `claude-scoping@${r!.output.pinned_version ?? "?"}` };
 }
 
+/**
+ * Claims that need reproduction (T-202): an independent reviewer supports them, there is no technical evidence yet (a supports or
+ * weakens evaluation by an evaluator other than the producer), no human outcome, and no reproduction already appended for them.
+ */
+async function claimsNeedingReproduction(db: Db, version: readonly string[]): Promise<Array<{ id: string; generator_id: string; workflow_run_id: string }>> {
+  return (await db.query<{ id: string; generator_id: string; workflow_run_id: string }>(
+    `SELECT h.id, h.generator_id, h.workflow_run_id FROM hypotheses h WHERE h.snapshot_id = ANY($1::uuid[])
+        AND EXISTS (SELECT 1 FROM hypothesis_reviews r WHERE r.hypothesis_id = h.id AND r.reviewer_kind = 'attended_model' AND r.verdict = 'supports')
+        AND NOT EXISTS (SELECT 1 FROM hypothesis_evaluations e WHERE e.hypothesis_id = h.id AND e.outcome IN ('supports','weakens') AND e.evaluator_id <> h.generator_id AND e.evaluator_id <> 'no-independent-validator')
+        AND NOT EXISTS (SELECT 1 FROM hypothesis_outcomes o WHERE o.hypothesis_id = h.id)
+        AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.step_key = $2 AND s.status <> 'failed' AND s.input->'claims' @> jsonb_build_array(jsonb_build_object('hypothesisId', h.id::text)))
+      ORDER BY h.created_at, h.id`, [version, ATTENDED_REPRODUCE_STEP_KEY])).rows;
+}
+export const MAX_REPRODUCTIONS_PER_DECISION = 10;
+
 /** Attended (model) claims that no reviewer has challenged and no challenge assignment already covers. */
 async function claimsAwaitingChallenge(db: Db, version: readonly string[]): Promise<Array<{ id: string }>> {
   return (await db.query<{ id: string }>(
@@ -298,7 +314,11 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
   const scored = features.map((x) => ({ x, a: scoreComponent(x, pairs) }));
   const pending = scored.filter((s) => s.x.pendingPairs > 0);
   const version = await sameVersionSnapshots(pool, snap.snapshotId);
-  const reviews = level === "follow_up" ? await leadsAwaitingHuman(pool, version) : [];
+  // reproduction is possible when a test author and the pinned evaluator are both available here; otherwise reviewer support goes to a human
+  const author = testAuthors(env)[0] ?? null; const forge = evaluatorsAvailable(env).find((c) => c.id === "foundry-forge") ?? null;
+  const reproNeeded = level === "follow_up" ? await claimsNeedingReproduction(pool, version) : [];
+  const reproPossible = Boolean(author && forge);
+  const reviews = level === "follow_up" ? (await leadsAwaitingHuman(pool, version, !reproPossible)).filter((h) => !(reproPossible && reproNeeded.some((x) => x.id === h.id))) : [];
   const challenger = level === "follow_up" ? reviewers(env)[0] ?? null : null;
   const toChallenge = challenger ? await claimsAwaitingChallenge(pool, version) : [];
   const seed = Number((await pool.query<{ n: string }>("SELECT count(*) n FROM research_decisions WHERE snapshot_id = ANY($1::uuid[])", [version])).rows[0]!.n);
@@ -323,6 +343,25 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
       assignment = { runId: created.runId, target: chosen.x.id, mode: pick.mode, capability: `${cap.id}@${cap.version}`, targets: bundle.map((b) => b.x.id) };
     }
     const bundled = new Set(bundle.map((b) => b.x.id));
+    // reproduction: one round per run, continuing the run that made the claims; a test author who is never the producer; or why not
+    const reproductions: Candidate[] = [];
+    const feat = { independent_review: f("supports", "hypothesis_reviews (attended challenger)"), technical_evidence: unknown("none yet") };
+    const rule = { rule: "reproduce reviewer-supported claims that lack technical evidence; one round per run" };
+    const noRepro = new Map<string, string>(); // a claim sent to a human instead: why it could not be reproduced first
+    const byRun = new Map<string, typeof reproNeeded>(); for (const h of reproNeeded) byRun.set(h.workflow_run_id, [...(byRun.get(h.workflow_run_id) ?? []), h]);
+    let budget = MAX_REPRODUCTIONS_PER_DECISION;
+    for (const [run, hs] of byRun) {
+      const why = !forge ? "reproduction needed; foundry-forge is not available here (pinned forge and solc; a persistent install is A39)"
+        : !author ? "reproduction needed; no test author is available (attended operator required)"
+        : hs.some((h) => h.generator_id === author.id) ? "reproduction needed; the only test author produced one of these claims"
+        : (await reproductionRoundUsed(c, run)) ? "reproduction needed; this run has already had its reproduction round (one per run: a later round is not supported yet)"
+        : budget < hs.length ? `reproduction needed; deferred to a later decision (at most ${MAX_REPRODUCTIONS_PER_DECISION} per decision)` : null;
+      if (why) { for (const h of hs) { if (reviews.some((r) => r.id === h.id)) noRepro.set(h.id, why); else reproductions.push({ kind: "hypothesis", ref: h.id, features: feat, scoreComponents: rule, action: "defer", reason: why }); } continue; }
+      budget -= hs.length;
+      const app = await appendReproductionIn(c, { decisionId, hypothesisIds: hs.map((h) => h.id), author: { id: author!.id, version: author!.version }, evaluator: { id: forge!.id, version: forge!.version } }, POLICY_ID);
+      for (const h of hs) reproductions.push({ kind: "hypothesis", ref: h.id, features: feat, scoreComponents: rule, action: "investigate",
+        reason: `reproduction: a test by ${author!.id}@${pinnedVersion(author!)}, executed twice by ${forge!.id}@${forge!.version}, in the claim's own run`, resultingRunId: app.runId, resultingStepId: app.reproduceStepId });
+    }
     // independent challenge is required for every attended (model) claim: a blinded review by a different specialist, never by its producer
     let challenge: MapStage["challenge"] = null; let challengeRun: { runId: string; stepId: string } | null = null;
     if (challenger && toChallenge.length) {
@@ -333,7 +372,8 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
     const src = `protocol model ${built.sha256.slice(0, 12)}`;
     const candidates: Candidate[] = [
       ...reviews.map((h): Candidate => ({ kind: "hypothesis", ref: h.id, features: { family: f(h.family, "hypotheses"), independent_supports: f(h.evaluators, "hypothesis_evaluations (evaluator differs from generator)"), human_outcome: unknown("no human outcome recorded") },
-        scoreComponents: { rule: RESEARCH_POLICY_V0.followUp.humanReviewWhen }, action: "request_human_review", reason: "supported by independent evidence; only a human can confirm or refute it" })),
+        scoreComponents: { rule: RESEARCH_POLICY_V0.followUp.humanReviewWhen }, action: "request_human_review",
+        reason: noRepro.has(h.id) ? `supported by an independent reviewer; ${noRepro.get(h.id)}; only a human can confirm or refute it` : "supported by independent evidence; only a human can confirm or refute it" })),
       ...[...scored].sort((a, b) => (rank.get(a.a.id)! - rank.get(b.a.id)!)).map((s): Candidate => {
         const isChosen = chosen?.a.id === s.a.id; const inBundle = !isChosen && bundled.has(s.a.id); const isPending = s.x.pendingPairs > 0;
         return { kind: "component", ref: s.a.id,
@@ -350,12 +390,13 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
           reason: isChosen ? `${pick.reason}; ${cap!.id}@${cap!.version} chosen: ${cap!.profile.precedes ? "a mapper goes first on an unmapped snapshot" : "highest value (pending classes x relevance / cost)"} (${(s.x.pendingByCapability[cap!.id] ?? []).join(", ")})` : inBundle ? `bundled: ${cap!.id} examines the whole compilation unit in one run` : isPending ? `rank ${rank.get(s.a.id)} by score; one assignment per decision` : inFlight.has(s.a.id) ? `in progress: open assignment for ${inFlight.get(s.a.id)!.join(", ")}` : "every available capability has examined its classes at this content hash",
           selectionProbability: isChosen ? pick.probability : null, ...((isChosen || inBundle) && created ? { resultingRunId: created.runId, resultingStepId: created.investigateStepId } : {}) };
       }),
+      ...reproductions,
       ...(challengeRun ? toChallenge.map((h): Candidate => ({ kind: "hypothesis", ref: h.id, features: { generator_kind: f("attended_model", "hypotheses"), reviews: f(0, "hypothesis_reviews (attended or human)") },
         scoreComponents: { rule: "every attended (model) claim gets a blinded challenge by a different specialist before any human review" }, action: "investigate",
         reason: `blinded challenge by ${challenge!.capability}; a review is an opinion, never technical evidence`, resultingRunId: challengeRun!.runId, resultingStepId: challengeRun!.stepId })) : []),
     ];
     await addCandidates(c, decisionId, candidates);
-    return { decisionId, snapshotId: snap.snapshotId, commitSha: snap.commitSha, repository: snap.repository, protocolModelSha256: built.sha256, assignment, challenge, reviewRequests: reviews.map((h) => h.id), exhausted: !chosen && !challenge, candidates };
+    return { decisionId, snapshotId: snap.snapshotId, commitSha: snap.commitSha, repository: snap.repository, protocolModelSha256: built.sha256, assignment, challenge, reviewRequests: reviews.map((h) => h.id), exhausted: !chosen && !challenge && !reproductions.some((r) => r.action === "investigate"), candidates };
   });
 }
 

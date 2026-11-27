@@ -70,12 +70,12 @@ describe("capability declarations (T-201)", () => {
     for (const k of NOT_MODELLED_CLASSES) expect(TRACKED_CLASSES).toContain(k);
     for (const cls of Object.values(SLITHER_DETECTOR_CLASS)) expect(SLITHER.classes).toContain(cls);
   });
-  it("availability is a fact about this machine: tools without their pinned binaries are not assignable, and Foundry stays prepared", () => {
+  it("availability is a fact about this machine: tools without their pinned binaries are not assignable", () => {
     expect(producers({}).map((c) => c.id)).toEqual(["solidity-structural-specialists"]);
     expect(producers({ AGENTSMITH_SLITHER_BIN: "/x/slither" }).map((c) => c.id)).toEqual(["solidity-structural-specialists"]); // solc missing
     expect(producers({ AGENTSMITH_SLITHER_BIN: "/x/slither", AGENTSMITH_SOLC_BIN: "/x/solc" }).map((c) => c.id)).toEqual(["solidity-structural-specialists", "slither"]);
-    const forge = availability({ AGENTSMITH_FORGE_BIN: "/x/forge", AGENTSMITH_SOLC_BIN: "/x/solc" }).find((a) => a.capability.id === "foundry-forge")!;
-    expect(forge.available).toBe(false); expect(forge.reason).toMatch(/prepared/);
+    expect(availability({}).find((a) => a.capability.id === "foundry-forge")).toMatchObject({ available: false, reason: expect.stringMatching(/AGENTSMITH_FORGE_BIN/) });
+    expect(availability({ AGENTSMITH_FORGE_BIN: "/x/forge", AGENTSMITH_SOLC_BIN: "/x/solc" }).find((a) => a.capability.id === "foundry-forge")!.available).toBe(true); // T-202: active where pinned
     expect(availability({}).find((a) => a.capability.id === "slither")!.reason).toMatch(/AGENTSMITH_SLITHER_BIN/);
   });
 });

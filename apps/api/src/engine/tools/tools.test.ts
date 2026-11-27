@@ -100,19 +100,22 @@ describe.skipIf(!process.env["AGENTSMITH_SLITHER_BIN"] || !process.env["AGENTSMI
   }, 300_000);
 });
 
-describe("Foundry runner (PREPARED: declared and tested, never assigned)", () => {
-  const test = { path: "test/Repro.t.sol", content: Buffer.from("// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Repro { function test_repro() public {} }\n") };
-  it("reports per-test results with the reproducibility record", async () => {
+describe("Foundry runner (T-202 evaluator: pinned, offline, multi-file tests, --match-test)", () => {
+  const test = { files: [{ path: "test/Repro.t.sol", content: Buffer.from("// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Repro { function test_x() public {} }\n") }, { path: "test/Helpers.sol", content: Buffer.from("// helpers\n") }], matchTest: "test_x" };
+  it("reports the matched test's result with the reproducibility record", async () => {
     const t = tools();
     const pass = await runForgeTest({ files, test, forgeBin: t.forge("pass"), solcBin: t.solc });
-    expect(pass).toMatchObject({ ok: true, version: "1.5.1", results: [{ test: "test/Repro.t.sol:Repro::test_repro()", passed: true, reason: null }] });
-    const fail = await runForgeTest({ files, test, forgeBin: t.forge("fail"), solcBin: t.solc });
-    expect(fail).toMatchObject({ ok: true, results: [{ passed: false, reason: "assertion failed" }] });
+    expect(pass).toMatchObject({ ok: true, version: "1.5.1", results: [{ test: "test/Repro.t.sol:Repro::test_x()", passed: true, reason: null }] });
+    if (pass.ok) { expect(pass.rawOutput).not.toContain(tmpdir()); expect(pass.testSha256).toMatch(/^[a-f0-9]{64}$/); }
+    expect(await runForgeTest({ files, test, forgeBin: t.forge("fail"), solcBin: t.solc })).toMatchObject({ ok: true, results: [{ passed: false, reason: "assertion failed" }] });
   });
-  it("refuses a test outside test/*.t.sol, an unpinned forge, and is refused in a dry run", async () => {
+  it("refuses tests outside test/, a test overwriting a snapshot file, a bad match pattern, an unpinned forge; and is refused in a dry run", async () => {
     const t = tools();
-    expect((await runForgeTest({ files, test: { ...test, path: "src/Evil.sol" }, forgeBin: t.forge("pass"), solcBin: t.solc })).ok).toBe(false);
-    expect(await runForgeTest({ files, test, forgeBin: t.slither, solcBin: t.solc })).toMatchObject({ ok: false, failure: { code: "version_mismatch" } });
+    expect(await runForgeTest({ files, test: { ...test, files: [{ path: "src/Evil.t.sol", content: Buffer.from("x") }] }, forgeBin: t.forge("pass"), solcBin: t.solc })).toMatchObject({ ok: false, failure: { code: "input_invalid" } });
+    expect(await runForgeTest({ files, test: { ...test, files: [{ path: "test/OnlyHelpers.sol", content: Buffer.from("x") }] }, forgeBin: t.forge("pass"), solcBin: t.solc })).toMatchObject({ ok: false, failure: { code: "input_invalid" } });
+    expect(await runForgeTest({ files: [...files, { path: "test/Repro.t.sol", content: Buffer.from("x") }], test, forgeBin: t.forge("pass"), solcBin: t.solc })).toMatchObject({ ok: false, failure: { code: "input_invalid" } });
+    expect(await runForgeTest({ files, test: { ...test, matchTest: "x; rm -rf /" }, forgeBin: t.forge("pass"), solcBin: t.solc })).toMatchObject({ ok: false, failure: { code: "input_invalid" } });
+    expect(await runForgeTest({ files, test, forgeBin: t.forge("old"), solcBin: t.solc })).toMatchObject({ ok: false, failure: { code: "version_mismatch" } });
     await expect(withDryRun(() => runForgeTest({ files, test, forgeBin: t.forge("pass"), solcBin: t.solc })).result).rejects.toBeInstanceOf(DryRunViolation);
     expect(parseForgeJson("nope")).toMatchObject({ code: "output_invalid" });
   });

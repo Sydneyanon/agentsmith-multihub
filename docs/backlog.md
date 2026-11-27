@@ -4,14 +4,14 @@ Source of truth for scope is `docs/ROADMAP.md`; this file lists small, independe
 Tasks are design-first where architecture is involved, to prevent drift. Status of all tasks: **not started** (2026-11-26) unless stated.
 
 ## Recommended next implementation task
-**T-204 Specialists as arms of the pre-registered corpus-5 evaluation** (needs T-180 selection and A40); without those approvals, T-202 (Foundry validation, needs A39), because the challenger already writes executable tests that only a pinned evaluator can turn into evidence. Reason (2026-11-27): T-203 shows attended specialists cover what Slither and P1-P3 miss, but on a synthetic fixture and one real rediscovery only; the next step is measurement, not more features. Earlier recommendations, kept for the record: T-202, T-201 (done), T-199 (done), T-040.
+**T-204 Specialists as arms of the pre-registered corpus-5 evaluation, scored with reproduction by the T-202 evaluator** (needs T-180 corpus selection, A40, and A39 for a persistent Foundry). Reason (2026-11-27): T-202 now turns claims into executed evidence; the next question is measured, not anecdotal, discovery ability. In parallel, T-205 (label audit) protects the measurement itself. Earlier recommendations, kept for the record: T-202 (done), T-201 (done), T-199 (done), T-040.
 Today's table is GitHub-only and keyed `github:owner/repo`; adding Immunefi, Code4rena, Sherlock or pasted URLs on top of it would create exactly the disconnected duplicate pipelines the roadmap forbids. It needs no spending, no environment access and no migration,
 so it can proceed now. In parallel, the single most valuable **owner-side** action is T-010 (live GitHub shape check), because 5.0 and 5.2 are both unverified without it.
 
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); assigned 2026-11-27: **T-198 to T-204** (research loop follow-ups); see the series at the end. A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); assigned 2026-11-27: **T-198 to T-205** (research loop follow-ups); see the series at the end. A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -1104,7 +1104,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Security considerations | Read-only, non-secret table; still a least-privilege change. |
 | Approval required | **A30**. |
 
-## Research loop follow-ups (T-198 to T-204; proposed, not authorised; see `docs/research-loop.md`)
+## Research loop follow-ups (T-198 to T-205; proposed, not authorised; see `docs/research-loop.md`)
 
 ### T-198: One opportunity scorer
 | Field | |
@@ -1165,6 +1165,12 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Security considerations | Executes untrusted test code: offline, private directory, timeout; no RPC or fork without a separate approval. |
 | Approval required | Branch implementation; installation is **A39**; any fork or RPC is separate. |
 
+**Status 2026-11-27: IMPLEMENTED on the branch** (`apps/api/src/engine/reproduction.ts`).
+- **Engine:** follow-up decisions continue the claims' own run with `specialist_reproduce` (an attended test author, never a producer) and `foundry_validate` (pinned forge 1.5.1, offline, each test run twice).
+- **Outcome mapping:** fixed and tested; reproduction is one round per run.
+- **Proven:** the four recorded reproduction tests became `foundry-forge` supports evaluations with the REAL pinned forge in this session; CI uses a stand-in.
+- **Not done:** a persistent install still awaits **A39**. Without it, decisions record "foundry-forge is not available here (A39)".
+
 ### T-203: Attended specialist researchers as capabilities
 | Field | |
 |---|---|
@@ -1188,3 +1194,14 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Required tests | Scoring script reproducible from recorded outputs. |
 | Security considerations | Public code only, read-only, local. |
 | Approval required | Corpus-5 selection approval (T-180); **A40** for attended runs on real public targets. |
+
+### T-205: Label audit: ground truth that can be wrong
+| Field | |
+|---|---|
+| Phase | evaluation |
+| Dependencies | T-203 (the two proposed dev-label overturns) |
+| Scope | Audit labels of the dev corpus (and, under its own rules, the frozen corpora) for errors like the two found by the T-203 hunter: every disagreement between a capability and a label goes through `eval/adjudications` with executed evidence and a human sign-off; labels are never edited; scores are reported both on the original labels and on the adjudicated reading; a tool's score against labels it was tuned on is reported as such. |
+| Acceptance criteria | An independent adjudicator (not the disputing model family) for each overturn; both readings reported; no frozen file changed. |
+| Required tests | Scoring reproducible from records. |
+| Security considerations | None. |
+| Approval required | **A41**: who adjudicates disputed labels independently, and whether overturned dev labels may be used for development after sign-off. |

@@ -74,9 +74,14 @@ BEGIN
   END LOOP;
   IF NEW.resulting_run_id IS NOT NULL THEN
     SELECT created_at INTO decided FROM research_decisions WHERE id = NEW.decision_id;
-    SELECT created_at INTO made FROM workflow_runs WHERE id = NEW.resulting_run_id;
+    -- the work the decision caused: the named step when there is one (a continuation of an existing run, T-202), else the run
+    IF NEW.resulting_step_id IS NOT NULL THEN
+      SELECT created_at INTO made FROM workflow_steps WHERE id = NEW.resulting_step_id;
+    ELSE
+      SELECT created_at INTO made FROM workflow_runs WHERE id = NEW.resulting_run_id;
+    END IF;
     IF made < decided THEN
-      RAISE EXCEPTION 'the resulting run was created before the decision' USING ERRCODE = 'check_violation';
+      RAISE EXCEPTION 'the resulting work was created before the decision' USING ERRCODE = 'check_violation';
     END IF;
   END IF;
   IF NEW.resulting_step_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.id = NEW.resulting_step_id AND s.workflow_run_id = NEW.resulting_run_id) THEN

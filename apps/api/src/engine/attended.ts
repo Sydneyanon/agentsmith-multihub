@@ -75,6 +75,20 @@ export async function createChallengeRunIn(client: Pick<PoolClient, "query">, ra
 export type Brief = Record<string, unknown>;
 /** Read-only: exactly what the attended specialist is given. */
 export async function brief(pool: Pool, runId: string): Promise<Brief> {
+  const pending = (await pool.query<{ step_key: string; input: Record<string, unknown> }>("SELECT step_key, input FROM workflow_steps WHERE workflow_run_id = $1 AND status <> 'succeeded' ORDER BY sequence LIMIT 1", [runId])).rows[0];
+  if (pending?.step_key === "specialist_reproduce") {
+    const a = pending.input as { claims: Array<{ claim: string; hypothesisId: string }>; author: { id: string } }; const cap = capabilityById(a.author.id);
+    const claims = [];
+    for (const c of a.claims) {
+      const h = (await pool.query<{ claim: string; rationale: string }>("SELECT claim, rationale FROM hypotheses WHERE id = $1", [c.hypothesisId])).rows[0]!;
+      const spans = (await pool.query<{ path: string; line_start: number; line_end: number }>("SELECT s.path, s.line_start, s.line_end FROM hypothesis_evidence he JOIN evidence_spans s ON s.id = he.span_id WHERE he.hypothesis_id = $1 ORDER BY he.role, s.path", [c.hypothesisId])).rows;
+      claims.push({ id: c.claim, claim: h.claim.replace(/\bclaude-[a-z]+@[^\s\]]+/g, "<specialist>"), mechanism: h.rationale.split("\n").filter((l) => !/^Produced by /.test(l)).join("\n"), locations: spans.map((s) => ({ file: s.path, line_start: s.line_start, line_end: s.line_end })) });
+    }
+    return { run: runId, step: "specialist_reproduce", capability: { id: cap.id, version: pinnedVersion(cap), kind: cap.kind, specialisation: cap.profile.specialisation, classes: cap.classes }, runtime: "attended Claude Code session; interactive only; no API spend",
+      method: cap.profile.method, export: `export-snapshot --run ${runId} --dir <empty directory>`, claims,
+      rules: "Write test/*.sol files only (no other paths), plain Solidity without forge-std; tests import the code as ../src/...; assert the IMPACT (balances, profit, funds locked after every available action), not a revert; or write a test that refutes the claim; answer every claim, with none and the reason where you cannot.",
+      output: 'import-test --file answers.json: {"tests":[{"claim":"C01","files":[{"path":"test/X.t.sol","from":"<local file>"}],"matchTest":"<test name>","intent":"demonstrate|refute","demonstrates":"<what it shows>"} | {"claim":"C02","none":true,"reason":"..."}]}' };
+  }
   const steps = (await pool.query<{ step_key: string }>("SELECT step_key FROM workflow_steps WHERE workflow_run_id = $1", [runId])).rows.map((r) => r.step_key);
   const isChallenge = steps.includes(ATTENDED_CHALLENGE_STEP_KEY);
   const step = await attendedStep(pool, runId, isChallenge ? ATTENDED_CHALLENGE_STEP_KEY : ATTENDED_STEP_KEY);

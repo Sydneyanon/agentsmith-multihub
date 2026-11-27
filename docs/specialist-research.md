@@ -215,3 +215,28 @@ A Claude Code subscription is not assumed to give unattended runtime access. Not
   supports, challenger verdicts, human outcomes). The record is **not used in selection** until a capability has at least 5
   human-adjudicated outcomes and a policy version that uses it is recorded and evaluated (T-192/T-193). Lead volume earns nothing.
 - **Rejected locations:** imports keep a count of rejected locations per stored claim.
+
+## 7. T-202: reproduction as technical evidence (implemented 2026-11-27)
+- **Flow:** a claim supported by the independent challenger, with no technical evidence yet, is put to reproduction. AgentSmith decides
+  this in its follow-up decision. It continues the claim's **own** run (evaluations must live there, 0007):
+  - `specialist_reproduce`: `claude-reproducer` writes `test/*.sol` per claim, or says "none" with a reason. It is never a claim's
+    producer, and that is refused both when the round is appended and at import.
+  - `foundry_validate`: pinned forge 1.5.1, offline, solc given explicitly, each test run **twice**. The result is one evaluation per
+    tested claim, by `foundry-forge`.
+- **Outcome mapping** (fixed and tested):
+  - pass with intent "demonstrate" gives **supports**; the rationale says this shows the local defect, not live exploitability;
+  - pass with intent "refute" gives **weakens**, never contradicts;
+  - a failing test gives **inconclusive** ("a failing test is not a refutation");
+  - runs that disagree give **inconclusive** (non-deterministic);
+  - a tool failure gives **inconclusive** with its code;
+  - no test gives no evaluation.
+- **Proven:** with the **real** pinned forge (session-only), the four recorded reproduction tests ran through the engine and became
+  `supports` evaluations. A human adjudication review plus that technical evidence then made "confirmed" possible on the synthetic
+  fixture, and neither alone did (tested).
+- **Limits:**
+  - one reproduction round per run (a 0001 uniqueness rule);
+  - tests need forge-std-free Solidity or bundled helpers;
+  - no fork or RPC;
+  - without a pinned forge, decisions record "not available here (A39)" and claims go to a human with that reason.
+- **Reproduction targets the claim, not the benchmark:** this is the path for checking the real-code claims (private case) once A39 is
+  in place and a test author writes the tests.

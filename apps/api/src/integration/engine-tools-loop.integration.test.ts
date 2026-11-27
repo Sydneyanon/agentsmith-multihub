@@ -178,6 +178,6 @@ describe.skipIf(skipIntegration)("research loop with complementary machines (str
     const [c] = await h.q<{ features: { capabilities: { value: Array<{ id: string; available: boolean; reason: string }> } } }>("SELECT features FROM research_decision_candidates WHERE decision_id = $1 AND selected LIMIT 1", [m.decisionId]);
     const sl = c!.features.capabilities.value.find((x) => x.id === "slither@0.11.3")!;
     expect(sl.available).toBe(false); expect(sl.reason).toMatch(/AGENTSMITH_SLITHER_BIN/);
-    expect(c!.features.capabilities.value.find((x) => x.id === "foundry-forge@1.5.1")).toMatchObject({ available: false, reason: expect.stringMatching(/prepared/) });
+    expect(c!.features.capabilities.value.find((x) => x.id === "foundry-forge@1.5.1")).toMatchObject({ available: false, reason: expect.stringMatching(/AGENTSMITH_FORGE_BIN/) });
   });
 });

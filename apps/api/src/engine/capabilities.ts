@@ -18,7 +18,7 @@ export type Capability = {
   id: string; version: string;
   /** producer: plane-1 claims; evaluator: plane-2 technical evidence; reviewer: an independent opinion on claims (never evidence);
    *  mapper: architecture and attack-surface map that steers target selection */
-  kind: "producer" | "evaluator" | "reviewer" | "mapper";
+  kind: "producer" | "evaluator" | "reviewer" | "mapper" | "test_author";
   stepKey: string; scope: "component" | "snapshot";
   classes: readonly string[]; description: string;
   requires: ReadonlyArray<{ env: string; what: string }>;
@@ -75,6 +75,7 @@ export const FOUNDRY_VERSION = "1.5.1";
  */
 export const ATTENDED_STEP_KEY = "specialist_review";
 export const ATTENDED_CHALLENGE_STEP_KEY = "specialist_challenge";
+export const ATTENDED_REPRODUCE_STEP_KEY = "specialist_reproduce";
 const ATTENDED_REQ = [{ env: "AGENTSMITH_ATTENDED_OPERATOR", what: "a named operator running an attended Claude Code session" }] as const;
 const attended = (p: Omit<CapabilityProfile, "runtime" | "availabilityMode" | "costUnits" | "costNote" | "failureModes"> & { failureModes?: string[] }): CapabilityProfile => ({
   runtime: "attended_session", availabilityMode: "interactive_only", costUnits: 10, costNote: "about 80k sub-agent tokens and 1.5 minutes per run (measured on the probe fixture), plus operator time; no API spend",
@@ -112,10 +113,10 @@ export const ATTENDED_SPECIALISTS: readonly Capability[] = [
     profile: attended({ specialisation: "per-function verdicts across the structural classes, judged on semantics rather than patterns", inputs: ["materialised sealed snapshot"], outputs: ["claims with spans", "explicit safe verdicts"],
       limitations: ["measured on the 31-label dev corpus only: 17/17 vulnerable found, 3 calls against labels of which 2 were label errors confirmed by execution and 1 a false positive"], relevance: [{ signal: "unguarded_writes", weight: 1 }, { signal: "entry_points", weight: 0.5 }],
       method: `For EVERY externally callable function, decide whether it contains a security vulnerability and of which class (access-control, reentrancy, initializer, delegatecall, selfdestruct, tx-origin, unchecked-call, or other). Judge look-alikes on their own merits and say "safe" with the reason; note whether each vulnerability is actually exploitable. ${RULES}` }) },
-  { id: "claude-reproducer", version: "1", kind: "evaluator", stepKey: "foundry_validate", scope: "component", classes: ["challenge"], status: "prepared", requires: ATTENDED_REQ,
-    description: "writes local regression tests that demonstrate a claim's impact (or refute it); the test becomes evidence only when run by the pinned foundry-forge evaluator (T-202)",
+  { id: "claude-reproducer", version: "1", kind: "test_author", stepKey: ATTENDED_REPRODUCE_STEP_KEY, scope: "component", classes: ["reproduction"], status: "active", requires: ATTENDED_REQ,
+    description: "writes local regression tests that demonstrate a claim's impact (or refute it); its tests become evidence only when the pinned foundry-forge evaluator runs them (T-202); never the claim's producer",
     profile: attended({ specialisation: "executable reproduction of claimed impact", inputs: ["claims with spans", "materialised sealed snapshot", "pinned forge and solc"], outputs: ["test/*.t.sol per claim", "a statement of what each test demonstrates (impact, revert only, or refutes)"],
-      limitations: ["its own verdict is not evidence: only the pinned evaluator's execution is", "blocked until T-202 and A39 (Foundry installed persistently)"], relevance: [],
+      limitations: ["its own verdict is not evidence: only the pinned evaluator's execution is", "measured on the probe: 4/4 seeded issues demonstrated with balance-based assertions; one session only", "a test it writes may be wrong: a failing test is inconclusive, not a refutation"], relevance: [],
       method: `Write minimal defender's regression tests that demonstrate each claim's IMPACT (balances before and after, profit, or funds locked after all available actions), not merely that a call reverts; a test that refutes a claim is as valuable. ${RULES}` }) },
   { id: "claude-prior-art", version: "1", kind: "reviewer", stepKey: ATTENDED_CHALLENGE_STEP_KEY, scope: "snapshot", classes: ["duplicate-check"], status: "prepared", requires: ATTENDED_REQ,
     description: "checks claims against registered prior art (duplicate, related or novel); a suggestion for the human, never an outcome",
@@ -145,11 +146,11 @@ export const CAPABILITIES: readonly Capability[] = [
     description: "bounded execution and reachability validators; challenge any producer's leads of these classes",
     profile: { specialisation: "bounded execution of the claimed path", inputs: ["leads with spans"], outputs: ["evaluations"], limitations: ["six classes only; abstains on the rest"], failureModes: ["abstains (inconclusive)"],
       runtime: "in_process", availabilityMode: "unattended", costUnits: 1, costNote: "seconds", relevance: [] } },
-  { id: "foundry-forge", version: FOUNDRY_VERSION, kind: "evaluator", stepKey: FOUNDRY_STEP_KEY, scope: "component", classes: [...STRUCTURAL_CLASSES, ...NOT_MODELLED_CLASSES], status: "prepared",
+  { id: "foundry-forge", version: FOUNDRY_VERSION, kind: "evaluator", stepKey: FOUNDRY_STEP_KEY, scope: "component", classes: [...STRUCTURAL_CLASSES, ...NOT_MODELLED_CLASSES], status: "active",
     requires: [{ env: "AGENTSMITH_FORGE_BIN", what: `forge ${FOUNDRY_VERSION}` }, { env: "AGENTSMITH_SOLC_BIN", what: "a pinned solc binary" }],
-    description: "runs a reproducing test against the sealed snapshot offline; needs a test author (human, or a model after A31); installation is an environment change for the owner",
+    description: "runs a reproducing test against the sealed snapshot offline, twice, pinned; a passing test is technical evidence by a party other than the producer; a persistent install is A39",
     profile: { specialisation: "executable reproduction (technical evidence)", inputs: ["sealed snapshot", "one test/*.t.sol by someone other than the producer"], outputs: ["evaluations with test hash"],
-      limitations: ["needs a test author", "offline only; no fork"], failureModes: ["tool_unavailable", "version_mismatch", "compile_failed", "timeout"],
+      limitations: ["needs a test author other than the producer", "offline only; no fork or RPC", "a passing test shows the local defect, not live exploitability"], failureModes: ["tool_unavailable", "version_mismatch", "compile_failed", "timeout", "non_deterministic (two runs disagree)", "test failed (inconclusive)"],
       runtime: "local_tool", availabilityMode: "unattended", costUnits: 3, costNote: "minutes of CPU", relevance: [] } },
   ...ATTENDED_SPECIALISTS,
 ];
@@ -163,6 +164,8 @@ export function availability(env: Record<string, string | undefined> = process.e
   });
 }
 export const producers = (env?: Record<string, string | undefined>) => availability(env).filter((a) => a.available && (a.capability.kind === "producer" || a.capability.kind === "mapper")).map((a) => a.capability);
+export const testAuthors = (env?: Record<string, string | undefined>) => availability(env).filter((a) => a.available && a.capability.kind === "test_author").map((a) => a.capability);
+export const evaluatorsAvailable = (env?: Record<string, string | undefined>) => availability(env).filter((a) => a.available && a.capability.kind === "evaluator").map((a) => a.capability);
 export const reviewers = (env?: Record<string, string | undefined>) => availability(env).filter((a) => a.available && a.capability.kind === "reviewer").map((a) => a.capability);
 export const capabilityById = (id: string): Capability => { const c = CAPABILITIES.find((x) => x.id === id); if (!c) throw new Error(`unknown capability ${id}`); return c; };
 export const PRODUCER_STEP_KEYS = [...new Set(CAPABILITIES.filter((c) => c.kind === "producer" || c.kind === "mapper").map((c) => c.stepKey))];
