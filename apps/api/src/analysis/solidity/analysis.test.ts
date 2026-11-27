@@ -309,3 +309,19 @@ contract Named { mapping(address => uint256) public bal;
     expect(r.reason).not.toMatch(/unknown identifier/); expect(r.verdict).toBe("refuted");
   });
 });
+
+describe("controlled target: EtherStore reentrancy (DeFiVulnLabs, committed under eval/hunting)", () => {
+  const dir = join(__dirname, "..", "..", "..", "..", "..", "eval", "hunting", "controlled-reentrancy");
+  const text = readFileSync(join(dir, "EtherStore.sol"), "utf8");
+  it("flags the vulnerable withdrawFunds as reentrancy and clears the remediated one (false-positive control)", () => {
+    const { findings } = analyzeSources([{ path: "EtherStore.sol", text }]);
+    const reentrancy = findings.filter((f) => f.class === "reentrancy").map((f) => `${f.contract}.${f.function}`);
+    expect(reentrancy).toContain("EtherStore.withdrawFunds");
+    expect(reentrancy).not.toContain("EtherStoreRemediated.withdrawFunds");
+  });
+  it("the deterministic reentrancy validator confirms the vulnerable function and refutes the remediated one", () => {
+    const ix = new ProgramIndex([{ path: "EtherStore.sol", text }]);
+    expect(validateReentrancy(ix, ix.findFunction("EtherStore", "withdrawFunds", 1)!).verdict).toBe("validated");
+    expect(validateReentrancy(ix, ix.findFunction("EtherStoreRemediated", "withdrawFunds", 1)!).verdict).toBe("refuted");
+  });
+});
