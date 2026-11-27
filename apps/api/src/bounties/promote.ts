@@ -18,6 +18,7 @@
 import type { Pool, PoolClient } from "pg";
 import { createRepositoryResearchRunIn } from "../acquisition/step.js";
 import { classifyEligibility } from "./eligibility.js";
+import { latestSealedSnapshot } from "./repo-intel.js";
 import { resolveProgrammeRepositories } from "./repo-resolve.js";
 import type { Resolution } from "./resolve.js";
 
@@ -105,15 +106,25 @@ async function promoteOne(
        WHERE l.repository = $1 AND l.ref IS NOT DISTINCT FROM $2 AND r.status <> 'failed' ORDER BY l.created_at LIMIT 1`,
     [target.repository, target.ref]);
 
-  if (cfg.dryRun) { result.skipped_dry_run += 1; return { ...base, action: "skipped_dry_run", workflowRunId: reusable.rows[0] ? String(reusable.rows[0].workflow_run_id) : null, reason: reusable.rows[0] ? "would reuse an existing run" : "would create a new run" }; }
+  // No bounty link yet, but has this repository already been analysed by ANY run (e.g. a manual intake or an engine run)? If so,
+  // reuse that run instead of re-dispatching the same code. Repository intelligence, not a second scan.
+  let analysedRunId: string | null = null;
+  if (!reusable.rows[0]) {
+    const sealed = await latestSealedSnapshot(pool, target.repository);
+    if (sealed) analysedRunId = sealed.runId;
+  }
 
-  if (reusable.rows[0]) {
-    const runId = String(reusable.rows[0].workflow_run_id);
+  const reuseRunId: string | null = reusable.rows[0] ? String(reusable.rows[0].workflow_run_id) : analysedRunId;
+
+  if (cfg.dryRun) { result.skipped_dry_run += 1; return { ...base, action: "skipped_dry_run", workflowRunId: reuseRunId, reason: reuseRunId ? "would reuse an existing run" : "would create a new run" }; }
+
+  if (reuseRunId) {
+    const via = reusable.rows[0] ? "another programme's run" : "a prior run that already analysed this repository";
     await pool.query(
       `INSERT INTO bounty_research_links (bounty_program_id, repository, ref, workflow_run_id, reason, created_by) VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (bounty_program_id, repository, ref) DO NOTHING`,
-      [target.programId, target.repository, target.ref, runId, "reused an existing run for this repository (already analysed)", cfg.createdBy]);
-    result.reused += 1; return { ...base, action: "reused", workflowRunId: runId, reason: "reused an existing run for this repository" };
+      [target.programId, target.repository, target.ref, reuseRunId, `reused ${via} (already analysed)`, cfg.createdBy]);
+    result.reused += 1; return { ...base, action: "reused", workflowRunId: reuseRunId, reason: `reused ${via}` };
   }
 
   if (result.created >= cfg.maxNewRuns) { result.skipped_cap += 1; return { ...base, action: "skipped_cap", workflowRunId: null, reason: `reached the per-run creation cap (${cfg.maxNewRuns})` }; }

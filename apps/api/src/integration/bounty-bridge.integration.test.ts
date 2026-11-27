@@ -68,6 +68,22 @@ describe.skipIf(skipIntegration)("bounty -> research bridge over real Postgres",
     expect(await runs()).toBe(0);
   });
 
+  it("reuses a run that already analysed the repository via another path (no new run)", async () => {
+    // A prior run (e.g. a manual intake) sealed the repo, with no bounty link.
+    const runId = (await owner().query(`INSERT INTO workflow_runs (workflow_type, status, correlation_id, input, created_by) VALUES ('repository_research','succeeded', gen_random_uuid(), '{}'::jsonb, 'manual') RETURNING id`)).rows[0].id as string;
+    const stepId = (await owner().query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, status, attempt, input) VALUES ($1,'acquire_repository',0,'worker','succeeded',1,'{}'::jsonb) RETURNING id`, [runId])).rows[0].id as string;
+    await owner().query(`INSERT INTO repo_snapshots (workflow_run_id, produced_by_step_id, source_host, repository, commit_sha, ref_name, acquisition_report, file_count, total_bytes, manifest_sha256, sealed_at, sealed_by_step_id, created_at)
+      VALUES ($1,$2,'github.com','compound-finance/compound-protocol', $3,'main','{}'::jsonb,3,300,$4, now(),$2, now())`,
+      [runId, stepId, "a".repeat(40), "b".repeat(64)]);
+    await seed({ project: "Compound", key: "immunefi:compound", url: "https://immunefi.com/bug-bounty/compound/information", repos: ["https://github.com/compound-finance/compound-protocol"] });
+    const r = await promoteEligibleProgrammes(db.pool, { createdBy: "test" });
+    expect(r.created).toBe(0);
+    expect(r.reused).toBe(1);
+    expect(await runs()).toBe(1);               // no new run created
+    const link = (await owner().query("SELECT workflow_run_id FROM bounty_research_links")).rows[0];
+    expect(link.workflow_run_id).toBe(runId);   // linked to the pre-existing run
+  });
+
   it("dryRun resolves and decides but creates nothing", async () => {
     await seed({ project: "Compound", key: "immunefi:compound", url: "https://immunefi.com/bug-bounty/compound/information", repos: ["https://github.com/compound-finance/compound-protocol"] });
     const r = await promoteEligibleProgrammes(db.pool, { createdBy: "test", dryRun: true });
