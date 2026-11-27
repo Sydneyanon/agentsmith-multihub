@@ -1,0 +1,1057 @@
+{
+ "schema": "agentsmith-preregistration/1",
+ "purpose": "Answer key for the first production research cycle (approvals A26 and A34). It is frozen before any analysis of this target, by the deployed system or any other AgentSmith code.",
+ "status": "FROZEN before analysis. It must not be edited after the run; any correction is a separate, dated adjudication record that quotes the entry, and the original reading is always reported (as in T-205).",
+ "authoredBy": "the orchestrating Claude Code session, from reading the level sources at the pinned commit. Not from Ethernaut's tests, attack contracts or descriptions, and not from any AgentSmith output.",
+ "target": {
+  "repository": "OpenZeppelin/ethernaut",
+  "repositoryId": 111001784,
+  "commitSha": "d05643a40aa98c45d66247c69ffceab8f44dd8cb",
+  "treeSha": "481488182d3705e1f57b8d18e422a325ba97f24a",
+  "commitDate": "2025-11-19T17:57:18+01:00",
+  "defaultBranch": "master",
+  "note": "the pinned commit is the default branch head on 2026-11-27. Branch 'main' points to a different commit (c6174bb) and is not used."
+ },
+ "runInput": {
+  "repository": "OpenZeppelin/ethernaut",
+  "ref": "d05643a40aa98c45d66247c69ffceab8f44dd8cb",
+  "excludePathPrefixes": [
+   "client",
+   "contracts/out",
+   "contracts/test",
+   "contracts/src/attacks"
+  ],
+  "structuralAnalysis": true
+ },
+ "snapshotBoundary": {
+  "method": "buildPlan() from the deployed commit 837aeb9, run on the commit's git tree with default limits",
+  "treeEntries": 1381,
+  "manifestRows": 1381,
+  "storedFiles": 124,
+  "plannedStoredBytes": 252069,
+  "skips": {
+   "excluded_by_policy": 1249,
+   "symlink": 1,
+   "submodule": 6,
+   "oversize": 1
+  },
+  "excludedReason": {
+   "client": "web front end",
+   "contracts/out": "committed build artefacts",
+   "contracts/test": "Foundry tests, which contain the reference solutions",
+   "contracts/src/attacks": "reference attack contracts"
+  },
+  "note": "excluded files still appear as manifest rows marked excluded_by_policy, with their git object id, but their content is not stored and the analyser never reads them. The analyser reads every stored .sol file.",
+  "analysedSolidityFiles": [
+   {
+    "path": "contracts/src/Ethernaut.sol",
+    "gitBlobSha": "0f4879f0d25e5acbdb7bea5d863a390a52f5d498"
+   },
+   {
+    "path": "contracts/src/factory/LocalFactory.sol",
+    "gitBlobSha": "819f1d1b36698c69f9c7ef15c1c6a2b3538f3b3d"
+   },
+   {
+    "path": "contracts/src/helpers/Ownable-05.sol",
+    "gitBlobSha": "7dbc4742d4e1e5e58dc76daff02ff5baa6d9e28a"
+   },
+   {
+    "path": "contracts/src/helpers/UpgradeableProxy-08.sol",
+    "gitBlobSha": "8271bed0fe86580f94954a01062c4d571a7b210a"
+   },
+   {
+    "path": "contracts/src/helpers/lib/rlp/Lib_RLPReader.sol",
+    "gitBlobSha": "17d3bf7bd5a8bfb6c48a2b8c45c5b62568a8aabd"
+   },
+   {
+    "path": "contracts/src/helpers/lib/rlp/Lib_RLPWriter.sol",
+    "gitBlobSha": "88ac71390c9e876a41e3749527697c3995bce2c9"
+   },
+   {
+    "path": "contracts/src/helpers/lib/trie/Lib_MerkleTrie.sol",
+    "gitBlobSha": "a3fc2897e0df4b1727618d9ad5e0b2a4b9c39dab"
+   },
+   {
+    "path": "contracts/src/helpers/lib/trie/Lib_SecureMerkleTrie.sol",
+    "gitBlobSha": "77415c428e15d1baff093db2dd3389b783f0f9e4"
+   },
+   {
+    "path": "contracts/src/helpers/lib/utils/Lib_BytesUtils.sol",
+    "gitBlobSha": "d97f97dc267d693bcd1e01861616d34d2b78a571"
+   },
+   {
+    "path": "contracts/src/levels/AlienCodex.sol",
+    "gitBlobSha": "721cc3f8ece06bcae856ac77230a073f9591e7e6"
+   },
+   {
+    "path": "contracts/src/levels/AlienCodexFactory.sol",
+    "gitBlobSha": "ca085d90a2d51c0ab19cc70b3585ed931a792ee2"
+   },
+   {
+    "path": "contracts/src/levels/BetHouse.sol",
+    "gitBlobSha": "147e32969cb304e0f6bb7a79a48191372378268b"
+   },
+   {
+    "path": "contracts/src/levels/BetHouseFactory.sol",
+    "gitBlobSha": "5fa506450cf4e3649d9bba3c93698ccfc0de180b"
+   },
+   {
+    "path": "contracts/src/levels/Cashback.sol",
+    "gitBlobSha": "250a088cddcfed9e668aa470aae632be5b9034be"
+   },
+   {
+    "path": "contracts/src/levels/CashbackFactory.sol",
+    "gitBlobSha": "e0c7e0a60e08c8c4090e2811ab32c2c92580a8b6"
+   },
+   {
+    "path": "contracts/src/levels/CoinFlip.sol",
+    "gitBlobSha": "f745c6447febead5c8f8c775ae00a8e67af60395"
+   },
+   {
+    "path": "contracts/src/levels/CoinFlipFactory.sol",
+    "gitBlobSha": "7eb0df30e62abb5def722afc1404ed171fb74b41"
+   },
+   {
+    "path": "contracts/src/levels/Delegation.sol",
+    "gitBlobSha": "66094f2aff1733c918b455dee6661f4787c3ea7a"
+   },
+   {
+    "path": "contracts/src/levels/DelegationFactory.sol",
+    "gitBlobSha": "1d70b72f90956d70844cfc90cc5fd27e930182a8"
+   },
+   {
+    "path": "contracts/src/levels/Denial.sol",
+    "gitBlobSha": "28c5527d566a98c3e22d38167c6d43a7d7f1a784"
+   },
+   {
+    "path": "contracts/src/levels/DenialFactory.sol",
+    "gitBlobSha": "7a8dac2bb8d8ad0aef7082ebc46fe8458f8dd844"
+   },
+   {
+    "path": "contracts/src/levels/Dex.sol",
+    "gitBlobSha": "b52fd7b51c831cfb819b0b604926d60649a6b6a9"
+   },
+   {
+    "path": "contracts/src/levels/DexFactory.sol",
+    "gitBlobSha": "2e624b40d96fc76ad6ed135f554891d7e14fe8f7"
+   },
+   {
+    "path": "contracts/src/levels/DexTwo.sol",
+    "gitBlobSha": "aeaf4c1245773e74310548fafff160acadac7870"
+   },
+   {
+    "path": "contracts/src/levels/DexTwoFactory.sol",
+    "gitBlobSha": "8376f5e15dc1e1124b345ccfa7bfc3a39e595612"
+   },
+   {
+    "path": "contracts/src/levels/DoubleEntryPoint.sol",
+    "gitBlobSha": "95e8ae8c02518ef9d6de2bfda3bb36faace91732"
+   },
+   {
+    "path": "contracts/src/levels/DoubleEntryPointFactory.sol",
+    "gitBlobSha": "8136211ac64c3437684748846590a8899bc2de57"
+   },
+   {
+    "path": "contracts/src/levels/Dummy.sol",
+    "gitBlobSha": "14d062d215499e6df18d9ca1b3d6a6acad15eed9"
+   },
+   {
+    "path": "contracts/src/levels/DummyFactory.sol",
+    "gitBlobSha": "af19e266c422556f9011a7c2b55e153be4dfae25"
+   },
+   {
+    "path": "contracts/src/levels/Elevator.sol",
+    "gitBlobSha": "06c100dbca0315df8bd9fbffc7f3e02932217529"
+   },
+   {
+    "path": "contracts/src/levels/ElevatorFactory.sol",
+    "gitBlobSha": "7211504dfc06542de463288646b4d63fd85810c9"
+   },
+   {
+    "path": "contracts/src/levels/EllipticToken.sol",
+    "gitBlobSha": "08c7602cb0641a8fae74ec5d3ed14ec0fd3c05a7"
+   },
+   {
+    "path": "contracts/src/levels/EllipticTokenFactory.sol",
+    "gitBlobSha": "9d2fe8f6e24152303f4abcb574ea0833a604eb68"
+   },
+   {
+    "path": "contracts/src/levels/Fallback.sol",
+    "gitBlobSha": "7ddee9c9475617c82c7460ff95048dd620f35076"
+   },
+   {
+    "path": "contracts/src/levels/FallbackFactory.sol",
+    "gitBlobSha": "87f3bb6cb2cebd551f40204654ef08d722ee3aa1"
+   },
+   {
+    "path": "contracts/src/levels/Fallout.sol",
+    "gitBlobSha": "ff9d877652037ea28484559bf186093d63f26cd4"
+   },
+   {
+    "path": "contracts/src/levels/FalloutFactory.sol",
+    "gitBlobSha": "316e64ec540f3c08709084dbffe774039d4b0c29"
+   },
+   {
+    "path": "contracts/src/levels/Force.sol",
+    "gitBlobSha": "1565a05c421184d9290693288df154abf20d892c"
+   },
+   {
+    "path": "contracts/src/levels/ForceFactory.sol",
+    "gitBlobSha": "e18ac87aa2c62fc4c9e8b5177cb4bc6cae6548e2"
+   },
+   {
+    "path": "contracts/src/levels/Forger.sol",
+    "gitBlobSha": "52c6200522d3a2ee06d94e5f54315497bf315af8"
+   },
+   {
+    "path": "contracts/src/levels/ForgerFactory.sol",
+    "gitBlobSha": "fe330b351c7ea6a8d45a7c932da6daf09e9e4c93"
+   },
+   {
+    "path": "contracts/src/levels/GatekeeperOne.sol",
+    "gitBlobSha": "fa37afa7861b48d8f812fdaaf3356bbe9df8cf01"
+   },
+   {
+    "path": "contracts/src/levels/GatekeeperOneFactory.sol",
+    "gitBlobSha": "089b421315cb6b2097c54a0d54c5852873e7e67f"
+   },
+   {
+    "path": "contracts/src/levels/GatekeeperThree.sol",
+    "gitBlobSha": "ddd987be4a0b07774eb20b68d6a8dd6d9dcea68b"
+   },
+   {
+    "path": "contracts/src/levels/GatekeeperThreeFactory.sol",
+    "gitBlobSha": "d8d4ac0618c7908fc7176bc4a89a9b6805220d45"
+   },
+   {
+    "path": "contracts/src/levels/GatekeeperTwo.sol",
+    "gitBlobSha": "0ca1dcab4c3a816d871315f4e8a316f0fa5e7f01"
+   },
+   {
+    "path": "contracts/src/levels/GatekeeperTwoFactory.sol",
+    "gitBlobSha": "016341001d9facba43149785e6aaf289257ac730"
+   },
+   {
+    "path": "contracts/src/levels/GoodSamaritan.sol",
+    "gitBlobSha": "1b053ba29497d76e5b2f50c9c4ff26e249fa832f"
+   },
+   {
+    "path": "contracts/src/levels/GoodSamaritanFactory.sol",
+    "gitBlobSha": "9586086b434e1893c1fb81005bedbfc56e823b28"
+   },
+   {
+    "path": "contracts/src/levels/HigherOrder.sol",
+    "gitBlobSha": "2cc011a196a2925a589371b2ac2e1038c73cbe4e"
+   },
+   {
+    "path": "contracts/src/levels/HigherOrderFactory.sol",
+    "gitBlobSha": "18cdb0acc8a8b3ad4c50efc5747c1e90061b9904"
+   },
+   {
+    "path": "contracts/src/levels/Impersonator.sol",
+    "gitBlobSha": "e139e9de9c6974e744a2811d2480330d90dd97e0"
+   },
+   {
+    "path": "contracts/src/levels/ImpersonatorFactory.sol",
+    "gitBlobSha": "fee3fd3388d36113e02ff0cf0f150d11b4163b06"
+   },
+   {
+    "path": "contracts/src/levels/ImpersonatorTwo.sol",
+    "gitBlobSha": "3ccde052c675e2e6b6222c2fb4bcbdb9b45afba6"
+   },
+   {
+    "path": "contracts/src/levels/ImpersonatorTwoFactory.sol",
+    "gitBlobSha": "8a1535dddd6ce387755405b5e53d9dea96660d79"
+   },
+   {
+    "path": "contracts/src/levels/Instance.sol",
+    "gitBlobSha": "32b4c3cdc65686f8a701316e3344232b10fe58d5"
+   },
+   {
+    "path": "contracts/src/levels/InstanceFactory.sol",
+    "gitBlobSha": "70ea32f8d8bd2117d87545d19c95b6b02fbe6e4a"
+   },
+   {
+    "path": "contracts/src/levels/King.sol",
+    "gitBlobSha": "05bb0709f8dcea270b9b32853ccbde5cfa4cf5dc"
+   },
+   {
+    "path": "contracts/src/levels/KingFactory.sol",
+    "gitBlobSha": "8196b21b768bed3cb8080c637b5fc06f45a3794a"
+   },
+   {
+    "path": "contracts/src/levels/MagicAnimalCarousel.sol",
+    "gitBlobSha": "45f16d70b10bb1c46fd937662ef8de77c49e8c64"
+   },
+   {
+    "path": "contracts/src/levels/MagicAnimalCarouselFactory.sol",
+    "gitBlobSha": "c9156b9629937e0f2260f3634f4ebcd9b3142d00"
+   },
+   {
+    "path": "contracts/src/levels/MagicNum.sol",
+    "gitBlobSha": "5c8c6eeb115102b515890a325d9b67adbf6af620"
+   },
+   {
+    "path": "contracts/src/levels/MagicNumFactory.sol",
+    "gitBlobSha": "e9d8612169f23f08f5bd1af33812d196576a18dc"
+   },
+   {
+    "path": "contracts/src/levels/Motorbike.sol",
+    "gitBlobSha": "bede8f24118eaf629f659bad2f145ee310fbb723"
+   },
+   {
+    "path": "contracts/src/levels/MotorbikeFactory.sol",
+    "gitBlobSha": "fa2cc17b53501ddf7d24c6a82118e4042bfdcecd"
+   },
+   {
+    "path": "contracts/src/levels/NaughtCoin.sol",
+    "gitBlobSha": "dba2266954f92db68c8b4928723b815444625256"
+   },
+   {
+    "path": "contracts/src/levels/NaughtCoinFactory.sol",
+    "gitBlobSha": "61176f6df26020e690d933ce499746949805e93a"
+   },
+   {
+    "path": "contracts/src/levels/NotOptimisticPortal.sol",
+    "gitBlobSha": "407dd56ed8c38b2f6becf021d48fbe59ac933935"
+   },
+   {
+    "path": "contracts/src/levels/NotOptimisticPortalFactory.sol",
+    "gitBlobSha": "6fa0f3b87daf7eb72b2681950c7c05f4ed125f6f"
+   },
+   {
+    "path": "contracts/src/levels/Preservation.sol",
+    "gitBlobSha": "8379ddd3c7bd9232eab2f6820b1ca6bb6573d9eb"
+   },
+   {
+    "path": "contracts/src/levels/PreservationFactory.sol",
+    "gitBlobSha": "3bb6fd8048877458cd5f1fc3cac102d3e0ec1735"
+   },
+   {
+    "path": "contracts/src/levels/Privacy.sol",
+    "gitBlobSha": "6a4048b7790489378471f648a5ed50b1301c04a3"
+   },
+   {
+    "path": "contracts/src/levels/PrivacyFactory.sol",
+    "gitBlobSha": "4309e3b7828cd9076df449d1a981948b158e54ca"
+   },
+   {
+    "path": "contracts/src/levels/PuzzleWallet.sol",
+    "gitBlobSha": "af49859b531715e06aab0ca1608c7f022079ca7c"
+   },
+   {
+    "path": "contracts/src/levels/PuzzleWalletFactory.sol",
+    "gitBlobSha": "d776e6de93ef651b92b86747951d450a7394478f"
+   },
+   {
+    "path": "contracts/src/levels/Recovery.sol",
+    "gitBlobSha": "dfe1613fbefa43b6fb53540d2ea458fb9f8c6831"
+   },
+   {
+    "path": "contracts/src/levels/RecoveryFactory.sol",
+    "gitBlobSha": "dc97ce7c2cb8959b5eeb9af8625b12215d5905ee"
+   },
+   {
+    "path": "contracts/src/levels/RecoverySimpleToken.sol",
+    "gitBlobSha": "a16af22ad703a36286f435226fd248898d5bcd54"
+   },
+   {
+    "path": "contracts/src/levels/Reentrance.sol",
+    "gitBlobSha": "b6e2993d871d536c88576f2d1dbfb41462f31a27"
+   },
+   {
+    "path": "contracts/src/levels/ReentranceFactory.sol",
+    "gitBlobSha": "e0ee302d8401054bd8b8916aa84df3d95e8f47b6"
+   },
+   {
+    "path": "contracts/src/levels/Shop.sol",
+    "gitBlobSha": "96eee5ab84f80a5d02902accf10286f1d7c95660"
+   },
+   {
+    "path": "contracts/src/levels/ShopFactory.sol",
+    "gitBlobSha": "01dbc5f2cbf4996780f31fcc75104f33c0ae8c4d"
+   },
+   {
+    "path": "contracts/src/levels/Stake.sol",
+    "gitBlobSha": "54d1b67986a96ba58da4c755563230eedd514c9a"
+   },
+   {
+    "path": "contracts/src/levels/StakeFactory.sol",
+    "gitBlobSha": "8799e229285ba83d6e820b84375212afc8a60129"
+   },
+   {
+    "path": "contracts/src/levels/Switch.sol",
+    "gitBlobSha": "0d5f41917557caa7f0ac7fe26a4a11fdec025cbe"
+   },
+   {
+    "path": "contracts/src/levels/SwitchFactory.sol",
+    "gitBlobSha": "afd5067da628655d19c8d0235bc7ae8378047007"
+   },
+   {
+    "path": "contracts/src/levels/Telephone.sol",
+    "gitBlobSha": "1c59ab79a51c825e78fc4541876a030b9c82a0b6"
+   },
+   {
+    "path": "contracts/src/levels/TelephoneFactory.sol",
+    "gitBlobSha": "d9e59c8c8856c2ae884010144b7f343bcc115881"
+   },
+   {
+    "path": "contracts/src/levels/Token.sol",
+    "gitBlobSha": "5afd99cff3a9aa5531a894f9c6cba69b52f90d5e"
+   },
+   {
+    "path": "contracts/src/levels/TokenFactory.sol",
+    "gitBlobSha": "87432a826b4006dc7446d10e0ea35aa993516a48"
+   },
+   {
+    "path": "contracts/src/levels/UniqueNFT.sol",
+    "gitBlobSha": "ee9c8fac2ecb297b6ed6ca1b87581ce427bf0140"
+   },
+   {
+    "path": "contracts/src/levels/UniqueNFTFactory.sol",
+    "gitBlobSha": "6a4dd4d9a69ce209fba4de5fbd00e27707f16fe8"
+   },
+   {
+    "path": "contracts/src/levels/Vault.sol",
+    "gitBlobSha": "cc15f80a8c24f1f3e7ba3e5998e4059b0cbdbf14"
+   },
+   {
+    "path": "contracts/src/levels/VaultFactory.sol",
+    "gitBlobSha": "55250bf883abc8eb9cda0367ea3fac2809c76c70"
+   },
+   {
+    "path": "contracts/src/levels/base/Level-05.sol",
+    "gitBlobSha": "9e811e3bb29c567f910a37a16f52c996c1431a70"
+   },
+   {
+    "path": "contracts/src/levels/base/Level-06.sol",
+    "gitBlobSha": "77314162baba5e9f5775b820b9ea3aff18fa7a9f"
+   },
+   {
+    "path": "contracts/src/levels/base/Level-08.sol",
+    "gitBlobSha": "fa34126cbee4fa81ec7800efcd7f92a6d9fa2577"
+   },
+   {
+    "path": "contracts/src/levels/base/Level.sol",
+    "gitBlobSha": "fa34126cbee4fa81ec7800efcd7f92a6d9fa2577"
+   },
+   {
+    "path": "contracts/src/metrics/Statistics.sol",
+    "gitBlobSha": "187d7811ecf7644858a323393eb460c96f628280"
+   },
+   {
+    "path": "contracts/src/metrics/StatisticsLevelSuperseder.sol",
+    "gitBlobSha": "d739746dcdb34c954d8d334383b59a368ee684b6"
+   },
+   {
+    "path": "contracts/src/proxy/ProxyAdmin.sol",
+    "gitBlobSha": "d9cddd9d88a78c170685f12cb9deb83d5ae939f0"
+   },
+   {
+    "path": "contracts/src/proxy/ProxyStats.sol",
+    "gitBlobSha": "8393473ae6db1a96cf9ff14cc8a08dc44a0cb64e"
+   }
+  ]
+ },
+ "scoring": {
+  "unit": "(contract.function | class), as the analyser emits hypotheses",
+  "detected": "an expected entry is detected when any of its acceptedKeys appears as a hypothesis in the run; whether the evidence span overlaps the expected lines is reported separately",
+  "recall": "detected / 14 expected entries (in the analyser's classes); out-of-scope levels are reported, never scored as misses",
+  "unkeyedHypotheses": "every hypothesis matching neither an expected key nor a pre-listed adjudication key is listed and judged by hand as a false positive or a genuine unlisted issue, with a reason; none is dropped",
+  "infrastructure": "hypotheses in factories, helpers, metrics, proxy or Ethernaut.sol are reported in their own section",
+  "challengeOutcomes": "the deterministic challenge outcomes (supports, refutes, inconclusive) are reported per hypothesis, not scored",
+  "confirmed": "stays 0 in this cycle: confirmation needs a human adjudication, which the deployed system cannot record"
+ },
+ "exposure": {
+  "codeLevel": "none found. No Ethernaut-specific code, names or identifiers appear in AgentSmith's evaluation corpora, fixtures, tests or analyser source, at the branch head, at the deployed commit or anywhere in history. The only shared lines are standard OpenZeppelin proxy and Ownable boilerplate (eval/heldout3 and heldout4).",
+  "patternLevel": "present. The analyser was developed on eval/dev and corrected on crytic/not-so-smart-contracts (eval/real-runs), which contain textbook versions of the same patterns (reentrancy, tx.origin, unprotected owner setters, misnamed constructors).",
+  "authorship": "present. The analyser's rules and this answer key were written by Claude-family sessions, and Ethernaut (public since 2018) is very likely in that model family's training data. The key is therefore not independent of the analyser's author.",
+  "qualification": "exposure-qualified: code-blind but pattern-familiar, with a same-family-authored answer key. The cycle proves operation, not detection ability. Its scores are not a clean measurement. The key can be checked independently against Ethernaut's own tests and attack contracts, which were excluded from the snapshot and not used to write it."
+ },
+ "expected": [
+  {
+   "id": "EXP-01",
+   "level": "Fallback",
+   "file": "contracts/src/levels/Fallback.sol",
+   "gitBlobSha": "7ddee9c9475617c82c7460ff95048dd620f35076",
+   "contract": "Fallback",
+   "function": "receive",
+   "lines": [
+    34,
+    37
+   ],
+   "class": "access-control",
+   "acceptedKeys": [
+    "Fallback.receive|access-control"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "receive() makes any sender with a non-zero contribution the owner; withdraw() is then open to them"
+  },
+  {
+   "id": "EXP-02",
+   "level": "Fallout",
+   "file": "contracts/src/levels/Fallout.sol",
+   "gitBlobSha": "ff9d877652037ea28484559bf186093d63f26cd4",
+   "contract": "Fallout",
+   "function": "Fal1out",
+   "lines": [
+    13,
+    16
+   ],
+   "class": "access-control",
+   "acceptedKeys": [
+    "Fallout.Fal1out|access-control",
+    "Fallout.Fal1out|initializer"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "the intended constructor is misspelled, so Fal1out() is a public function that sets owner"
+  },
+  {
+   "id": "EXP-03",
+   "level": "Telephone",
+   "file": "contracts/src/levels/Telephone.sol",
+   "gitBlobSha": "1c59ab79a51c825e78fc4541876a030b9c82a0b6",
+   "contract": "Telephone",
+   "function": "changeOwner",
+   "lines": [
+    11,
+    15
+   ],
+   "class": "tx-origin",
+   "acceptedKeys": [
+    "Telephone.changeOwner|tx-origin",
+    "Telephone.changeOwner|access-control"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "authorisation by tx.origin != msg.sender: any contract relaying a call becomes able to set owner"
+  },
+  {
+   "id": "EXP-04",
+   "level": "Delegation",
+   "file": "contracts/src/levels/Delegation.sol",
+   "gitBlobSha": "66094f2aff1733c918b455dee6661f4787c3ea7a",
+   "contract": "Delegation",
+   "function": "fallback",
+   "lines": [
+    25,
+    30
+   ],
+   "class": "delegatecall",
+   "acceptedKeys": [
+    "Delegation.fallback|delegatecall",
+    "Delegate.pwn|access-control"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "fallback() delegatecalls arbitrary msg.data into Delegate, whose pwn() overwrites Delegation's owner slot"
+  },
+  {
+   "id": "EXP-05",
+   "level": "Re-entrancy",
+   "file": "contracts/src/levels/Reentrance.sol",
+   "gitBlobSha": "b6e2993d871d536c88576f2d1dbfb41462f31a27",
+   "contract": "Reentrance",
+   "function": "withdraw",
+   "lines": [
+    19,
+    27
+   ],
+   "class": "reentrancy",
+   "acceptedKeys": [
+    "Reentrance.withdraw|reentrancy"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "external call to msg.sender (line 21) before the balance is reduced (line 25)"
+  },
+  {
+   "id": "EXP-06",
+   "level": "Preservation",
+   "file": "contracts/src/levels/Preservation.sol",
+   "gitBlobSha": "8379ddd3c7bd9232eab2f6820b1ca6bb6573d9eb",
+   "contract": "Preservation",
+   "function": "setFirstTime",
+   "lines": [
+    20,
+    22
+   ],
+   "class": "delegatecall",
+   "acceptedKeys": [
+    "Preservation.setFirstTime|delegatecall",
+    "Preservation.setSecondTime|delegatecall"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "delegatecall into a library whose storage layout differs, overwriting timeZone1Library and then owner"
+  },
+  {
+   "id": "EXP-07",
+   "level": "Recovery",
+   "file": "contracts/src/levels/Recovery.sol",
+   "gitBlobSha": "dfe1613fbefa43b6fb53540d2ea458fb9f8c6831",
+   "contract": "SimpleToken",
+   "function": "destroy",
+   "lines": [
+    34,
+    36
+   ],
+   "class": "selfdestruct",
+   "acceptedKeys": [
+    "SimpleToken.destroy|selfdestruct",
+    "SimpleToken.destroy|access-control"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "anyone can selfdestruct the token and send its ether to any address"
+  },
+  {
+   "id": "EXP-08",
+   "level": "Denial",
+   "file": "contracts/src/levels/Denial.sol",
+   "gitBlobSha": "28c5527d566a98c3e22d38167c6d43a7d7f1a784",
+   "contract": "Denial",
+   "function": "withdraw",
+   "lines": [
+    15,
+    24
+   ],
+   "class": "unchecked-call",
+   "acceptedKeys": [
+    "Denial.withdraw|unchecked-call",
+    "Denial.withdraw|reentrancy"
+   ],
+   "confidence": "medium",
+   "intendedFlaw": "the partner call (line 19) forwards all gas and its result is ignored; a partner that consumes all gas denies the owner's withdrawal",
+   "note": "the intended flaw is gas-griefing denial of service; unchecked-call is the closest analyser class"
+  },
+  {
+   "id": "EXP-09",
+   "level": "Motorbike",
+   "file": "contracts/src/levels/Motorbike.sol",
+   "gitBlobSha": "bede8f24118eaf629f659bad2f145ee310fbb723",
+   "contract": "Engine",
+   "function": "initialize",
+   "lines": [
+    62,
+    65
+   ],
+   "class": "initializer",
+   "acceptedKeys": [
+    "Engine.initialize|initializer",
+    "Engine.upgradeToAndCall|delegatecall"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "the Engine implementation is never initialised in its own storage; anyone can call initialize() on it, become upgrader and upgradeToAndCall into a destructive implementation"
+  },
+  {
+   "id": "EXP-10",
+   "level": "Gatekeeper Three",
+   "file": "contracts/src/levels/GatekeeperThree.sol",
+   "gitBlobSha": "ddd987be4a0b07774eb20b68d6a8dd6d9dcea68b",
+   "contract": "GatekeeperThree",
+   "function": "construct0r",
+   "lines": [
+    39,
+    41
+   ],
+   "class": "access-control",
+   "acceptedKeys": [
+    "GatekeeperThree.construct0r|access-control"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "misnamed public 'constructor' lets anyone set owner"
+  },
+  {
+   "id": "EXP-11",
+   "level": "Stake",
+   "file": "contracts/src/levels/Stake.sol",
+   "gitBlobSha": "54d1b67986a96ba58da4c755563230eedd514c9a",
+   "contract": "Stake",
+   "function": "StakeWETH",
+   "lines": [
+    21,
+    30
+   ],
+   "class": "unchecked-call",
+   "acceptedKeys": [
+    "Stake.StakeWETH|unchecked-call"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "the WETH transferFrom low-level call result (line 27) is returned but never required; stake is credited even when no tokens move"
+  },
+  {
+   "id": "EXP-12",
+   "level": "UniqueNFT",
+   "file": "contracts/src/levels/UniqueNFT.sol",
+   "gitBlobSha": "ee9c8fac2ecb297b6ed6ca1b87581ce427bf0140",
+   "contract": "UniqueNFT",
+   "function": "mintNFTEOA",
+   "lines": [
+    24,
+    35
+   ],
+   "class": "reentrancy",
+   "acceptedKeys": [
+    "UniqueNFT.mintNFTEOA|reentrancy",
+    "UniqueNFT._mintNFT|reentrancy",
+    "UniqueNFT.mintNFTEOA|tx-origin"
+   ],
+   "confidence": "medium",
+   "intendedFlaw": "mintNFTEOA has no reentrancy guard; _mintNFT calls the receiver hook (line 32) before _mint, so the one-per-address balance check can be re-entered",
+   "note": "tx.origin == msg.sender no longer proves an EOA (EIP-7702); either reading counts"
+  },
+  {
+   "id": "EXP-13",
+   "level": "Bet House",
+   "file": "contracts/src/levels/BetHouse.sol",
+   "gitBlobSha": "147e32969cb304e0f6bb7a79a48191372378268b",
+   "contract": "Pool",
+   "function": "withdrawAll",
+   "lines": [
+    80,
+    96
+   ],
+   "class": "reentrancy",
+   "acceptedKeys": [
+    "Pool.withdrawAll|reentrancy",
+    "Pool.withdrawAll|unchecked-call"
+   ],
+   "confidence": "medium",
+   "intendedFlaw": "ether is sent to msg.sender (line 92) before the wrapped tokens are burned; nonReentrant guards withdrawAll only, not the rest of the protocol",
+   "note": "cross-function reentrancy; my confidence in the exact intended path is medium"
+  },
+  {
+   "id": "EXP-14",
+   "level": "Recovery",
+   "file": "contracts/src/levels/RecoverySimpleToken.sol",
+   "gitBlobSha": "a16af22ad703a36286f435226fd248898d5bcd54",
+   "contract": "RecoverySimpleToken",
+   "function": "destroy",
+   "lines": [
+    28,
+    30
+   ],
+   "class": "selfdestruct",
+   "acceptedKeys": [
+    "RecoverySimpleToken.destroy|selfdestruct",
+    "RecoverySimpleToken.destroy|access-control"
+   ],
+   "confidence": "high",
+   "intendedFlaw": "a standalone copy of SimpleToken: anyone can selfdestruct it",
+   "note": "same flaw as EXP-07, in a separate file; scored separately"
+  }
+ ],
+ "outOfScope": [
+  {
+   "level": "CoinFlip",
+   "file": "contracts/src/levels/CoinFlip.sol",
+   "gitBlobSha": "f745c6447febead5c8f8c775ae00a8e67af60395",
+   "intendedFlaw": "predictable randomness from blockhash",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Token",
+   "file": "contracts/src/levels/Token.sol",
+   "gitBlobSha": "5afd99cff3a9aa5531a894f9c6cba69b52f90d5e",
+   "intendedFlaw": "integer underflow (pre-0.8)",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Force",
+   "file": "contracts/src/levels/Force.sol",
+   "gitBlobSha": "1565a05c421184d9290693288df154abf20d892c",
+   "intendedFlaw": "ether can be forced in by selfdestruct; the contract has no code",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Vault",
+   "file": "contracts/src/levels/Vault.sol",
+   "gitBlobSha": "cc15f80a8c24f1f3e7ba3e5998e4059b0cbdbf14",
+   "intendedFlaw": "'private' storage is publicly readable",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "King",
+   "file": "contracts/src/levels/King.sol",
+   "gitBlobSha": "05bb0709f8dcea270b9b32853ccbde5cfa4cf5dc",
+   "intendedFlaw": "denial of service by a recipient that reverts on transfer",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Elevator",
+   "file": "contracts/src/levels/Elevator.sol",
+   "gitBlobSha": "06c100dbca0315df8bd9fbffc7f3e02932217529",
+   "intendedFlaw": "trusts an attacker-controlled interface to return consistent values",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Privacy",
+   "file": "contracts/src/levels/Privacy.sol",
+   "gitBlobSha": "6a4048b7790489378471f648a5ed50b1301c04a3",
+   "intendedFlaw": "'private' storage is publicly readable",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Gatekeeper One",
+   "file": "contracts/src/levels/GatekeeperOne.sol",
+   "gitBlobSha": "fa37afa7861b48d8f812fdaaf3356bbe9df8cf01",
+   "intendedFlaw": "gas and type-casting puzzle",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Gatekeeper Two",
+   "file": "contracts/src/levels/GatekeeperTwo.sol",
+   "gitBlobSha": "0ca1dcab4c3a816d871315f4e8a316f0fa5e7f01",
+   "intendedFlaw": "extcodesize is zero during construction; xor key",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Naught Coin",
+   "file": "contracts/src/levels/NaughtCoin.sol",
+   "gitBlobSha": "dba2266954f92db68c8b4928723b815444625256",
+   "intendedFlaw": "the lock covers transfer() but not transferFrom()",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "MagicNumber",
+   "file": "contracts/src/levels/MagicNum.sol",
+   "gitBlobSha": "5c8c6eeb115102b515890a325d9b67adbf6af620",
+   "intendedFlaw": "raw bytecode puzzle",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Alien Codex",
+   "file": "contracts/src/levels/AlienCodex.sol",
+   "gitBlobSha": "721cc3f8ece06bcae856ac77230a073f9591e7e6",
+   "intendedFlaw": "array length underflow (0.5) lets any storage slot, including owner, be written",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Shop",
+   "file": "contracts/src/levels/Shop.sol",
+   "gitBlobSha": "96eee5ab84f80a5d02902accf10286f1d7c95660",
+   "intendedFlaw": "view function returns different values on two calls",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Dex",
+   "file": "contracts/src/levels/Dex.sol",
+   "gitBlobSha": "b52fd7b51c831cfb819b0b604926d60649a6b6a9",
+   "intendedFlaw": "spot-price manipulation by repeated swaps",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Dex Two",
+   "file": "contracts/src/levels/DexTwo.sol",
+   "gitBlobSha": "aeaf4c1245773e74310548fafff160acadac7870",
+   "intendedFlaw": "swap() does not validate the token pair",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Puzzle Wallet",
+   "file": "contracts/src/levels/PuzzleWallet.sol",
+   "gitBlobSha": "af49859b531715e06aab0ca1608c7f022079ca7c",
+   "intendedFlaw": "proxy and implementation storage collision; multicall nests deposit",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "DoubleEntryPoint",
+   "file": "contracts/src/levels/DoubleEntryPoint.sol",
+   "gitBlobSha": "95e8ae8c02518ef9d6de2bfda3bb36faace91732",
+   "intendedFlaw": "the vault's underlying token can be swept through the delegating legacy token",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Good Samaritan",
+   "file": "contracts/src/levels/GoodSamaritan.sol",
+   "gitBlobSha": "1b053ba29497d76e5b2f50c9c4ff26e249fa832f",
+   "intendedFlaw": "a custom error can be spoofed by the recipient's notify hook",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Switch",
+   "file": "contracts/src/levels/Switch.sol",
+   "gitBlobSha": "0d5f41917557caa7f0ac7fe26a4a11fdec025cbe",
+   "intendedFlaw": "calldata offset manipulation bypasses the selector check",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Higher Order",
+   "file": "contracts/src/levels/HigherOrder.sol",
+   "gitBlobSha": "2cc011a196a2925a589371b2ac2e1038c73cbe4e",
+   "intendedFlaw": "assembly stores the full calldata word into a uint8 parameter",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Impersonator",
+   "file": "contracts/src/levels/Impersonator.sol",
+   "gitBlobSha": "e139e9de9c6974e744a2811d2480330d90dd97e0",
+   "intendedFlaw": "ECDSA signature malleability",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Impersonator Two",
+   "file": "contracts/src/levels/ImpersonatorTwo.sol",
+   "gitBlobSha": "3ccde052c675e2e6b6222c2fb4bcbdb9b45afba6",
+   "intendedFlaw": "signature weakness that lets admin be reset",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Elliptic Token",
+   "file": "contracts/src/levels/EllipticToken.sol",
+   "gitBlobSha": "08c7602cb0641a8fae74ec5d3ed14ec0fd3c05a7",
+   "intendedFlaw": "signature and hash confusion in permit()",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Forger",
+   "file": "contracts/src/levels/Forger.sol",
+   "gitBlobSha": "52c6200522d3a2ee06d94e5f54315497bf315af8",
+   "intendedFlaw": "signature replay through a different encoding of the same signature",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Magic Animal Carousel",
+   "file": "contracts/src/levels/MagicAnimalCarousel.sol",
+   "gitBlobSha": "45f16d70b10bb1c46fd937662ef8de77c49e8c64",
+   "intendedFlaw": "bit-packing overflow corrupts the next-crate field",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Cashback",
+   "file": "contracts/src/levels/Cashback.sol",
+   "gitBlobSha": "250a088cddcfed9e668aa470aae632be5b9034be",
+   "intendedFlaw": "assumptions about EIP-7702 delegated accounts",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Not Optimistic Portal",
+   "file": "contracts/src/levels/NotOptimisticPortal.sol",
+   "gitBlobSha": "407dd56ed8c38b2f6becf021d48fbe59ac933935",
+   "intendedFlaw": "flaw in message-inclusion verification",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Instance (Hello Ethernaut)",
+   "file": "contracts/src/levels/Instance.sol",
+   "gitBlobSha": "32b4c3cdc65686f8a701316e3344232b10fe58d5",
+   "intendedFlaw": "the password is public",
+   "expected": "not detected: outside the analyser's classes"
+  },
+  {
+   "level": "Dummy",
+   "file": "contracts/src/levels/Dummy.sol",
+   "gitBlobSha": "14d062d215499e6df18d9ca1b3d6a6acad15eed9",
+   "intendedFlaw": "no flaw; template level",
+   "expected": "not detected: outside the analyser's classes"
+  }
+ ],
+ "adjudicateIfFlagged": [
+  {
+   "key": "Fallback.contribute|access-control",
+   "reason": "conditional owner change; part of the design, not the intended entry point",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Reentrance.withdraw|unchecked-call",
+   "reason": "the call result is read but has no effect",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Preservation.setFirstTime|unchecked-call",
+   "reason": "delegatecall result ignored; real but not the intended flaw",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Preservation.setSecondTime|unchecked-call",
+   "reason": "as above",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Elevator.goTo|reentrancy",
+   "reason": "external call before state writes; the intended flaw is the inconsistent interface",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Shop.buy|reentrancy",
+   "reason": "as above",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "GatekeeperOne.enter|tx-origin",
+   "reason": "tx.origin used as a puzzle gate, not for authorisation",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "GatekeeperTwo.enter|tx-origin",
+   "reason": "as above",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "GatekeeperThree.enter|tx-origin",
+   "reason": "as above",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "MagicNum.setSolver|access-control",
+   "reason": "open by design",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Dummy.setCompleted|access-control",
+   "reason": "open by design",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Denial.setWithdrawPartner|access-control",
+   "reason": "open by design",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "AlienCodex.makeContact|access-control",
+   "reason": "open by design",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "PuzzleProxy.proposeNewAdmin|access-control",
+   "reason": "writes pendingAdmin, which alone grants nothing; the real flaw is the storage collision",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "PuzzleWallet.init|initializer",
+   "reason": "guarded by maxBalance == 0; exploitable only through the collision",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "PuzzleWallet.multicall|delegatecall",
+   "reason": "delegatecall to itself",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "PuzzleWallet.execute|reentrancy",
+   "reason": "balance reduced before the call",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "CryptoVault.setUnderlying|initializer",
+   "reason": "first-caller setter",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "CryptoVault.setUnderlying|access-control",
+   "reason": "as above",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "HigherOrder.claimLeadership|access-control",
+   "reason": "guarded by treasury > 255",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Stake.Unstake|unchecked-call",
+   "reason": "failure is returned, not reverted; loses only the caller's own stake",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  },
+  {
+   "key": "Motorbike.fallback|delegatecall",
+   "reason": "standard proxy forwarding",
+   "treatment": "reported separately and adjudicated by hand; never counted automatically as a true or false positive"
+  }
+ ]
+}
