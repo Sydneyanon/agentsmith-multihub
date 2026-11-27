@@ -16,6 +16,7 @@ import { ENGINE_STATE, renderControl } from "./view-control.js";
 import { REFRESH_MS } from "./live.js";
 import type { EngineStatus } from "./types.js";
 import { word } from "./vocab.js";
+import { startMatrixRain } from "./matrix-rain.js";
 
 const NAV_ICON: Record<string, string> = { control: "◉", home: "◈", projects: "▤", repository: "⌥", hypotheses: "✦", evidence: "▣", activity: "≋", bounties: "◎", reviews: "◐", findings: "⚑", knowledge: "❖", system: "⚙" };
 
@@ -105,4 +106,4 @@ export function boot(root: HTMLElement): void {
 }
 
 const mountPoint = typeof document !== "undefined" ? document.getElementById("app") : null;
-if (mountPoint) boot(mountPoint);
+if (mountPoint) { startMatrixRain(); boot(mountPoint); }

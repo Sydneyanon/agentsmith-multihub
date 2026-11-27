@@ -10,6 +10,8 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body { min-height: 100vh; background: radial-gradient(1100px 560px at 82% -12%, rgba(16,120,60,.22) 0%, transparent 60%), radial-gradient(900px 500px at 0% 110%, rgba(10,90,50,.14) 0%, transparent 55%), var(--bg); }
+.matrix-rain { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; opacity: .26; }
+#app { position: relative; z-index: 1; }
 a { color: inherit; }
 h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 h1 { font-size: 1.5rem; line-height: 1.25; overflow-wrap: anywhere; } h2 { font-size: .95rem; letter-spacing: .02em; } h3 { font-size: 1.05rem; } h4 { font-size: .85rem; color: var(--muted); margin: 1rem 0 .35rem; text-transform: uppercase; letter-spacing: .06em; }
