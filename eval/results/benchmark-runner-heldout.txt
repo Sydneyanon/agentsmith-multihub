@@ -1,0 +1,16 @@
+## heldout v? — solidity-structural-specialists@1 @ 4179e8776edf
+runner benchmark-runner/1; exposure: blind; complete: true; manifest: OK (43 files, sha256 aa9b10c8b0db82a7…)
+labels: 47 (18 vulnerable / 29 secure); label integrity: OK (3 label line(s) in an internal callee: contracts/ReentHelperA.sol:20 ReentHelperA.withdraw -> _payout; contracts/ReentHelperB.sol:24 ReentHelperB.withdraw -> _payout; contracts/UcHelperC.sol:21 UcHelperC.withdraw -> _send)
+time: analyze 38.7 ms, total 41.5 ms; reproducible across file order: true
+OVERALL tp=18 fp=0 fn=0 tn=29 precision=1 recall=1 fpRate=0
+  reentrancy             tp=4 fp=0 fn=0 tn=5 precision=1 recall=1 fpRate=0
+  access-control         tp=6 fp=0 fn=0 tn=8 precision=1 recall=1 fpRate=0
+  tx-origin              tp=1 fp=0 fn=0 tn=2 precision=1 recall=1 fpRate=0
+  initializer            tp=2 fp=0 fn=0 tn=3 precision=1 recall=1 fpRate=0
+  delegatecall           tp=2 fp=0 fn=0 tn=4 precision=1 recall=1 fpRate=0
+  unchecked-call         tp=2 fp=0 fn=0 tn=4 precision=1 recall=1 fpRate=0
+  selfdestruct           tp=1 fp=0 fn=0 tn=3 precision=1 recall=1 fpRate=0
+collisions (other detectors firing on labelled functions): 0
+unscored findings (unlabelled functions): 0
+declared analyzer limitations: no accounting, precision, oracle or economic reasoning; single-function patterns
+AI adjudication (separate from the deterministic result): {"mode":"unavailable","candidates":0,"spentUsd":0}

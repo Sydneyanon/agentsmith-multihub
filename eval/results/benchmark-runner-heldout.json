@@ -1,0 +1,314 @@
+{
+  "runner": "benchmark-runner/1",
+  "benchmark": {
+    "corpus": "heldout",
+    "name": "heldout",
+    "version": null,
+    "manifest": {
+      "present": true,
+      "ok": true,
+      "manifestSha256": "aa9b10c8b0db82a7962bd5f3823d1f6180e1184a2ab3b3a8798ad30538323ebd",
+      "mismatches": [],
+      "files": 43
+    },
+    "archivedVersions": {
+      "versions": [],
+      "ok": true,
+      "problems": []
+    }
+  },
+  "analyzer": {
+    "capability": "solidity-structural-specialists@1",
+    "declaredLimitations": [
+      "no accounting, precision, oracle or economic reasoning",
+      "single-function patterns"
+    ],
+    "commit": "4179e8776edf392e9ec4629bc1b86e3e95223091",
+    "analyzerSourceDirty": false
+  },
+  "exposure": "blind",
+  "complete": true,
+  "failures": [],
+  "timing": {
+    "analyzeMs": 38.7,
+    "totalMs": 41.5
+  },
+  "labels": {
+    "total": 47,
+    "vulnerable": 18,
+    "secure": 29,
+    "integrity": {
+      "ok": true,
+      "checked": 47,
+      "problems": [],
+      "viaInternalCall": [
+        "contracts/ReentHelperA.sol:20 ReentHelperA.withdraw -> _payout",
+        "contracts/ReentHelperB.sol:24 ReentHelperB.withdraw -> _payout",
+        "contracts/UcHelperC.sol:21 UcHelperC.withdraw -> _send"
+      ]
+    }
+  },
+  "deterministic": {
+    "reproducibleAcrossFileOrder": true,
+    "findings": 18,
+    "overall": {
+      "tp": 18,
+      "fp": 0,
+      "fn": 0,
+      "tn": 29,
+      "lineExact": 17,
+      "lineNear": 18,
+      "spanValid": 18,
+      "precision": 1,
+      "recall": 1,
+      "falsePositiveRate": 0
+    },
+    "perClass": {
+      "reentrancy": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "tn": 5,
+        "lineExact": 4,
+        "lineNear": 4,
+        "spanValid": 4,
+        "precision": 1,
+        "recall": 1,
+        "falsePositiveRate": 0
+      },
+      "access-control": {
+        "tp": 6,
+        "fp": 0,
+        "fn": 0,
+        "tn": 8,
+        "lineExact": 5,
+        "lineNear": 6,
+        "spanValid": 6,
+        "precision": 1,
+        "recall": 1,
+        "falsePositiveRate": 0
+      },
+      "tx-origin": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 2,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 1,
+        "recall": 1,
+        "falsePositiveRate": 0
+      },
+      "initializer": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 3,
+        "lineExact": 2,
+        "lineNear": 2,
+        "spanValid": 2,
+        "precision": 1,
+        "recall": 1,
+        "falsePositiveRate": 0
+      },
+      "delegatecall": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 4,
+        "lineExact": 2,
+        "lineNear": 2,
+        "spanValid": 2,
+        "precision": 1,
+        "recall": 1,
+        "falsePositiveRate": 0
+      },
+      "unchecked-call": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 4,
+        "lineExact": 2,
+        "lineNear": 2,
+        "spanValid": 2,
+        "precision": 1,
+        "recall": 1,
+        "falsePositiveRate": 0
+      },
+      "selfdestruct": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 3,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 1,
+        "recall": 1,
+        "falsePositiveRate": 0
+      }
+    },
+    "lineExact": 17,
+    "lineWithin2": 18,
+    "misses": [],
+    "falsePositives": [],
+    "collisions": [],
+    "unscoredFindings": []
+  },
+  "ai": {
+    "usedInDeterministicResult": false,
+    "adjudication": {
+      "mode": "unavailable",
+      "candidates": 0,
+      "results": [],
+      "spentUsd": 0
+    }
+  },
+  "findingsDetail": [
+    {
+      "class": "access-control",
+      "contract": "AcFeeA",
+      "function": "setFee",
+      "file": "contracts/AcFeeA.sol",
+      "line": 18,
+      "claim": "AcFeeA.setFee changes the state variable feeBps (privileged-looking function name \"setFee\") (contracts/AcFeeA.sol:18) and no caller-authorisation check dominates that statement."
+    },
+    {
+      "class": "access-control",
+      "contract": "AcLateA",
+      "function": "setTreasury",
+      "file": "contracts/AcLateA.sol",
+      "line": 17,
+      "claim": "AcLateA.setTreasury writes the authority variable treasury (contracts/AcLateA.sol:17) and no caller-authorisation check dominates that statement."
+    },
+    {
+      "class": "access-control",
+      "contract": "AcMintA",
+      "function": "mint",
+      "file": "contracts/AcMintA.sol",
+      "line": 13,
+      "claim": "AcMintA.mint increases balanceOf[to] for a caller-chosen account without consuming a matching amount from the caller (contracts/AcMintA.sol:13) and no caller-authorisation check dominates that statement."
+    },
+    {
+      "class": "access-control",
+      "contract": "AcOracleA",
+      "function": "setOracle",
+      "file": "contracts/AcOracleA.sol",
+      "line": 21,
+      "claim": "AcOracleA.setOracle writes the authority variable oracle (contracts/AcOracleA.sol:21) and no caller-authorisation check dominates that statement."
+    },
+    {
+      "class": "access-control",
+      "contract": "AcSweepA",
+      "function": "withdrawAll",
+      "file": "contracts/AcSweepA.sol",
+      "line": 18,
+      "claim": "AcSweepA.withdrawAll sends ether to the caller-supplied address to (contracts/AcSweepA.sol:18) and no caller-authorisation check dominates that statement."
+    },
+    {
+      "class": "delegatecall",
+      "contract": "DcProxyA",
+      "function": "execute",
+      "file": "contracts/DcProxyA.sol",
+      "line": 17,
+      "claim": "DcProxyA.execute delegatecalls to target (contracts/DcProxyA.sol:17), whose address is caller-supplied, with no caller-authorisation check before it."
+    },
+    {
+      "class": "access-control",
+      "contract": "DcStoreA",
+      "function": "setLogic",
+      "file": "contracts/DcStoreA.sol",
+      "line": 16,
+      "claim": "DcStoreA.setLogic changes the state variable logic (privileged-looking function name \"setLogic\") (contracts/DcStoreA.sol:16) and no caller-authorisation check dominates that statement."
+    },
+    {
+      "class": "delegatecall",
+      "contract": "DcStoreA",
+      "function": "forward",
+      "file": "contracts/DcStoreA.sol",
+      "line": 21,
+      "claim": "DcStoreA.forward delegatecalls to logic (contracts/DcStoreA.sol:21), whose address is a storage variable (logic) that an unguarded function can set, with no caller-authorisation check before it."
+    },
+    {
+      "class": "initializer",
+      "contract": "InitFeeA",
+      "function": "initialize",
+      "file": "contracts/InitFeeA.sol",
+      "line": 14,
+      "claim": "InitFeeA.initialize sets the authority variable admin (contracts/InitFeeA.sol:14) with no caller check and no one-time guard, so any account can call it (again) and take control."
+    },
+    {
+      "class": "initializer",
+      "contract": "InitProxyA",
+      "function": "initialize",
+      "file": "contracts/InitProxyA.sol",
+      "line": 11,
+      "claim": "InitProxyA.initialize sets the authority variable owner (contracts/InitProxyA.sol:11) with no caller check and no one-time guard, so any account can call it (again) and take control."
+    },
+    {
+      "class": "reentrancy",
+      "contract": "ReentBankA",
+      "function": "redeem",
+      "file": "contracts/ReentBankA.sol",
+      "line": 20,
+      "claim": "ReentBankA.redeem makes an external call that hands control to IRedeemHook(msg.sender) (contracts/ReentBankA.sol:20) and only afterwards updates shares[msg.sender] (contracts/ReentBankA.sol:21), which it relied on before the call; a re-entering receiver would see stale state."
+    },
+    {
+      "class": "reentrancy",
+      "contract": "ReentHelperA",
+      "function": "withdraw",
+      "file": "contracts/ReentHelperA.sol",
+      "line": 20,
+      "claim": "ReentHelperA.withdraw makes an external call that hands control to to (contracts/ReentHelperA.sol:20) (the call is reached through ReentHelperA._payout) and only afterwards updates funds[msg.sender] (contracts/ReentHelperA.sol:16), which it relied on before the call; a re-entering receiver would see stale state."
+    },
+    {
+      "class": "reentrancy",
+      "contract": "ReentRewardsA",
+      "function": "claim",
+      "file": "contracts/ReentRewardsA.sol",
+      "line": 21,
+      "claim": "ReentRewardsA.claim makes an external call that hands control to payable(msg.sender) (contracts/ReentRewardsA.sol:21) and only afterwards updates pending[msg.sender] (contracts/ReentRewardsA.sol:23), which it relied on before the call; a re-entering receiver would see stale state."
+    },
+    {
+      "class": "reentrancy",
+      "contract": "ReentVaultA",
+      "function": "withdraw",
+      "file": "contracts/ReentVaultA.sol",
+      "line": 20,
+      "claim": "ReentVaultA.withdraw makes an external call that hands control to msg.sender (contracts/ReentVaultA.sol:20) and only afterwards updates balances[msg.sender] (contracts/ReentVaultA.sol:22), which it relied on before the call; a re-entering receiver would see stale state."
+    },
+    {
+      "class": "selfdestruct",
+      "contract": "SdA",
+      "function": "shutdown",
+      "file": "contracts/SdA.sol",
+      "line": 15,
+      "claim": "SdA.shutdown can selfdestruct the contract (contracts/SdA.sol:15) and no caller-authorisation check dominates it."
+    },
+    {
+      "class": "tx-origin",
+      "contract": "TxOriginA",
+      "function": "withdraw",
+      "file": "contracts/TxOriginA.sol",
+      "line": 16,
+      "claim": "TxOriginA.withdraw authorises with tx.origin (contracts/TxOriginA.sol:16: tx.origin == owner)."
+    },
+    {
+      "class": "unchecked-call",
+      "contract": "UcA",
+      "function": "withdraw",
+      "file": "contracts/UcA.sol",
+      "line": 16,
+      "claim": "UcA.withdraw ignores the success flag of a low-level call to payable(msg.sender) (contracts/UcA.sol:16)."
+    },
+    {
+      "class": "unchecked-call",
+      "contract": "UcDataA",
+      "function": "forwardCall",
+      "file": "contracts/UcDataA.sol",
+      "line": 19,
+      "claim": "UcDataA.forwardCall ignores the success flag of a low-level call to target (contracts/UcDataA.sol:19)."
+    }
+  ]
+}
