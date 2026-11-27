@@ -181,8 +181,9 @@
   }
  ],
  "integrity": {
-  "labelManifest": "8 files verified",
+  "labelManifest": "9 files verified",
   "frozenCorpora": [
+   "benchmark-b",
    "heldout",
    "heldout2",
    "heldout3",

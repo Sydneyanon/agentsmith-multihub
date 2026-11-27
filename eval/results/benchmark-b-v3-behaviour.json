@@ -1,0 +1,120 @@
+{
+  "tool": "benchmark-b/verify-behaviour",
+  "solc": "0.8.28+commit.7893614a.Emscripten.clang",
+  "pairs": 8,
+  "passed": 8,
+  "rows": [
+    {
+      "class": "accounting-error",
+      "pass": true,
+      "vulnerable": {
+        "file": "AccountingSaleBad.sol",
+        "exhibits": true,
+        "detail": "1 ether at 0.001 ether/token credited 1000000000000000000000000000000000 tokens (fair: 1000)"
+      },
+      "secure": {
+        "file": "AccountingSaleGood.sol",
+        "exhibits": false,
+        "detail": "1 ether at 0.001 ether/token credited 1000 tokens (fair: 1000)"
+      }
+    },
+    {
+      "class": "oracle-manipulation",
+      "pass": true,
+      "vulnerable": {
+        "file": "OraclePriceBad.sol",
+        "exhibits": true,
+        "detail": "10 units at TWAP 1 ether, manipulated spot 100 ether -> borrowPower 1000000000000000000000 (fair: 10000000000000000000)"
+      },
+      "secure": {
+        "file": "OraclePriceGood.sol",
+        "exhibits": false,
+        "detail": "10 units at TWAP 1 ether, manipulated spot 100 ether -> borrowPower 10000000000000000000 (fair: 10000000000000000000)"
+      }
+    },
+    {
+      "class": "state-transition",
+      "pass": true,
+      "vulnerable": {
+        "file": "SalePhaseBad.sol",
+        "exhibits": true,
+        "detail": "claim during Active: succeeded, claimable 100"
+      },
+      "secure": {
+        "file": "SalePhaseGood.sol",
+        "exhibits": false,
+        "detail": "claim during Active: reverted, claimable 0"
+      }
+    },
+    {
+      "class": "protocol-invariant",
+      "pass": true,
+      "vulnerable": {
+        "file": "SupplyInvariantBad.sol",
+        "exhibits": true,
+        "detail": "after burn: sum(balances)=999990000000000000000000, totalSupply=1000000000000000000000000"
+      },
+      "secure": {
+        "file": "SupplyInvariantGood.sol",
+        "exhibits": false,
+        "detail": "after burn: sum(balances)=999990000000000000000000, totalSupply=999990000000000000000000"
+      }
+    },
+    {
+      "class": "business-logic",
+      "pass": true,
+      "vulnerable": {
+        "file": "ReferralSaleBad.sol",
+        "exhibits": true,
+        "detail": "self-referred buy at 0.9 ether: accepted; genuine referral discount: honoured"
+      },
+      "secure": {
+        "file": "ReferralSaleGood.sol",
+        "exhibits": false,
+        "detail": "self-referred buy at 0.9 ether: rejected; genuine referral discount: honoured"
+      }
+    },
+    {
+      "class": "economic-attack",
+      "pass": true,
+      "vulnerable": {
+        "file": "DonationVaultBad.sol",
+        "exhibits": true,
+        "detail": "victim deposited 5 ether -> 0 shares; attacker net 5000000000000000000 wei"
+      },
+      "secure": {
+        "file": "DonationVaultGood.sol",
+        "exhibits": false,
+        "detail": "victim deposited 5 ether -> 5000000000000000000 shares; attacker net -10000000000000000000 wei"
+      }
+    },
+    {
+      "class": "cross-contract",
+      "pass": true,
+      "vulnerable": {
+        "file": "AirdropTrustBad.sol",
+        "exhibits": true,
+        "detail": "ineligible caller supplies own eligibility contract: claim succeeded, balance 100000000000000000000"
+      },
+      "secure": {
+        "file": "AirdropTrustGood.sol",
+        "exhibits": false,
+        "detail": "ineligible caller uses configured contract: claim reverted, balance 0"
+      }
+    },
+    {
+      "class": "transaction-ordering",
+      "pass": true,
+      "vulnerable": {
+        "file": "SwapNoSlippageBad.sol",
+        "exhibits": true,
+        "detail": "after a front-run, victim swap executed; received 8190008190008190008 vs quoted 9900990099009900990"
+      },
+      "secure": {
+        "file": "SwapNoSlippageGood.sol",
+        "exhibits": false,
+        "detail": "after a front-run, victim swap reverted; received 0 vs quoted 9900990099009900990"
+      }
+    }
+  ]
+}

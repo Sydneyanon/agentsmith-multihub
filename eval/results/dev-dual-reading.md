@@ -10,7 +10,7 @@ as if signed: it is **not adopted** and is shown only so that a reader sees what
 | slither@0.11.3 | **blind-labels**: third-party tool, not configured against these labels | 10 / 2 / 7 / 12 | 10 / 2 / 7 / 12 (none signed) | 10 / 2 / 9 / 10 (ADJ-DEV-Config-transferOwner, ADJ-DEV-Misc-initOnce) |
 | claude-hunter@1 | **blind-labels**: T-203 round 2: the hunter was given a copy of eval/dev/contracts only, never labels.json | 17 / 2 / 0 / 12 | 17 / 2 / 0 / 12 (none signed) | 19 / 0 / 0 / 12 (ADJ-DEV-Config-transferOwner, ADJ-DEV-Misc-initOnce) |
 
-Labels: `eval/dev/labels.json` sha256 `498dd349caac1a9407c98baba94a846b752e0ecd5dc373273ebcbb4072480693`. Integrity: 8 files verified; frozen corpora verified: heldout, heldout2, heldout3, heldout4.
+Labels: `eval/dev/labels.json` sha256 `498dd349caac1a9407c98baba94a846b752e0ecd5dc373273ebcbb4072480693`. Integrity: 9 files verified; frozen corpora verified: benchmark-b, heldout, heldout2, heldout3, heldout4.
 
 **How to read it:**
 - A tool tuned on these labels scores well on them by construction. The structural analyzer is **tuned** here, so its perfect original score is not a measurement.

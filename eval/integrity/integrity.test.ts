@@ -12,14 +12,15 @@ const temps: string[] = []; afterAll(() => temps.forEach((d) => rmSync(d, { recu
 function copy(): string {
   const d = mkdtempSync(join(tmpdir(), "eval-integrity-")); temps.push(d);
   for (const f of ["LABELS.sha256", "exposure.json", "adjudications", "dev/labels.json", "heldout/labels.json", "heldout2/labels.json", "heldout3/labels.json", "heldout4/labels.json",
-    "dev/specialist-probe/answer-key.json", "dev/specialist-probe/outputs/round2/prior-art-key.json", "dev/specialist-probe/outputs/round2/repro-criteria.json"]) cpSync(join(EVAL, f), join(d, f), { recursive: true });
+    "dev/specialist-probe/answer-key.json", "dev/specialist-probe/outputs/round2/prior-art-key.json", "dev/specialist-probe/outputs/round2/repro-criteria.json", "benchmark-b/labels.json"]) cpSync(join(EVAL, f), join(d, f), { recursive: true });
   return d;
 }
 
 describe("T-205: original labels are immutable", () => {
   it("every labels file and answer key matches its pinned hash, and the frozen corpora match their manifests", () => {
-    const l = verifyLabelManifest(EVAL); expect(l.problems).toEqual([]); expect(l.checked).toBe(8);
-    const f = verifyFrozenManifests(EVAL); expect(f.problems).toEqual([]); expect(f.corpora).toEqual(["heldout", "heldout2", "heldout3", "heldout4"]);
+    // 9: the eight original files plus benchmark-b/labels.json (registered when benchmark-b was frozen; see eval/benchmark-b/AMENDMENTS.md)
+    const l = verifyLabelManifest(EVAL); expect(l.problems).toEqual([]); expect(l.checked).toBe(9);
+    const f = verifyFrozenManifests(EVAL); expect(f.problems).toEqual([]); expect(f.corpora).toEqual(["benchmark-b", "heldout", "heldout2", "heldout3", "heldout4"]);
   });
   it("a changed label is detected, never silent", () => {
     const d = copy(); const p = join(d, "dev/labels.json");
