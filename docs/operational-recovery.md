@@ -92,6 +92,8 @@ first semantic capability (invariants / accounting / state transitions, validate
 
 ## 4. Consolidated approval request — minimum to begin real research
 
+> **Superseded** by `docs/approval-request-final.md` (release `5d6ccd1`, image `sha256:b3a6327e…`). The table below is kept for history; do not execute it.
+
 Each line is a separate approval. Order matters; each step is verified before the next.
 
 | # | action | exact change | rollback |

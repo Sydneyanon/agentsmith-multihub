@@ -1,6 +1,6 @@
 # Activation checklist — bounty sources → research dossiers
 
-Date: 2026-11-27. Supersedes the activation sequence in `docs/activation-readiness-runbook.md` (which predates enrichment/0014
+Date: 2026-11-27. **Execution order and commands: see `docs/approval-request-final.md`.** Supersedes the activation sequence in `docs/activation-readiness-runbook.md` (which predates enrichment/0014
 and over-states the worker switches). Release candidate: commit `939e17c`, built and smoke-verified locally (39/39), **not pushed**.
 
 Every step marked **[APPROVAL]** changes production and waits for the owner. Nothing below has been done in production.
@@ -73,8 +73,8 @@ exercised and cannot be exceeded. The image has no Slither/Foundry: research is 
 ## 5. Known limitations going in
 
 - Structural analyzer only: perfect on simple syntactic patterns, recall 0 on the eight semantic classes (benchmark-b v3).
-- An inheritance-related attribution error can still be emitted; such findings are rejected and reported as problems rather than
-  stored. Root cause not yet reproduced synthetically.
+- The inheritance-related attribution error was root-caused and fixed in `5d6ccd1` (call-chain frames used the callee's file with
+  the caller's line). Any residual uncitable finding is still rejected and listed, and every dossier states its coverage.
 - Eligibility does not check language; ~66 eligible programmes are non-EVM. Enrichment ranks them last; a repository-level
   Solidity gate is not yet implemented.
 - Enrichment keeps no record of "no repository" attempts, so schedule it daily, not hourly, until an attempt log exists.
