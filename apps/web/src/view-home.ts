@@ -31,10 +31,10 @@ function homeBody(ctx: Ctx, o: Overview, projects: ProjectSummary[], activity: A
   const awaiting = o.research.hypotheses.by_status["unreviewed"] ?? 0;
   const health = word(HEALTH, o.pipeline.health.state);
   const stats = h("div", { class: "stats" },
-    statCard("Active projects", active, `${o.projects.total} total`, "cyan"),
-    statCard("Hypotheses", o.research.hypotheses.total, o.research.hypotheses.total ? `${o.research.evaluations} evaluations` : "none registered yet", "cyan"),
-    statCard("Awaiting review", awaiting, "status: unreviewed", "amber"),
-    statCard("Evidence spans", o.research.evidence_spans, `${o.research.snapshots.sealed} sealed snapshot${o.research.snapshots.sealed === 1 ? "" : "s"}`, "green"));
+    statCard("Active projects", active, `${o.projects.total} total`, "cyan", "◆"),
+    statCard("Hypotheses", o.research.hypotheses.total, o.research.hypotheses.total ? `${o.research.evaluations} evaluations` : "none registered yet", "violet", "✦"),
+    statCard("Awaiting review", awaiting, "status: unreviewed", "amber", "◷"),
+    statCard("Evidence spans", o.research.evidence_spans, `${o.research.snapshots.sealed} sealed snapshot${o.research.snapshots.sealed === 1 ? "" : "s"}`, "green", "❖"));
 
   const detailBox = h("div", { class: "project-detail" });
   const select = (id: string) => loadInto(detailBox, () => ctx.api.get<ProjectDetail>(`/v1/research/projects/${id}`), (d) => projectPane(d));

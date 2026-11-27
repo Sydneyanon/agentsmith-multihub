@@ -17,7 +17,7 @@ export function panel(title: string, body: Child[], opts: { actions?: Child[]; c
 export const loading = (what = "Loading"): HTMLElement => h("div", { class: "state state-loading", role: "status" }, h("span", { class: "spinner", "aria-hidden": "true" }), ` ${what}…`);
 
 export function empty(title: string, detail: string, producedBy?: string): HTMLElement {
-  return h("div", { class: "state state-empty" }, h("strong", {}, title), h("p", {}, detail), producedBy ? h("p", { class: "muted small" }, `Produced by: ${producedBy}.`) : null);
+  return h("div", { class: "state state-empty" }, h("span", { class: "state-icon", "aria-hidden": "true" }, "∅"), h("strong", {}, title), h("p", {}, detail), producedBy ? h("p", { class: "muted small" }, `Produced by: ${producedBy}.`) : null);
 }
 
 export function errorState(error: unknown, retry?: () => void): HTMLElement {
@@ -36,8 +36,10 @@ export function loadInto<T>(container: HTMLElement, load: () => Promise<T>, rend
   run();
 }
 
-export function statCard(label: string, value: string | number, note: string, tone: Tone = "cyan"): HTMLElement {
-  return h("div", { class: `stat tone-${tone}` }, h("span", { class: "stat-label" }, label), h("strong", { class: "stat-value" }, String(value)), h("span", { class: "stat-note" }, note));
+export function statCard(label: string, value: string | number, note: string, tone: Tone = "cyan", icon?: string): HTMLElement {
+  return h("div", { class: `stat tone-${tone}` },
+    h("div", { class: "stat-top" }, h("span", { class: "stat-label" }, label), icon ? h("span", { class: "stat-icon", "aria-hidden": "true" }, icon) : null),
+    h("strong", { class: "stat-value" }, String(value)), h("span", { class: "stat-note" }, note));
 }
 
 export function progressBar(done: number, total: number, label: string): HTMLElement {
