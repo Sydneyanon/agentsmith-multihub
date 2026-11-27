@@ -94,7 +94,7 @@ describe.skipIf(skipIntegration)("DRAFT T-144 research-memory migration on throw
 
   it("the migration runner never applies the draft (it is outside db/migrations)", async () => {
     const names = (await db.pool.query<{ name: string }>("SELECT name FROM schema_migrations")).rows.map((r) => r.name);
-    expect(names.some((n) => n.startsWith("0009"))).toBe(false); expect(names.length).toBe(10); // 0001-0008, 0011 (bounty collection) and 0012 (bounty->research link)
+    expect(names.some((n) => n.startsWith("0009"))).toBe(false); expect(names.length).toBe(11); // 0001-0008, 0011 (bounty), 0012 (bounty->research link), 0013 (repo monitor)
   });
 
   it("leaves every pre-existing record byte-identical and the active-testing scope guard unchanged", async () => {

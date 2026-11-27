@@ -160,6 +160,15 @@
    "INSERT",
    "UPDATE"
   ],
+  "repository_monitor_checks": [
+   "SELECT",
+   "INSERT"
+  ],
+  "repository_monitors": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
   "research_blob_evictions": [
    "SELECT"
   ],

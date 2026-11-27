@@ -55,9 +55,30 @@ daily, per-workflow and per-tier caps), which this code does not touch. `maxNewR
 - `planRepositoryResearch(repo, headCommit)` — the decision a repository monitor makes: `already_analysed` (skip), `full` (never seen),
   or `incremental` (analyse files changed since the latest sealed baseline).
 
-The bridge already uses `latestSealedSnapshot` to reuse a run that analysed a repository via any path (not only a bounty link). A
-repository monitor that resolves the current HEAD and calls `planRepositoryResearch` + `changedFilesBetween` is the remaining piece to
-make rescans fully automatic; the decision layer and primitives are built and tested, the HEAD-resolution/fetch wiring is not.
+The bridge already uses `latestSealedSnapshot` to reuse a run that analysed a repository via any path (not only a bounty link).
+
+## The repository monitor — the autonomous loop (migration 0013)
+
+`monitor.ts` closes the loop. For every repository the bridge has linked, `monitorRepositories` resolves the live HEAD of the default
+branch (reusing the acquisition `RepositorySource.getRepository` / `resolveCommit`), runs `planRepositoryResearch`, and — when the
+commit is new — automatically queues an incremental (or first-pass) `repository_research` run at that exact commit, linking it to the
+owning programmes. No human initiates any of it. State lives in `repository_monitors` (last observed HEAD, outcome, backoff) with an
+append-only `repository_monitor_checks` log (0013; excluded from the production image like 0008/0012).
+
+Guarantees, all covered by `repo-monitor.integration.test.ts` on real Postgres:
+- **Full cycle demonstrated**: an eligible programme is promoted → its repo is mapped → first run queued → the repo is sealed at commit
+  A (worker, simulated) → the monitor sees HEAD = B → it queues an incremental rescan at B with a provenance link, decision
+  `incremental`, baseline A. End to end, no manual step.
+- **Idempotent**: a second pass at the same HEAD creates no duplicate (`already_queued`).
+- **fetch ≠ researched**: fetching HEAD never marks a repo analysed; `up_to_date` requires a sealed snapshot at that commit.
+- **Failure handling**: a deleted/inaccessible repo → `unavailable` and monitoring disabled; a rate-limit/timeout/5xx → backoff honouring
+  `Retry-After`, kept enabled, retried next pass; repeated failures eventually disable it.
+- **Bounded**: `maxRescans` caps runs created per pass; only queued runs are created (no model calls).
+
+The injected edges (so the loop is testable without live GitHub / the worker) are HEAD resolution (the GitHub source) and snapshot
+sealing (the worker). In production both are real: `monitor-main.ts` (`npm run bounties:monitor`) uses the real `GitHubSource`, and the
+worker seals snapshots. The loop is **built and exercised**, but **not scheduled in production** (needs 0012+0013 deployed and the worker
+active — owner decisions).
 
 ## Worker reliability (audited — already robust, no change)
 

@@ -27,7 +27,9 @@
     "loop": "tsx scripts/research-loop.ts",
     "bounties:immunefi-reconcile": "tsx scripts/immunefi-reconcile.ts",
     "bounties:promote": "node dist/apps/api/src/bounties/promote-main.js",
-    "bounties:promote:dev": "tsx apps/api/src/bounties/promote-main.ts"
+    "bounties:promote:dev": "tsx apps/api/src/bounties/promote-main.ts",
+    "bounties:monitor": "node dist/apps/api/src/bounties/monitor-main.js",
+    "bounties:monitor:dev": "tsx apps/api/src/bounties/monitor-main.ts"
   },
   "dependencies": {
     "fastify": "^5.2.1",
