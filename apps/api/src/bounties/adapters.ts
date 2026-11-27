@@ -277,7 +277,7 @@ export const hackenproof: SourceAdapter = {
 
 export const IMMUNEFI_URL = "https://immunefi.com/public-api/bounties.json";
 type ImmunefiAsset = { url?: string; type?: string };
-type ImmunefiProgram = { slug?: string; project?: string; maxBounty?: number | null; rewardsToken?: string | null; ecosystem?: string[]; productType?: string[]; projectType?: string[];
+export type ImmunefiProgram = { slug?: string; project?: string; maxBounty?: number | null; rewardsToken?: string | null; ecosystem?: string[]; productType?: string[]; projectType?: string[];
   kyc?: boolean | null; isPaused?: boolean; inviteOnly?: boolean; launchDate?: string | null; updatedDate?: string | null; endDate?: string | null; assets?: ImmunefiAsset[]; githubUrl?: string | null; websiteUrl?: string | null };
 
 export function parseImmunefi(json: unknown): { items: ExtractedOpportunity[]; problems: string[] } {

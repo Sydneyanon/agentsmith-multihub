@@ -24,7 +24,8 @@
     "verify": "node scripts/verify.mjs",
     "hub:screenshots": "tsx scripts/hub-screenshots.ts",
     "hub:layout-check": "tsx scripts/hub-layout-check.ts",
-    "loop": "tsx scripts/research-loop.ts"
+    "loop": "tsx scripts/research-loop.ts",
+    "bounties:immunefi-reconcile": "tsx scripts/immunefi-reconcile.ts"
   },
   "dependencies": {
     "fastify": "^5.2.1",
