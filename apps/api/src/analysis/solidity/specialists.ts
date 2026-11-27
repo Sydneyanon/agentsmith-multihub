@@ -125,7 +125,7 @@ export class Analyzer {
         if (w.k !== "write" || w.variable.startsWith("<") || !readBefore.has(w.variable) || writtenBefore.has(w.variable)) continue;
         const via = c.chain.length ? ` (the call is reached through ${c.chain.map((f) => `${f.contract}.${f.fn}`).join(" -> ")})` : "";
         return [this.mk(fn, "reentrancy", c.line, c.file, {
-          claim: `${fn.contract}.${fn.name} makes an external call that hands control to ${c.targetText} (${c.file}:${c.line})${via} and only afterwards updates ${w.variable}${w.key ? `[${w.key}]` : ""} (${w.file}:${w.line}), which it relied on before the call; a re-entering receiver would see stale state.`,
+          claim: `${fn.contract}.${fn.name} makes an external call that hands control to ${c.targetText} (${c.file}:${c.line})${via} and only afterwards updates ${w.variable}${w.key ? `[${w.key}]` : ""}${w.via ? ` through the storage reference ${w.via}` : ""} (${w.file}:${w.line}), which it relied on before the call; a re-entering receiver would see stale state.`,
           rationale: "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
           requiredChecks: ["Confirm the callee can re-enter an external function of this contract", "Confirm no lock or earlier write to the same variable protects the path", "Reproduce with a malicious receiver in a local fork test"],
           alternatives: ["A lock or modifier the analysis could not see may protect the function", "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"],

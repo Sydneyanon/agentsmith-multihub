@@ -37,7 +37,8 @@ export type Stmt =
   | { k: "asm"; line: number }
   | { k: "other"; line: number };
 
-export type Param = { type: string; name: string | null };
+/** `type` never includes the data location; `location` is set only when the declaration names one (`Account storage a`). */
+export type Param = { type: string; name: string | null; location?: "memory" | "calldata" | "storage" };
 export type ModifierUse = { name: string; args: Expr[]; line: number };
 export type FunctionDef = {
   kind: "function" | "constructor" | "receive" | "fallback" | "modifier";
@@ -323,7 +324,8 @@ function parseParams(ps: P): Param[] {
     const words = cur.filter((x) => !(x.k === "id" && LOCATION.has(x.v)));
     const last = words[words.length - 1];
     const hasName = words.length >= 2 && last?.k === "id" && last.v !== "payable" && !(words.length === 2 && words[0]?.v === "address" && last.v === "payable");
-    out.push({ type: (hasName ? words.slice(0, -1) : words).map((x) => x.v).join(" "), name: hasName ? last!.v : null }); cur = [];
+    const loc = cur.find((x) => x.k === "id" && LOCATION.has(x.v))?.v as Param["location"];
+    out.push({ type: (hasName ? words.slice(0, -1) : words).map((x) => x.v).join(" "), name: hasName ? last!.v : null, ...(loc ? { location: loc } : {}) }); cur = [];
   };
   for (; i < close - 1; i++) {
     const tk = ps.t[i]!;

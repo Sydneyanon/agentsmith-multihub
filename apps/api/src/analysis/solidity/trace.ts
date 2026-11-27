@@ -12,7 +12,7 @@ type Base = { line: number; file: string; contract: string; cond: boolean; prot:
 export type Ev =
   | (Base & { k: "guard"; auth: boolean; origin: boolean; reads: string[]; text: string; reverting: boolean; assumed?: string })
   | (Base & { k: "call"; low: "call" | "delegatecall" | "staticcall" | "send" | "transfer" | null; targetText: string; targetExpr: Expr | null; valueText: string | null; hasValue: boolean; callee: string | null; calleeResolved: boolean; attackerTarget: boolean; checked: "checked" | "unchecked" | "returned" | "n/a"; targetTaint: "param" | "msg.sender" | "state" | "constant" | "other"; targetVar: string | null })
-  | (Base & { k: "write"; variable: string; owner: string; key: string | null; op: string; increasing: boolean; decreasing: boolean; keyedByCaller: boolean; keyedByParam: boolean; text: string })
+  | (Base & { k: "write"; variable: string; owner: string; key: string | null; op: string; increasing: boolean; decreasing: boolean; keyedByCaller: boolean; keyedByParam: boolean; text: string; via?: string })
   | (Base & { k: "read"; variable: string })
   | (Base & { k: "destruct"; text: string })
   | (Base & { k: "origin"; usage: "auth" | "eoa-check" | "other"; text: string });
@@ -21,11 +21,14 @@ type Ctx = {
   contract: string; file: string; fn: FunctionDef; params: Map<string, string>; locals: Map<string, string>;
   tainted: Set<string>; authLocals: Set<string>; success: Map<string, Extract<Ev, { k: "call" }>>; chain: Frame[]; depth: number;
   onPlaceholder: (() => void) | null; branch: { cond: boolean; prot: boolean; ret: boolean }; stack: string[]; aliases: Map<string, { expr: Expr; ctx: Ctx }>;
+  /** `storage` locals and parameters: the expression each one points into (null while a declared-only local is still unbound) */
+  storageRefs: Map<string, { expr: Expr; ctx: Ctx } | null>;
 };
 export type TraceResult = { events: Ev[]; assumptions: string[]; unknowns: string[] };
 
 const BUILTIN_OBJ = new Set(["msg", "block", "tx", "abi", "type"]);
 const ELEMENTARY = /^(address|bool|string|bytes\d*|u?int\d*)$/;
+const STORAGE_LOC = /(^|\s)storage(\s|$)/;
 const AUTH_NAME = /(role|admin|owner|auth|operator|minter|whitelist|allow|guardian|governor|keeper|manager)/i;
 
 export function isCaller(e: Expr): boolean {
@@ -83,7 +86,7 @@ export class Tracer {
   private newCtx(fn: FunctionDef, contract: string, chain: Frame[], tainted: Set<string>, depth: number, stack: string[]): Ctx {
     return {
       contract, file: fn.file, fn, params: new Map(fn.params.filter((p) => p.name).map((p) => [p.name!, p.type])), locals: new Map(), tainted,
-      authLocals: new Set(), success: new Map(), chain, depth, onPlaceholder: null, branch: { cond: false, prot: false, ret: false }, stack: [...stack, `${contract}.${fn.name}`], aliases: new Map(),
+      authLocals: new Set(), success: new Map(), chain, depth, onPlaceholder: null, branch: { cond: false, prot: false, ret: false }, stack: [...stack, `${contract}.${fn.name}`], aliases: new Map(), storageRefs: new Map(),
     };
   }
 
@@ -141,11 +144,13 @@ export class Tracer {
           const lastCall = [...this.events.slice(before)].reverse().find((e): e is Extract<Ev, { k: "call" }> => e.k === "call" && e.low !== null);
           s.names.forEach((n, i) => {
             if (!n) return; ctx.locals.set(n, s.types[i] ?? "");
+            // a storage reference points into state; only a single declaration's initialiser says where (a tuple's comes from a call result)
+            if (STORAGE_LOC.test(s.types[i] ?? "")) ctx.storageRefs.set(n, s.names.length === 1 ? { expr: s.init!, ctx } : null);
             if (this.tainted(s.init!, ctx)) ctx.tainted.add(n);
             if (this.isAuthority(s.init!, ctx)) ctx.authLocals.add(n);
             if (lastCall && i === 0 && /^bool/.test(s.types[0] ?? "")) { ctx.success.set(n, lastCall); }
           });
-        } else s.names.forEach((n, i) => { if (n) ctx.locals.set(n, s.types[i] ?? ""); });
+        } else s.names.forEach((n, i) => { if (!n) return; ctx.locals.set(n, s.types[i] ?? ""); if (STORAGE_LOC.test(s.types[i] ?? "")) ctx.storageRefs.set(n, null); });
         return;
       }
       case "if": this.ifStmt(s, ctx); return;
@@ -297,27 +302,45 @@ export class Tracer {
     if (e.op === "=" && e.l.k === "id" && ctx.success.has(e.l.name)) return;
     if (e.l.k === "id" && (ctx.locals.has(e.l.name) || ctx.params.has(e.l.name))) { if (this.tainted(e.r, ctx)) ctx.tainted.add(e.l.name); if (this.isAuthority(e.r, ctx)) ctx.authLocals.add(e.l.name); }
     if (r && (e.l.k === "tuple")) return;
+    // `a = accounts[x]` on a storage reference re-points the reference; it writes no state
+    if (e.l.k === "id" && ctx.storageRefs.has(e.l.name)) { if (e.op === "=") ctx.storageRefs.set(e.l.name, { expr: e.r, ctx }); return; }
     this.writeTo(e.l, e.op, e.line, ctx, e.r);
   }
 
   private writeTo(target: Expr, op: string, line: number, ctx: Ctx, rhs: Expr | null): void {
-    const r = rootId(target);
     if (target.k === "tuple") { for (const i of target.items) if (i) this.writeTo(i, op, line, ctx, rhs); return; }
-    if (!r || !this.rootIsState(r, ctx)) return;
-    const sv = this.ix.stateVar(ctx.contract, r)!;
-    let key: string | null = null; let keyedByCaller = false; let keyedByParam = false;
+    const loc = this.stateLocation(target, ctx); if (!loc) return;
+    const sv = this.ix.stateVar(loc.ctx.contract, loc.root)!;
+    const increasing = op === "+=" || op === "++" || (op === "=" && !!rhs && walkExpr(rhs, (x) => x.k === "binary" && x.op === "+"));
+    const decreasing = op === "-=" || op === "--" || op === "delete";
+    this.events.push({
+      ...this.base(ctx, line), k: "write", variable: loc.root, owner: sv.owner, key: loc.keys.length ? loc.keys.join(",") : null, op, increasing, decreasing,
+      keyedByCaller: loc.keyedByCaller, keyedByParam: loc.keyedByParam, text: exprText(target), ...(loc.via.length ? { via: loc.via.join(" -> ") } : {}),
+    });
+  }
+
+  /**
+   * The state variable (and keys, innermost first) that an lvalue denotes. A target rooted at a `storage` local or parameter is followed to the
+   * expression the reference was bound to, in the context where it was bound, so `a.balance` with `Account storage a = accounts[msg.sender]`
+   * is a write to accounts[msg.sender]. A `memory` or `calldata` copy is never in storageRefs, so writing it is not a state write.
+   */
+  private stateLocation(target: Expr, ctx: Ctx, depth = 0): { root: string; ctx: Ctx; keys: string[]; keyedByCaller: boolean; keyedByParam: boolean; via: string[] } | null {
+    const r = rootId(target); if (!r) return null;
+    const keys: string[] = []; let keyedByCaller = false; let keyedByParam = false;
     let cur: Expr = target;
     while (cur.k === "index" || cur.k === "member") {
       if (cur.k === "index" && cur.idx) {
-        key = key ? exprText(cur.idx) + "," + key : exprText(cur.idx);
+        keys.unshift(exprText(cur.idx));
         if (walkExpr(cur.idx, (x) => isCaller(x) || (x.k === "id" && this.aliasIsCaller(x.name, ctx)))) keyedByCaller = true;
         if (walkExpr(cur.idx, (x) => x.k === "id" && ctx.params.has(x.name))) keyedByParam = true;
       }
       cur = cur.obj;
     }
-    const increasing = op === "+=" || op === "++" || (op === "=" && !!rhs && walkExpr(rhs, (x) => x.k === "binary" && x.op === "+"));
-    const decreasing = op === "-=" || op === "--" || op === "delete";
-    this.events.push({ ...this.base(ctx, line), k: "write", variable: r, owner: sv.owner, key, op, increasing, decreasing, keyedByCaller, keyedByParam, text: exprText(target) });
+    if (this.rootIsState(r, ctx)) return { root: r, ctx, keys, keyedByCaller, keyedByParam, via: [] };
+    const ref = cur.k === "id" ? ctx.storageRefs.get(r) : undefined;
+    if (!ref || depth >= 8) return null;
+    const inner = this.stateLocation(ref.expr, ref.ctx, depth + 1); if (!inner) return null;
+    return { root: inner.root, ctx: inner.ctx, keys: [...inner.keys, ...keys], keyedByCaller: inner.keyedByCaller || keyedByCaller, keyedByParam: inner.keyedByParam || keyedByParam, via: [r, ...inner.via] };
   }
 
   private targetTaint(e: Expr, ctx: Ctx): { taint: "param" | "msg.sender" | "state" | "constant" | "other"; variable: string | null } {
@@ -380,7 +403,7 @@ export class Tracer {
       const isAddr = !t || /^address/.test(t);
       if ((name === "call" || name === "delegatecall" || name === "staticcall") && isAddr) { this.lowCall(e, obj, name, ctx, usage); return; }
       if ((name === "send" || name === "transfer") && isAddr && e.args.length === 1) { this.lowCall(e, obj, name, ctx, usage); return; }
-      if ((name === "push" || name === "pop") && rootId(obj) && this.rootIsState(rootId(obj), ctx)) { for (const a of e.args) this.expr(a, ctx, "use"); this.writeTo(obj, name, e.line, ctx, e.args[0] ?? null); return; }
+      if ((name === "push" || name === "pop") && this.stateLocation(obj, ctx)) { for (const a of e.args) this.expr(a, ctx, "use"); this.writeTo(obj, name, e.line, ctx, e.args[0] ?? null); return; }
       for (const a of e.args) this.expr(a, ctx, "use");
       if (e.opts["value"]) this.expr(e.opts["value"], ctx, "use");
       this.expr(obj, ctx, "use");
@@ -411,7 +434,10 @@ export class Tracer {
     const chain = [...ctx.chain, { fn: callee.name, contract, file: ctx.file, line: e.line }];
     const sub = this.newCtx(callee, contract, chain, tainted, ctx.depth + 1, ctx.stack);
     sub.branch = { ...ctx.branch };
-    callee.params.forEach((p, i) => { const a = e.args[i]; if (!p.name || !a) return; sub.aliases.set(p.name, { expr: a, ctx }); if (this.isAuthority(a, ctx)) sub.authLocals.add(p.name); });
+    callee.params.forEach((p, i) => {
+      const a = e.args[i]; if (!p.name || !a) return; sub.aliases.set(p.name, { expr: a, ctx }); if (this.isAuthority(a, ctx)) sub.authLocals.add(p.name);
+      if (p.location === "storage") sub.storageRefs.set(p.name, { expr: a, ctx }); // a storage parameter IS the caller's storage
+    });
     const before = this.events.length;
     this.runWithModifiers(callee, sub, 0);
     const used: "checked" | "unchecked" | "returned" = usage === "discard" ? "unchecked" : usage === "return" ? "returned" : "checked";
