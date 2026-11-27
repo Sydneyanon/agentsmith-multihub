@@ -18,6 +18,7 @@
 import type { Pool, PoolClient } from "pg";
 import { createRepositoryResearchRunIn } from "../acquisition/step.js";
 import { classifyEligibility } from "./eligibility.js";
+import { verifiedRepositoriesFor } from "./enrich.js";
 import { latestSealedSnapshot } from "./repo-intel.js";
 import { resolveProgrammeRepositories } from "./repo-resolve.js";
 import type { Resolution } from "./resolve.js";
@@ -75,7 +76,11 @@ export async function promoteEligibleProgrammes(pool: Pool, opts: PromoteOptions
     const elig = classifyEligibility({ resolved, verification: row.verification ?? "unverified" } as Resolution);
     if (elig.tier !== "eligible") continue; // evidence-based: only officially-confirmed, sc-scoped, funded programmes
     result.eligible_programmes += 1;
-    const { repositories } = resolveProgrammeRepositories(resolved);
+    // Repositories come from the collected fields AND from verified enrichment mappings (officially_confirmed/official_documentation
+    // only — inferred/unverified never enter research automatically).
+    const resolvedRepos = resolveProgrammeRepositories(resolved).repositories;
+    const verified = await verifiedRepositoriesFor(pool, row.id);
+    const repositories = [...new Set([...resolvedRepos, ...verified])];
     for (const repository of repositories) {
       result.repositories_considered += 1;
       const ref: string | null = null; // default branch; acquisition pins the commit

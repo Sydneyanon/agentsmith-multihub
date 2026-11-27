@@ -116,8 +116,17 @@ export async function enrichEligibleProgrammes(pool: Pool, deps: EnrichDeps, opt
   return { attempted: rows.length, enriched, verified_repositories: verifiedRepos, results };
 }
 
-/** The repositories a programme may automatically research: only officially_confirmed / official_documentation mappings. */
+async function hasMappingsTable(pool: Pool): Promise<boolean> {
+  return (await pool.query(
+    "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='bounty_repository_mappings'")).rows.length > 0;
+}
+
+/**
+ * The repositories a programme may automatically research: only officially_confirmed / official_documentation mappings. Deploy-safe:
+ * returns [] when the enrichment table (0014) is not present in production.
+ */
 export async function verifiedRepositoriesFor(pool: Pool, programmeId: string): Promise<string[]> {
+  if (!(await hasMappingsTable(pool))) return [];
   const rows = (await pool.query<{ repository: string }>(
     "SELECT repository FROM bounty_repository_mappings WHERE bounty_program_id = $1 AND verification_status IN ('officially_confirmed','official_documentation') ORDER BY repository",
     [programmeId])).rows;
