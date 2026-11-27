@@ -1,0 +1,693 @@
+From 2f518b811f1804ed80efa8e485aa7690fd0e9f13 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 27 Nov 2026 05:55:30 +0000
+Subject: [PATCH] R1: restricted worker role for Fly Managed Postgres (on
+ 837aeb9)
+
+- db-roles: a provider membership is tolerated only when named and proven
+  read-only; effective DELETE/TRUNCATE/TRIGGER/REFERENCES is always a problem.
+- apply-runtime-grants: RUNTIME_ROLE_READONLY_MEMBERSHIPS, RUNTIME_GRANTS_ALLOW_ABSENT
+  (absent tables listed and skipped), RUNTIME_GRANTS_DRY_RUN (roll back).
+- worker: WORKER_DATABASE_URL, role check before claiming
+  (HUB_REQUIRE_RESTRICTED_DB_ROLE), WORKER_ONLY_RUN_ID, WORKER_EXIT_WHEN_RUN_DONE.
+- create-run-main: one run, only for the approved input hash, only on an empty queue.
+- r1-runtime-role.integration.test: production profile (0001-0007, Fly-shaped roles).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WqgUXPKRtWKWJd57TvffMY
+---
+ apps/api/src/acquisition/create-run-main.ts   |  39 +++
+ apps/api/src/db-config.ts                     |   2 +-
+ apps/api/src/db-roles.ts                      |  62 ++++-
+ .../r1-runtime-role.integration.test.ts       | 234 ++++++++++++++++++
+ apps/api/src/worker-main.ts                   |  44 +++-
+ apps/api/src/worker-runtime.ts                |   4 +-
+ apps/api/src/worker-settings.ts               |  15 ++
+ apps/api/src/worker.ts                        |   6 +-
+ scripts/apply-runtime-grants.ts               |  55 +++-
+ 9 files changed, 433 insertions(+), 28 deletions(-)
+ create mode 100644 apps/api/src/acquisition/create-run-main.ts
+ create mode 100644 apps/api/src/integration/r1-runtime-role.integration.test.ts
+ create mode 100644 apps/api/src/worker-settings.ts
+
+diff --git a/apps/api/src/acquisition/create-run-main.ts b/apps/api/src/acquisition/create-run-main.ts
+new file mode 100644
+index 0000000..6da9898
+--- /dev/null
++++ b/apps/api/src/acquisition/create-run-main.ts
+@@ -0,0 +1,39 @@
++import { createHash } from "node:crypto";
++import { Pool } from "pg";
++import { buildPoolConfig, stderrWarning } from "../db-config.js";
++import { createRepositoryResearchRun } from "./step.js";
++
++/**
++ * Creates ONE repository_research run with the analysis stages, for an approved, pre-registered input (A34). It refuses unless:
++ * - the input's canonical SHA-256 equals --expect-sha256 (the hash recorded with the frozen answer key), so the run cannot drift
++ *   from what was approved;
++ * - no other run is queued, running or awaiting approval, so a run-scoped worker has exactly this one to execute.
++ * It connects with WORKER_DATABASE_URL when set (the restricted role), else DATABASE_URL. It fetches nothing and starts no worker.
++ *   node dist/apps/api/src/acquisition/create-run-main.js --input '<json>' --expect-sha256 <hex>
++ */
++export function canonicalJson(v: unknown): string {
++  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
++  if (v && typeof v === "object") return `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson((v as Record<string, unknown>)[k])}`).join(",")}}`;
++  return JSON.stringify(v);
++}
++export const inputSha256 = (input: unknown) => createHash("sha256").update(canonicalJson(input)).digest("hex");
++
++const args = process.argv.slice(2);
++const arg = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
++if (process.argv[1]?.endsWith("create-run-main.js") || process.argv[1]?.endsWith("create-run-main.ts")) {
++  const raw = arg("--input"); const expect = arg("--expect-sha256");
++  if (!raw || !expect || !/^[0-9a-f]{64}$/.test(expect)) { console.error("usage: --input '<json>' --expect-sha256 <64 hex>"); process.exit(64); }
++  const input = JSON.parse(raw) as { repository: string; ref?: string; excludePathPrefixes?: string[] };
++  const got = inputSha256(input);
++  if (got !== expect) { console.error(`input hash ${got} does not match the approved ${expect}; nothing was created`); process.exit(65); }
++  const urlVariable = process.env.WORKER_DATABASE_URL ? "WORKER_DATABASE_URL" as const : "DATABASE_URL" as const;
++  const pool = new Pool(buildPoolConfig(process.env, { max: 1, onWarning: stderrWarning, urlVariable, applicationName: "agentsmith-create-run" }));
++  try {
++    const pending = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM workflow_runs WHERE status IN ('queued', 'running', 'awaiting_approval')")).rows[0]!.n;
++    if (pending > 0) { console.error(`${pending} run(s) are already pending; refusing so the scoped worker executes only the approved run`); process.exitCode = 66; }
++    else {
++      const r = await createRepositoryResearchRun(pool, input, "operator", { structuralAnalysis: true });
++      console.log(JSON.stringify({ created: true, run_id: r.runId, acquire_step_id: r.stepId, input_sha256: got, connected_as: urlVariable }));
++    }
++  } finally { await pool.end(); }
++}
+diff --git a/apps/api/src/db-config.ts b/apps/api/src/db-config.ts
+index 662bca4..4a01bc3 100644
+--- a/apps/api/src/db-config.ts
++++ b/apps/api/src/db-config.ts
+@@ -2,7 +2,7 @@ import type { PoolConfig } from "pg";
+ import { isLoopbackHost, parseDatabaseTarget } from "./db-safety.js";
+ 
+ type Env = Record<string, string | undefined>;
+-export type UrlVariable = "DATABASE_URL" | "DIRECT_DATABASE_URL";
++export type UrlVariable = "DATABASE_URL" | "DIRECT_DATABASE_URL" | "WORKER_DATABASE_URL";
+ 
+ const MIN_CONNECT_TIMEOUT_MS = 1_000;
+ const MAX_CONNECT_TIMEOUT_MS = 60_000;
+diff --git a/apps/api/src/db-roles.ts b/apps/api/src/db-roles.ts
+index ed08847..1f3249e 100644
+--- a/apps/api/src/db-roles.ts
++++ b/apps/api/src/db-roles.ts
+@@ -33,7 +33,8 @@ export function assertRoleName(name: string | undefined): string {
+ /** Compares the manifest with the live catalog. Returns problems; empty means every table and function is accounted for. */
+ export async function manifestCatalogProblems(db: pg.Pool | pg.PoolClient, m: GrantsManifest): Promise<string[]> {
+   const problems: string[] = [];
+-  const tables = (await db.query<{ t: string }>("SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m')", [m.schema])).rows.map((r) => r.t);
++  // Relations that belong to an extension (e.g. pg_stat_monitor on Fly Managed Postgres) are not the application's and not in the manifest.
++  const tables = (await db.query<{ t: string }>("SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')", [m.schema])).rows.map((r) => r.t);
+   for (const t of tables) if (!(t in m.tables)) problems.push(`table ${t} is not in the grants manifest`);
+   for (const t of Object.keys(m.tables)) if (!tables.includes(t)) problems.push(`manifest names table ${t} which does not exist`);
+   const fns = (await db.query<{ f: string }>(
+@@ -47,8 +48,46 @@ export async function manifestCatalogProblems(db: pg.Pool | pg.PoolClient, m: Gr
+ 
+ export type RoleAssessment = { ok: boolean; problems: string[] };
+ 
++/**
++ * R1 on Fly Managed Postgres: users can only be created by the provider, and every user is a member of exactly one provider role
++ * (schema_admin, writer or reader). `reader` is pg_read_all_data: SELECT only. A membership is tolerated ONLY when it is named in
++ * RUNTIME_ROLE_READONLY_MEMBERSHIPS and this check proves the role, with everything it inherits, cannot write, own, create or
++ * bypass anything. `writer` (pg_write_all_data: INSERT/UPDATE/DELETE on every table) always fails it.
++ */
++export const ALLOWED_PREDEFINED_READ_ROLES = ["pg_read_all_data"] as const;
++export function readOnlyMembershipsFromEnv(env: Record<string, string | undefined>): string[] {
++  const raw = env.RUNTIME_ROLE_READONLY_MEMBERSHIPS?.trim();
++  if (!raw) return [];
++  return raw.split(",").map((r) => assertRoleName(r.trim()));
++}
++
++export async function readOnlyRoleProblems(db: pg.Pool | pg.PoolClient, role: string, schema = "public"): Promise<string[]> {
++  const problems: string[] = [];
++  const a = (await db.query<Record<string, boolean>>("SELECT rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = $1", [role])).rows[0];
++  if (!a) return [`membership role ${role} does not exist`];
++  for (const [flag, label] of [["rolsuper", "superuser"], ["rolcreaterole", "CREATEROLE"], ["rolcreatedb", "CREATEDB"], ["rolreplication", "REPLICATION"], ["rolbypassrls", "BYPASSRLS"]] as const) {
++    if (a[flag]) problems.push(`membership role ${role} has ${label}`);
++  }
++  // Everything the role inherits, transitively. Only the predefined read-all role may appear.
++  const inherited = (await db.query<{ r: string }>(
++    `WITH RECURSIVE up(oid) AS (SELECT m.roleid FROM pg_auth_members m WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = $1)
++       UNION SELECT m.roleid FROM pg_auth_members m JOIN up ON m.member = up.oid)
++     SELECT r.rolname AS r FROM up JOIN pg_roles r ON r.oid = up.oid ORDER BY 1`, [role])).rows.map((x) => x.r);
++  for (const r of inherited) if (!(ALLOWED_PREDEFINED_READ_ROLES as readonly string[]).includes(r)) problems.push(`membership role ${role} inherits ${r}`);
++  const writes = (await db.query<{ t: string; p: string }>(
++    `SELECT c.relname AS t, p FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES']) p
++      WHERE n.nspname = $2 AND c.relkind IN ('r','p','v','m') AND has_table_privilege($1, c.oid, p)`, [role, schema])).rows;
++  if (writes.length) problems.push(`membership role ${role} can ${[...new Set(writes.map((w) => w.p))].join("/")} on ${new Set(writes.map((w) => w.t)).size} relation(s)`);
++  const owned = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pg_class WHERE pg_get_userbyid(relowner) = $1", [role])).rows[0]!.n;
++  if (owned) problems.push(`membership role ${role} owns ${owned} relation(s)`);
++  const ddl = (await db.query<{ c: boolean; t: boolean }>("SELECT has_schema_privilege($1, $2, 'CREATE') AS c, has_database_privilege($1, current_database(), 'TEMP') AS t", [role, schema])).rows[0]!;
++  if (ddl.c) problems.push(`membership role ${role} can CREATE in schema ${schema}`);
++  if (ddl.t) problems.push(`membership role ${role} can create TEMPORARY tables`);
++  return problems;
++}
++
+ /** What the connected role can do that a runtime role must not. Used at startup and in the grants script. */
+-export async function assessConnectedRole(db: pg.Pool | pg.PoolClient, schema = "public"): Promise<RoleAssessment> {
++export async function assessConnectedRole(db: pg.Pool | pg.PoolClient, schema = "public", allowedReadOnlyMemberships: readonly string[] = []): Promise<RoleAssessment> {
+   const problems: string[] = [];
+   const attrs = (await db.query<Record<string, boolean | string>>(
+     "SELECT current_user AS name, rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = current_user")).rows[0];
+@@ -66,11 +105,18 @@ export async function assessConnectedRole(db: pg.Pool | pg.PoolClient, schema =
+   if (temp) problems.push("role can create TEMPORARY tables (temp-schema shadowing of guard-function lookups)");
+   const publicGrants = (await db.query<{ n: number }>(
+     `SELECT count(DISTINCT c.oid)::int AS n FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace, aclexplode(c.relacl) a
+-      WHERE ns.nspname = $1 AND a.grantee = 0 AND c.relkind IN ('r','p','v','m','S')`, [schema])).rows[0]!.n;
++      WHERE ns.nspname = $1 AND a.grantee = 0 AND c.relkind IN ('r','p','v','m','S') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')`, [schema])).rows[0]!.n;
+   if (publicGrants > 0) problems.push(`PUBLIC holds privileges on ${publicGrants} relation(s) in schema ${schema}`);
+   const members = (await db.query<{ r: string }>(
+     "SELECT r.rolname AS r FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)")).rows;
+-  if (members.length) problems.push(`role is a member of: ${members.map((x) => x.r).join(", ")}`);
++  const unexpected = members.filter((x) => !allowedReadOnlyMemberships.includes(x.r));
++  if (unexpected.length) problems.push(`role is a member of: ${unexpected.map((x) => x.r).join(", ")}`);
++  for (const m of members.filter((x) => allowedReadOnlyMemberships.includes(x.r))) problems.push(...await readOnlyRoleProblems(db, m.r, schema));
++  // Belt and braces: whatever the path (direct grant, membership, PUBLIC), the runtime role must not hold these on any relation.
++  const forbidden = (await db.query<{ p: string; n: number }>(
++    `SELECT p, count(*)::int AS n FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace, unnest(ARRAY['DELETE','TRUNCATE','TRIGGER','REFERENCES']) p
++      WHERE ns.nspname = $1 AND c.relkind IN ('r','p','v','m') AND has_table_privilege(current_user, c.oid, p) GROUP BY p`, [schema])).rows;
++  for (const f of forbidden) problems.push(`role holds ${f.p} on ${f.n} relation(s)`);
+   return { ok: problems.length === 0, problems };
+ }
+ 
+@@ -79,9 +125,9 @@ export async function assessConnectedRole(db: pg.Pool | pg.PoolClient, schema =
+  * problem is reported loudly (staged rollout: deploy the code, switch DATABASE_URL to the runtime role, then require it).
+  */
+ export async function enforceRuntimeRole(
+-  db: pg.Pool, options: { require: boolean; warn: (message: string) => void },
++  db: pg.Pool, options: { require: boolean; warn: (message: string) => void; allowedReadOnlyMemberships?: readonly string[] },
+ ): Promise<RoleAssessment> {
+-  const result = await assessConnectedRole(db);
++  const result = await assessConnectedRole(db, "public", options.allowedReadOnlyMemberships ?? []);
+   if (!result.ok) {
+     const message = `database runtime role is not least-privilege: ${result.problems.join("; ")}`;
+     if (options.require) throw new Error(message);
+@@ -97,12 +143,12 @@ export async function enforceRuntimeRole(
+  */
+ export async function runRoleGuard(db: pg.Pool, options: {
+   require: boolean; warn: (message: string) => void; fatal: (message: string) => void;
+-  attempts?: number; retryDelayMs?: number; sleep?: (ms: number) => Promise<void>; assess?: () => Promise<RoleAssessment>;
++  attempts?: number; retryDelayMs?: number; sleep?: (ms: number) => Promise<void>; assess?: () => Promise<RoleAssessment>; allowedReadOnlyMemberships?: readonly string[];
+ }): Promise<void> {
+   const attempts = options.attempts ?? 6;
+   const delay = options.retryDelayMs ?? 15_000;
+   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+-  const assess = options.assess ?? (() => assessConnectedRole(db));
++  const assess = options.assess ?? (() => assessConnectedRole(db, "public", options.allowedReadOnlyMemberships ?? []));
+   let lastError = "";
+   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+     try {
+diff --git a/apps/api/src/integration/r1-runtime-role.integration.test.ts b/apps/api/src/integration/r1-runtime-role.integration.test.ts
+new file mode 100644
+index 0000000..e38b7e1
+--- /dev/null
++++ b/apps/api/src/integration/r1-runtime-role.integration.test.ts
+@@ -0,0 +1,234 @@
++import { spawn } from "node:child_process";
++import { randomBytes } from "node:crypto";
++import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import pg from "pg";
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import { createRepositoryResearchRun, processAcquireRepositoryStep, ACQUIRE_STEP_KEY } from "../acquisition/step.js";
++import { inputSha256 } from "../acquisition/create-run-main.js";
++import { FakeSource } from "../acquisition/testing/fake-source.js";
++import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fixture.js";
++import { ANALYSIS_STEP_KEYS } from "../analysis/solidity/keys.js";
++import { dispatchAnalysisStep } from "../analysis/solidity/step.js";
++import { assessConnectedRole } from "../db-roles.js";
++import { WorkflowWorker } from "../worker.js";
++import { workerSettings } from "../worker-settings.js";
++import { assertIntegrationConfigured, createTestDatabase, REPO_ROOT, runMigrate, runScript, skipIntegration, type TestDatabase } from "./harness.js";
++
++/**
++ * R1 in the production profile, on a disposable database:
++ * - exactly migrations 0001-0007 (what production has; 0008 is not applied);
++ * - roles shaped like Fly Managed Postgres: a provider `reader` role (pg_read_all_data) and `writer` role (pg_write_all_data), and the
++ *   worker's login user created as a member of `reader`, as `fly mpg users create --role reader` does;
++ * - the real grants script, the real research pipeline (acquisition, sealing, structural analysis, hypotheses, evaluations, dossier)
++ *   executed AS the worker role, and the evidence-bypass attempts executed AS the worker role.
++ */
++vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
++const corpus = join(REPO_ROOT, "eval", "dev", "contracts");
++const APPROVED_INPUT = { repository: "OpenZeppelin/ethernaut", ref: "d05643a40aa98c45d66247c69ffceab8f44dd8cb", excludePathPrefixes: ["client", "contracts/out", "contracts/test", "contracts/src/attacks"] };
++
++describe.skipIf(skipIntegration)("R1: restricted worker role in the production profile (real Postgres)", () => {
++  let db: TestDatabase; let fx: GitFixture; let migDir: string;
++  const hex = randomBytes(4).toString("hex");
++  const reader = `fly_reader_${hex}`; const writer = `fly_writer_${hex}`; const workerRole = `agentsmith_worker_${hex}`; const writerUser = `writer_user_${hex}`;
++  const password = randomBytes(18).toString("hex");
++  let workerPool: pg.Pool; let workerUrl: string;
++  const roleUrl = (role: string) => { const u = new URL(db.url); u.username = role; u.password = password; return u.toString(); };
++  const grants = (env: Record<string, string>) => runScript("scripts/apply-runtime-grants.ts", { DIRECT_DATABASE_URL: db.url, ...env });
++
++  beforeAll(async () => {
++    assertIntegrationConfigured();
++    db = await createTestDatabase();
++    migDir = mkdtempSync(join(tmpdir(), "r1-migrations-")); mkdirSync(join(migDir, "db", "migrations"), { recursive: true });
++    for (const f of readdirSync(join(REPO_ROOT, "db", "migrations")).filter((n) => /^000[1-7]_/.test(n))) copyFileSync(join(REPO_ROOT, "db", "migrations", f), join(migDir, "db", "migrations", f));
++    const m = await runMigrate({ directUrl: db.url, cwd: migDir });
++    if (m.code !== 0) throw new Error(m.stderr);
++    // Production has an extension-owned monitoring view in public that PUBLIC can read (pg_stat_monitor on Fly Managed Postgres,
++    // found by the read-only production check). Reproduce it: a view that belongs to an extension, with SELECT granted to PUBLIC.
++    await db.pool.query("CREATE VIEW pg_stat_monitor AS SELECT 1 AS probe");
++    await db.pool.query("GRANT SELECT ON pg_stat_monitor TO PUBLIC");
++    await db.pool.query("ALTER EXTENSION pgcrypto ADD VIEW pg_stat_monitor");
++    for (const sql of [
++      `CREATE ROLE ${reader} NOLOGIN`, `GRANT pg_read_all_data TO ${reader}`,
++      `CREATE ROLE ${writer} NOLOGIN`, `GRANT pg_read_all_data TO ${writer}`, `GRANT pg_write_all_data TO ${writer}`,
++      `CREATE ROLE ${workerRole} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS IN ROLE ${reader}`,
++      `CREATE ROLE ${writerUser} LOGIN PASSWORD '${password}' IN ROLE ${writer}`,
++      `GRANT CONNECT ON DATABASE ${db.name} TO ${workerRole}, ${writerUser}`,
++    ]) await db.adminPool.query(sql);
++    workerUrl = roleUrl(workerRole);
++    workerPool = new pg.Pool({ connectionString: workerUrl, max: 10 }); workerPool.on("error", () => undefined);
++    fx = buildGitFixture(readdirSync(corpus).sort().map((n) => ({ path: `contracts/${n}`, content: readFileSync(join(corpus, n), "utf8") })), { owner: "OpenZeppelin", repo: "ethernaut" });
++  });
++  afterAll(async () => {
++    fx?.cleanup(); await workerPool?.end().catch(() => undefined);
++    if (db) { await db.drop(); }
++    const admin = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 });
++    for (const r of [workerRole, writerUser, reader, writer]) await admin.query(`DROP ROLE IF EXISTS ${r}`).catch(() => undefined);
++    await admin.end(); rmSync(migDir, { recursive: true, force: true });
++  });
++
++  describe("the grants script refuses anything unsafe or unexpected", () => {
++    it("without RUNTIME_GRANTS_ALLOW_ABSENT, the missing 0008 tables are reported and nothing is applied", async () => {
++      const r = await grants({ RUNTIME_ROLE: workerRole, RUNTIME_ROLE_READONLY_MEMBERSHIPS: reader });
++      expect(r.code).toBe(1); expect(r.stderr).toMatch(/manifest names table discovery_sources which does not exist/);
++    });
++    it("the provider membership is refused unless named, and a writer membership is refused even when named", async () => {
++      const r1 = await grants({ RUNTIME_ROLE: workerRole, RUNTIME_GRANTS_ALLOW_ABSENT: "true" });
++      expect(r1.code).toBe(1); expect(r1.stderr).toMatch(new RegExp(`is a member of ${reader}`));
++      const r2 = await grants({ RUNTIME_ROLE: writerUser, RUNTIME_ROLE_READONLY_MEMBERSHIPS: writer, RUNTIME_GRANTS_ALLOW_ABSENT: "true" });
++      expect(r2.code).toBe(1); expect(r2.stderr).toMatch(/not read-only: .*inherits pg_write_all_data.*can INSERT\/UPDATE\/DELETE/);
++    });
++    it("a dry run reports the change and leaves every privilege as it was", async () => {
++      const r = await grants({ RUNTIME_ROLE: workerRole, RUNTIME_ROLE_READONLY_MEMBERSHIPS: reader, RUNTIME_GRANTS_ALLOW_ABSENT: "true", RUNTIME_GRANTS_DRY_RUN: "true" });
++      expect(r.code).toBe(0); expect(r.stdout).toMatch(/DRY RUN: rolled back; nothing was changed/); expect(r.stdout).toMatch(/\+ workflow_steps:UPDATE/);
++      expect((await db.pool.query("SELECT has_table_privilege($1, 'workflow_steps', 'UPDATE') AS u", [workerRole])).rows[0].u).toBe(false);
++    });
++  });
++
++  describe("applied", () => {
++    let ownerBefore: string[];
++    const ownerPrivileges = async () => (await db.adminPool.query<{ x: string }>(
++      `SELECT c.relname || ':' || p AS x FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES']) p
++        WHERE n.nspname = 'public' AND c.relkind IN ('r','v') AND has_table_privilege(current_user, c.oid, p) ORDER BY 1`)).rows.map((r) => r.x);
++    beforeAll(async () => {
++      ownerBefore = await ownerPrivileges();
++      const r = await grants({ RUNTIME_ROLE: workerRole, RUNTIME_ROLE_READONLY_MEMBERSHIPS: reader, RUNTIME_GRANTS_ALLOW_ABSENT: "true" });
++      if (r.code !== 0) throw new Error(r.stderr);
++      expect(r.stdout).toMatch(new RegExp(`membership ${reader} tolerated: verified read-only`));
++      expect(r.stdout).toMatch(/skipped \(not present in this database/);
++    });
++
++    it("the owner (the API's role) keeps exactly the privileges it had, and the extension's monitoring view is left as it was", async () => {
++      expect(await ownerPrivileges()).toEqual(ownerBefore);
++      expect((await db.pool.query("SELECT has_table_privilege('public', 'pg_stat_monitor', 'SELECT') AS s")).rows[0].s).toBe(true);
++    });
++
++    it("the startup check passes for the worker role only with the named read-only membership, and fails for the owner", async () => {
++      expect(await assessConnectedRole(workerPool, "public", [reader])).toEqual({ ok: true, problems: [] });
++      expect((await assessConnectedRole(workerPool)).problems).toEqual([`role is a member of: ${reader}`]);
++      // Negative control: a user created with Fly's `writer` role fails the check even if its membership is named...
++      const writerPool = new pg.Pool({ connectionString: roleUrl(writerUser), max: 1 });
++      try {
++        const w = await assessConnectedRole(writerPool, "public", [writer]);
++        expect(w.ok).toBe(false); expect(w.problems.join(" ")).toMatch(/inherits pg_write_all_data/); expect(w.problems.join(" ")).toMatch(/role holds DELETE on \d+ relation/);
++        // ...and really could destroy what the worker role cannot touch (deleting the audit trail, which is append-only by privilege only).
++        await db.pool.query("INSERT INTO audit_events (actor, action, entity_type, entity_id, reason) VALUES ('r1-test', 'probe', 'probe', 'probe', 'negative control')");
++        expect((await writerPool.query("DELETE FROM audit_events WHERE actor = 'r1-test'")).rowCount).toBe(1);
++      } finally { await writerPool.end(); }
++      const owner = await assessConnectedRole(db.pool);
++      expect(owner.ok).toBe(false); expect(owner.problems.join(" ")).toMatch(/owns \d+ relation/);
++    });
++
++    it("the worker role runs the whole approved chain: create the run, acquire, seal, analyse, hypothesise, evaluate, build the dossier", async () => {
++      expect(inputSha256(APPROVED_INPUT)).toBe("ec58efb2ff321ca0ba8a7043484b2d1f22631199e360461b5c9c8f73cfdc22a4");
++      const other = await createRepositoryResearchRun(db.pool, { repository: "someone/else", ref: "main" }); // must never be touched
++      // Same shape as the approved input; the commit is the local fixture's (no network in tests).
++      const { runId } = await createRepositoryResearchRun(workerPool, { ...APPROVED_INPUT, ref: fx.commitSha }, "operator", { structuralAnalysis: true });
++      const worker = new WorkflowWorker(workerPool, "r1-worker", 120, 3);
++      const acq = (await worker.claimNext([ACQUIRE_STEP_KEY], runId))!;
++      expect(acq.workflow_run_id).toBe(runId);
++      await processAcquireRepositoryStep({ pool: workerPool, worker, workerId: "r1-worker", source: new FakeSource(fx) }, acq);
++      for (const key of ANALYSIS_STEP_KEYS) {
++        const s = (await worker.claimNext([key], runId))!; expect(s.step_key).toBe(key);
++        expect(await dispatchAnalysisStep({ pool: workerPool, worker, workerId: "r1-worker", heartbeatMs: 40 }, s)).toBe(true);
++      }
++      expect(await worker.claimNext([ACQUIRE_STEP_KEY], runId)).toBeNull();
++      const run = (await workerPool.query("SELECT status FROM workflow_runs WHERE id = $1", [runId])).rows[0];
++      expect(run.status).toBe("succeeded");
++      const n = async (sql: string) => Number((await workerPool.query(sql)).rows[0].n);
++      expect(await n("SELECT count(*) n FROM repo_snapshots WHERE sealed_at IS NOT NULL")).toBe(1);
++      expect(await n("SELECT count(*) n FROM hypotheses")).toBeGreaterThan(5);
++      expect(await n("SELECT count(*) n FROM hypothesis_evaluations")).toBeGreaterThan(5);
++      expect((await db.pool.query("SELECT status FROM workflow_steps WHERE workflow_run_id = $1", [other.runId])).rows[0].status).toBe("queued");
++    });
++
++    it("as the worker role, every way to modify or bypass protected evidence is refused, and the evidence is unchanged afterwards", async () => {
++      const fingerprint = async () => (await db.pool.query<{ h: string }>(
++        `SELECT md5(string_agg(t, '|' ORDER BY t)) AS h FROM (
++           SELECT 'snap:' || row_to_json(s)::text AS t FROM repo_snapshots s UNION ALL SELECT 'file:' || row_to_json(f)::text FROM repo_snapshot_files f
++           UNION ALL SELECT 'hyp:' || row_to_json(h)::text FROM hypotheses h UNION ALL SELECT 'eval:' || row_to_json(e)::text FROM hypothesis_evaluations e
++           UNION ALL SELECT 'span:' || row_to_json(x)::text FROM evidence_spans x UNION ALL SELECT 'blob:' || content_sha256 FROM research_blobs
++           UNION ALL SELECT 'audit:' || row_to_json(a)::text FROM audit_events a UNION ALL SELECT 'mig:' || name || checksum FROM schema_migrations) q`)).rows[0]!.h;
++      for (const t of ["repo_snapshots", "repo_snapshot_files", "hypotheses", "hypothesis_evaluations", "evidence_spans", "research_blobs", "audit_events"]) {
++        expect(Number((await db.pool.query(`SELECT count(*) AS n FROM ${t}`)).rows[0].n), `${t} must have rows, or an UPDATE could "succeed" by changing nothing`).toBeGreaterThan(0);
++      }
++      const before = await fingerprint();
++      const owner = (await db.pool.query<{ u: string }>("SELECT current_user AS u")).rows[0]!.u;
++      const attempts: Array<[string, RegExp]> = [
++        ["ALTER TABLE repo_snapshots DISABLE TRIGGER ALL", /must be owner/],
++        ["ALTER TABLE hypotheses DISABLE TRIGGER USER", /must be owner/],
++        ["ALTER TABLE hypothesis_evaluations DISABLE TRIGGER USER", /must be owner/],
++        ["SET session_replication_role = replica", /permission denied/],
++        ["UPDATE repo_snapshots SET commit_sha = repeat('0', 40)", /./],
++        ["UPDATE hypotheses SET claim = 'rewritten'", /./],
++        ["UPDATE hypothesis_evaluations SET rationale = 'rewritten'", /permission denied/],
++        ["UPDATE evidence_spans SET line_start = line_start", /permission denied/],
++        ["DELETE FROM hypotheses", /permission denied/],
++        ["DELETE FROM hypothesis_evaluations", /permission denied/],
++        ["DELETE FROM repo_snapshot_files", /permission denied/],
++        ["DELETE FROM research_blobs", /permission denied/],
++        ["DELETE FROM evidence_spans", /permission denied/],
++        ["DELETE FROM audit_events", /permission denied/],
++        ["TRUNCATE hypotheses", /permission denied/],
++        ["TRUNCATE audit_events", /permission denied/],
++        ["INSERT INTO schema_migrations (name, checksum) VALUES ('9999_x.sql', 'x')", /permission denied/],
++        ["UPDATE schema_migrations SET checksum = 'x'", /permission denied/],
++        ["DROP TABLE hypotheses", /must be owner/],
++        ["CREATE TABLE r1_probe (x int)", /permission denied/],
++        ["CREATE TEMP TABLE research_blobs (content_sha256 text)", /permission denied/],
++        ["CREATE OR REPLACE FUNCTION research_split_lines(t text) RETURNS text[] LANGUAGE sql AS 'SELECT ARRAY[]::text[]'", /must be owner|permission denied/],
++        ["SELECT evict_research_blob(content_sha256, 'r1 probe', 'worker') FROM research_blobs LIMIT 1", /permission denied/],
++        [`SET ROLE ${owner}`, /permission denied/],
++        [`ALTER ROLE ${workerRole} CREATEROLE`, /permission denied/],
++        ["COPY hypotheses TO PROGRAM 'cat'", /permission denied|must be superuser|pg_execute_server_program/],
++      ];
++      const outcomes: string[] = [];
++      for (const [sql, expected] of attempts) {
++        const c = await workerPool.connect();
++        try { await c.query(sql); outcomes.push(`ALLOWED: ${sql}`); }
++        catch (e) { const msg = (e as Error).message; if (!expected.test(msg)) outcomes.push(`unexpected error for ${sql}: ${msg}`); }
++        finally { c.release(); }
++      }
++      expect(outcomes).toEqual([]);
++      // PostgreSQL answers a GRANT by a non-owner with a WARNING ("no privileges were granted"), not an error: check the effect.
++      await workerPool.query(`GRANT DELETE, TRUNCATE, TRIGGER ON hypotheses TO ${workerRole}`).catch(() => undefined);
++      expect((await db.pool.query("SELECT has_table_privilege($1, 'hypotheses', 'DELETE') OR has_table_privilege($1, 'hypotheses', 'TRUNCATE') OR has_table_privilege($1, 'hypotheses', 'TRIGGER') AS any", [workerRole])).rows[0].any).toBe(false);
++      // Membership does not open a back door: switching to the provider read role still cannot write.
++      const c = await workerPool.connect();
++      try { await c.query(`SET ROLE ${reader}`); await expect(c.query("INSERT INTO audit_events (actor, action, entity_type, entity_id, reason) VALUES ('x','x','x', gen_random_uuid(), 'x')")).rejects.toThrow(/permission denied/); }
++      finally { await c.query("RESET ROLE").catch(() => undefined); c.release(); }
++      expect(await fingerprint()).toBe(before);
++    });
++
++    it("the worker process refuses to start as the owner when the restricted role is required, and claims nothing", async () => {
++      const { runId } = await createRepositoryResearchRun(db.pool, { repository: "x/y", ref: "main" });
++      const run = (env: Record<string, string>) => new Promise<{ code: number | null; out: string }>((resolve) => {
++        const child = spawn(`${REPO_ROOT}node_modules/.bin/tsx`, [`${REPO_ROOT}apps/api/src/worker-main.ts`], { cwd: REPO_ROOT, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...env }, stdio: ["ignore", "pipe", "pipe"] });
++        let out = ""; child.stdout.on("data", (d) => { out += d; }); child.stderr.on("data", (d) => { out += d; });
++        child.on("close", (code) => resolve({ code, out }));
++      });
++      const refused = await run({ WORKER_DATABASE_URL: db.url, HUB_REQUIRE_RESTRICTED_DB_ROLE: "true", WORKER_ONLY_RUN_ID: runId, WORKER_EXIT_WHEN_RUN_DONE: "true" });
++      expect(refused.code).toBe(78); expect(refused.out).toMatch(/worker_role_not_least_privilege/);
++      expect((await db.pool.query("SELECT status, attempt FROM workflow_steps WHERE workflow_run_id = $1", [runId])).rows[0]).toEqual({ status: "queued", attempt: 0 });
++      // As the restricted role, scoped to a run that is already finished: verified, scoped, exits cleanly without claiming anything.
++      await db.pool.query("UPDATE workflow_steps SET status = 'cancelled' WHERE workflow_run_id = $1", [runId]);
++      await db.pool.query("UPDATE workflow_runs SET status = 'cancelled' WHERE id = $1", [runId]);
++      const ok = await run({ WORKER_DATABASE_URL: workerUrl, HUB_REQUIRE_RESTRICTED_DB_ROLE: "true", RUNTIME_ROLE_READONLY_MEMBERSHIPS: reader, WORKER_ONLY_RUN_ID: runId, WORKER_EXIT_WHEN_RUN_DONE: "true", STRUCTURAL_ANALYSIS_ENABLED: "true" });
++      expect(ok.code).toBe(0);
++      expect(ok.out).toMatch(/worker_role_verified/); expect(ok.out).toMatch(/worker_scoped_to_run/); expect(ok.out).toMatch(/scoped_run_finished_exiting/);
++    });
++  });
++});
++
++describe("worker settings", () => {
++  it("parses R1 settings strictly", () => {
++    expect(workerSettings({ DATABASE_URL: "postgres://x" })).toEqual({ urlVariable: "DATABASE_URL", requireRestrictedRole: false, onlyRunId: null, exitWhenRunDone: false });
++    expect(workerSettings({ DATABASE_URL: "a", WORKER_DATABASE_URL: "b", HUB_REQUIRE_RESTRICTED_DB_ROLE: "true", WORKER_ONLY_RUN_ID: "11111111-1111-1111-1111-111111111111", WORKER_EXIT_WHEN_RUN_DONE: "true" }))
++      .toEqual({ urlVariable: "WORKER_DATABASE_URL", requireRestrictedRole: true, onlyRunId: "11111111-1111-1111-1111-111111111111", exitWhenRunDone: true });
++    expect(workerSettings({ DATABASE_URL: "a", HUB_REQUIRE_RESTRICTED_DB_ROLE: "TRUE" }).requireRestrictedRole).toBe(false);
++    expect(() => workerSettings({})).toThrow(/is required/);
++    expect(() => workerSettings({ DATABASE_URL: "a", WORKER_ONLY_RUN_ID: "nope" })).toThrow(/UUID/);
++    expect(() => workerSettings({ DATABASE_URL: "a", WORKER_EXIT_WHEN_RUN_DONE: "true" })).toThrow(/needs WORKER_ONLY_RUN_ID/);
++  });
++});
+diff --git a/apps/api/src/worker-main.ts b/apps/api/src/worker-main.ts
+index 0174bd0..0d398e1 100644
+--- a/apps/api/src/worker-main.ts
++++ b/apps/api/src/worker-main.ts
+@@ -1,23 +1,55 @@
+ import { Pool } from "pg";
+-import { config } from "./config.js";
+ import { buildPoolConfig, stderrWarning } from "./db-config.js";
++import { assessConnectedRole, readOnlyMembershipsFromEnv } from "./db-roles.js";
+ import { attachPoolErrorHandler, runIntakeWorker } from "./worker-runtime.js";
+ import { workerApplicationName } from "./engine-status.js";
++import { workerSettings } from "./worker-settings.js";
+ 
+-if (!config.databaseUrl) throw new Error("DATABASE_URL is required for the worker process");
+-
++/**
++ * The intake/research worker. R1 settings (all optional; with none set it behaves exactly as before):
++ * - WORKER_DATABASE_URL: the worker's own connection (the restricted runtime role). The API keeps DATABASE_URL unchanged.
++ * - HUB_REQUIRE_RESTRICTED_DB_ROLE=true: the role is checked BEFORE any step is claimed; a role that could disable triggers,
++ *   delete, truncate, own or create anything stops the worker with exit code 78 and nothing is claimed.
++ * - RUNTIME_ROLE_READONLY_MEMBERSHIPS=reader: tolerate that provider membership only after proving it read-only.
++ * - WORKER_ONLY_RUN_ID=<uuid>: claim steps of this run only. WORKER_EXIT_WHEN_RUN_DONE=true: exit once that run is finished.
++ */
++const s = workerSettings(process.env);
+ const workerId = `intake-${process.env.FLY_MACHINE_ID ?? process.env.HOSTNAME ?? "local"}`;
+ // The session name lets the Control Room see this worker while it is idle (no lease); it holds the worker id and the structural switch only.
+-const pool = new Pool(buildPoolConfig(process.env, { max: 3, onWarning: stderrWarning, applicationName: workerApplicationName(workerId, process.env) }));
+-
++const pool = new Pool(buildPoolConfig(process.env, { max: 3, onWarning: stderrWarning, urlVariable: s.urlVariable, applicationName: workerApplicationName(workerId, process.env) }));
+ attachPoolErrorHandler(pool);
++const log = (level: string, msg: string, extra: Record<string, unknown> = {}) => console.log(JSON.stringify({ level, msg, worker: workerId, ...extra }));
+ 
+ const controller = new AbortController();
+ process.once("SIGINT", () => controller.abort());
+ process.once("SIGTERM", () => controller.abort());
++let watcher: NodeJS.Timeout | undefined;
+ 
+ try {
+-  await runIntakeWorker(pool, workerId, controller.signal);
++  const role = await assessConnectedRole(pool, "public", readOnlyMembershipsFromEnv(process.env));
++  const who = (await pool.query<{ u: string }>("SELECT current_user AS u")).rows[0]!.u;
++  if (!role.ok) {
++    log(s.requireRestrictedRole ? "fatal" : "warn", "worker_role_not_least_privilege", { role: who, problems: role.problems });
++    if (s.requireRestrictedRole) { process.exitCode = 78; throw new Error("refusing to start: the database role is not least-privilege"); }
++  } else log("info", "worker_role_verified", { role: who, url_variable: s.urlVariable });
++  if (s.onlyRunId) {
++    const run = (await pool.query<{ status: string; workflow_type: string }>("SELECT status, workflow_type FROM workflow_runs WHERE id = $1", [s.onlyRunId])).rows[0];
++    if (!run) { process.exitCode = 66; throw new Error(`WORKER_ONLY_RUN_ID ${s.onlyRunId} does not exist`); }
++    log("info", "worker_scoped_to_run", { run: s.onlyRunId, workflow_type: run.workflow_type, status: run.status });
++    if (s.exitWhenRunDone) {
++      const check = async () => {
++        const st = (await pool.query<{ status: string }>("SELECT status FROM workflow_runs WHERE id = $1", [s.onlyRunId])).rows[0]?.status;
++        if (st && !["queued", "running"].includes(st)) { log("info", "scoped_run_finished_exiting", { run: s.onlyRunId, status: st }); controller.abort(); }
++      };
++      watcher = setInterval(() => { check().catch((e: unknown) => log("error", "run_status_check_failed", { error: e instanceof Error ? e.message : String(e) })); }, 5_000);
++      await check();
++    }
++  }
++  if (!controller.signal.aborted) await runIntakeWorker(pool, workerId, controller.signal, s.onlyRunId ? { onlyRunId: s.onlyRunId } : {});
++} catch (error) {
++  log("fatal", "worker_stopped", { error: error instanceof Error ? error.message : String(error) });
++  if (!process.exitCode) process.exitCode = 1;
+ } finally {
++  if (watcher) clearInterval(watcher);
+   await pool.end();
+ }
+diff --git a/apps/api/src/worker-runtime.ts b/apps/api/src/worker-runtime.ts
+index e585c1d..88167c4 100644
+--- a/apps/api/src/worker-runtime.ts
++++ b/apps/api/src/worker-runtime.ts
+@@ -1052,7 +1052,7 @@ export async function runIntakeWorker(
+   pool: Pool,
+   workerId: string,
+   signal: AbortSignal,
+-  options: WorkerLoopOptions | number = {},
++  options: (WorkerLoopOptions & { onlyRunId?: string }) | number = {},
+ ): Promise<void> {
+   const worker = new WorkflowWorker(pool, workerId);
+   const loopOptions = typeof options === "number" ? { pollMs: options } : options;
+@@ -1063,7 +1063,7 @@ export async function runIntakeWorker(
+   signal.addEventListener("abort", () => { if (scheduler) clearInterval(scheduler); }, { once: true });
+   await runWorkerLoop({
+     reapExhaustedLeases: () => worker.reapExhaustedLeases(),
+-    claimNext: () => worker.claimNext(intakeStepKeys(process.env)),
++    claimNext: () => worker.claimNext(intakeStepKeys(process.env), typeof options === "number" ? undefined : options.onlyRunId),
+     fail: (stepId, reason, retryable) => worker.fail(stepId, reason, retryable),
+     execute: (step) => dispatchIntakeStep(pool, worker, step, { workerId, source: new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) }) }),
+     maxAttempts: worker.maxAttempts,
+diff --git a/apps/api/src/worker-settings.ts b/apps/api/src/worker-settings.ts
+new file mode 100644
+index 0000000..faa676a
+--- /dev/null
++++ b/apps/api/src/worker-settings.ts
+@@ -0,0 +1,15 @@
++import type { UrlVariable } from "./db-config.js";
++
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++export type WorkerSettings = { urlVariable: UrlVariable; requireRestrictedRole: boolean; onlyRunId: string | null; exitWhenRunDone: boolean };
++
++/** Parses the worker's R1 settings; anything malformed is an error, never a silent default. Booleans must be exactly "true". */
++export function workerSettings(env: Record<string, string | undefined>): WorkerSettings {
++  const urlVariable: UrlVariable = env.WORKER_DATABASE_URL ? "WORKER_DATABASE_URL" : "DATABASE_URL";
++  if (!env[urlVariable]) throw new Error("WORKER_DATABASE_URL or DATABASE_URL is required for the worker process");
++  const onlyRunId = env.WORKER_ONLY_RUN_ID?.trim() || null;
++  if (onlyRunId && !UUID.test(onlyRunId)) throw new Error("WORKER_ONLY_RUN_ID must be a UUID");
++  const exitWhenRunDone = env.WORKER_EXIT_WHEN_RUN_DONE === "true";
++  if (exitWhenRunDone && !onlyRunId) throw new Error("WORKER_EXIT_WHEN_RUN_DONE needs WORKER_ONLY_RUN_ID");
++  return { urlVariable, requireRestrictedRole: env.HUB_REQUIRE_RESTRICTED_DB_ROLE === "true", onlyRunId, exitWhenRunDone };
++}
+diff --git a/apps/api/src/worker.ts b/apps/api/src/worker.ts
+index 458f222..f221682 100644
+--- a/apps/api/src/worker.ts
++++ b/apps/api/src/worker.ts
+@@ -25,7 +25,8 @@ export class WorkflowWorker {
+     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error("maxAttempts must be positive");
+   }
+ 
+-  async claimNext(allowedStepKeys?: readonly string[]): Promise<ClaimedStep | null> {
++  /** `onlyRunId` limits the claim to one run (R1: a temporary worker executes exactly the run it was started for). */
++  async claimNext(allowedStepKeys?: readonly string[], onlyRunId?: string): Promise<ClaimedStep | null> {
+     if (allowedStepKeys && allowedStepKeys.length === 0) return null;
+     const client = await this.pool.connect();
+     try {
+@@ -42,6 +43,7 @@ export class WorkflowWorker {
+              )
+              AND s.attempt < $3
+              AND ($4::text[] IS NULL OR s.step_key = ANY($4::text[]))
++             AND ($5::uuid IS NULL OR s.workflow_run_id = $5::uuid)
+              AND NOT EXISTS (
+                SELECT 1 FROM workflow_steps prior
+                WHERE prior.workflow_run_id = s.workflow_run_id
+@@ -63,7 +65,7 @@ export class WorkflowWorker {
+          RETURNING s.id, s.workflow_run_id, s.step_key, s.sequence, s.role,
+                    s.attempt, s.input,
+                    (SELECT r.correlation_id FROM workflow_runs r WHERE r.id = s.workflow_run_id) AS correlation_id`,
+-        [this.workerId, this.leaseSeconds, this.maxAttempts, allowedStepKeys ? [...allowedStepKeys] : null],
++        [this.workerId, this.leaseSeconds, this.maxAttempts, allowedStepKeys ? [...allowedStepKeys] : null, onlyRunId ?? null],
+       );
+       if (!claimed.rowCount) {
+         await client.query("COMMIT");
+diff --git a/scripts/apply-runtime-grants.ts b/scripts/apply-runtime-grants.ts
+index fd1cdef..9839c05 100644
+--- a/scripts/apply-runtime-grants.ts
++++ b/scripts/apply-runtime-grants.ts
+@@ -2,13 +2,23 @@ import { join } from "node:path";
+ import pg from "pg";
+ import { assertMigrationTarget } from "../apps/api/src/db-safety.js";
+ import { buildPoolConfig, selectMigrationUrl, stderrWarning } from "../apps/api/src/db-config.js";
+-import { assertRoleName, loadManifest, manifestCatalogProblems } from "../apps/api/src/db-roles.js";
++import { assertRoleName, loadManifest, manifestCatalogProblems, readOnlyMembershipsFromEnv, readOnlyRoleProblems } from "../apps/api/src/db-roles.js";
+ 
+ /**
+  * Applies db/runtime-grants.json to an EXISTING login role, as the owner/migration role (DIRECT_DATABASE_URL).
+  * It creates no role and changes no password: role creation is a separate, explicit operator step (docs/db-roles.md).
+  * Idempotent: it first revokes everything the role holds in the schema, then grants exactly the manifest.
++ *
++ * R1 options (all explicit, all reported):
++ * - RUNTIME_ROLE_READONLY_MEMBERSHIPS=reader: tolerate membership in these roles ONLY after proving them read-only (Fly Managed
++ *   Postgres users are always members of a provider role; `reader` is pg_read_all_data). Any other membership is still refused.
++ * - RUNTIME_GRANTS_ALLOW_ABSENT=true: manifest tables and functions that do not exist in this database (their migration is not
++ *   applied, e.g. 0008 in production) are listed and skipped. A table or function that exists but is NOT in the manifest still fails.
++ * - RUNTIME_GRANTS_DRY_RUN=true: do everything inside the transaction, print the privilege changes, then ROLL BACK.
+  */
++const allowedMemberships = readOnlyMembershipsFromEnv(process.env);
++const allowAbsent = process.env.RUNTIME_GRANTS_ALLOW_ABSENT === "true";
++const dryRun = process.env.RUNTIME_GRANTS_DRY_RUN === "true";
+ const url = selectMigrationUrl(process.env);
+ assertMigrationTarget(url, process.env.MIGRATE_CONFIRM_REMOTE_HOST);
+ const role = assertRoleName(process.env.RUNTIME_ROLE);
+@@ -20,8 +30,12 @@ try {
+   const client = await pool.connect();
+   try {
+     const dbName = (await client.query<{ d: string }>("SELECT current_database() AS d")).rows[0]!.d;
+-    const problems = await manifestCatalogProblems(client, manifest);
++    const all = await manifestCatalogProblems(client, manifest);
++    const absent = all.filter((p) => /^manifest names (table|function) \S+ which does not exist$/.test(p));
++    const problems = allowAbsent ? all.filter((p) => !absent.includes(p)) : all;
+     if (problems.length) throw new Error(`grants manifest does not match the database:\n - ${problems.join("\n - ")}`);
++    if (absent.length) console.log(`skipped (not present in this database; RUNTIME_GRANTS_ALLOW_ABSENT=true):\n - ${absent.join("\n - ")}`);
++    const existingTables = new Set((await client.query<{ t: string }>("SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1", [manifest.schema])).rows.map((r) => r.t));
+     const r = (await client.query<{ rolsuper: boolean; rolcreaterole: boolean; rolcreatedb: boolean; rolreplication: boolean; rolbypassrls: boolean; rolcanlogin: boolean }>(
+       "SELECT rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname = $1", [role])).rows[0];
+     if (!r) throw new Error(`role ${role} does not exist; create it first (see docs/db-roles.md)`);
+@@ -32,7 +46,12 @@ try {
+     if (owned > 0) throw new Error(`role ${role} owns ${owned} object(s) in ${manifest.schema}; an owner cannot be a least-privilege role`);
+     const memberOf = (await client.query<{ r: string }>(
+       "SELECT g.rolname AS r FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = $1", [role])).rows.map((x) => x.r);
+-    if (memberOf.length) throw new Error(`role ${role} is a member of ${memberOf.join(", ")}; membership can carry privileges this script cannot revoke`);
++    const notAllowed = memberOf.filter((m) => !allowedMemberships.includes(m));
++    if (notAllowed.length) throw new Error(`role ${role} is a member of ${notAllowed.join(", ")}; membership can carry privileges this script cannot revoke`);
++    const privsOf = async () => (await client.query<{ t: string; p: string }>(
++      `SELECT c.relname AS t, p FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES']) p
++        WHERE n.nspname = $2 AND c.relkind IN ('r','p','v','m') AND has_table_privilege($1, c.oid, p) ORDER BY 1, 2`, [role, manifest.schema])).rows.map((r) => `${r.t}:${r.p}`);
++    const before = await privsOf();
+     const schema = q(manifest.schema);
+     await client.query("BEGIN");
+     await client.query(`REVOKE ALL ON ALL TABLES IN SCHEMA ${schema} FROM ${q(role)}`);
+@@ -41,17 +60,30 @@ try {
+     await client.query(`REVOKE ALL ON SCHEMA ${schema} FROM ${q(role)}`);
+     // Defaults that would otherwise leak authority to every role: no CREATE in the schema, and functions are not callable by default.
+     await client.query(`REVOKE CREATE ON SCHEMA ${schema} FROM PUBLIC`);
+-    await client.query(`REVOKE ALL ON ALL FUNCTIONS IN SCHEMA ${schema} FROM PUBLIC`);
+-    await client.query(`REVOKE ALL ON ALL TABLES IN SCHEMA ${schema} FROM PUBLIC`);
+-    await client.query(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA ${schema} FROM PUBLIC`);
++    // Application objects only: objects that belong to an extension (pgcrypto's functions, a provider's monitoring view such as
++    // pg_stat_monitor on Fly Managed Postgres) are the extension's, not ours, and are left exactly as they are.
++    const appRels = await client.query<{ n: string; k: string }>(
++      `SELECT c.relname AS n, c.relkind AS k FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
++        WHERE ns.nspname = $1 AND c.relkind IN ('r','p','v','m','S') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')`, [manifest.schema]);
++    for (const r of appRels.rows) await client.query(`REVOKE ALL ON ${r.k === "S" ? "SEQUENCE" : "TABLE"} ${schema}.${q(r.n)} FROM PUBLIC`);
++    const appFns = await client.query<{ sig: string }>(
++      `SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
++        WHERE n.nspname = $1 AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')`, [manifest.schema]);
++    for (const f of appFns.rows) await client.query(`REVOKE ALL ON FUNCTION ${f.sig} FROM PUBLIC`);
+     // Temp tables are searched BEFORE the schema for unqualified relation names: with TEMP available, a session could shadow
+     // research_blobs, repo_snapshots, ... and make the guard functions validate forged data. Remove the privilege, and pin the
+     // search_path of every application function (below) so shadowing fails even if TEMP is later granted back.
+     await client.query(`REVOKE TEMPORARY ON DATABASE ${q(dbName)} FROM PUBLIC`);
+     await client.query(`REVOKE TEMPORARY, CREATE ON DATABASE ${q(dbName)} FROM ${q(role)}`);
++    // Memberships are verified on the state this transaction leaves (after the PUBLIC revocations above); failure rolls everything back.
++    for (const m of memberOf) {
++      const p = await readOnlyRoleProblems(client, m, manifest.schema);
++      if (p.length) throw new Error(`role ${role} is a member of ${m}, which is not read-only: ${p.join("; ")}`);
++      console.log(`membership ${m} tolerated: verified read-only (inherits only pg_read_all_data or nothing; no write, create, temp or ownership)`);
++    }
+     await client.query(`GRANT USAGE ON SCHEMA ${schema} TO ${q(role)}`);
+     for (const [table, privs] of Object.entries(manifest.tables)) {
+-      if (privs.length) await client.query(`GRANT ${privs.join(", ")} ON TABLE ${schema}.${q(table)} TO ${q(role)}`);
++      if (privs.length && existingTables.has(table)) await client.query(`GRANT ${privs.join(", ")} ON TABLE ${schema}.${q(table)} TO ${q(role)}`);
+     }
+     await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${schema} TO ${q(role)}`);
+     const fns = await client.query<{ sig: string; name: string }>(
+@@ -61,10 +93,15 @@ try {
+       `SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = $1 AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')`, [manifest.schema]);
+     for (const f of allFns.rows) await client.query(`ALTER FUNCTION ${f.sig} SET search_path = ${schema}, pg_temp`);
+-    await client.query("COMMIT");
++    const after = await privsOf();
++    const added = after.filter((x) => !before.includes(x)); const removed = before.filter((x) => !after.includes(x));
++    console.log(`effective privileges of ${role}: ${before.length} before, ${after.length} after; added ${added.length}, removed ${removed.length}`);
++    if (process.env.RUNTIME_GRANTS_VERBOSE === "true" || dryRun) { for (const x of added) console.log(`  + ${x}`); for (const x of removed) console.log(`  - ${x}`); }
++    await client.query(dryRun ? "ROLLBACK" : "COMMIT");
++    if (dryRun) console.log("DRY RUN: rolled back; nothing was changed");
+     const stillTemp = (await client.query<{ h: boolean }>("SELECT has_database_privilege($1, current_database(), 'TEMP') AS h", [role])).rows[0]!.h;
+     if (stillTemp) console.error(`WARNING: ${role} still has TEMPORARY on the database (this user may not own the database); the pinned search_path is the remaining defence, and the startup role check will report it`);
+-    console.log(`applied runtime grants to role ${role}: ${Object.values(manifest.tables).filter((p) => p.length).length} tables, ${manifest.functions_executable.length} functions`);
++    if (!dryRun) console.log(`applied runtime grants to role ${role}: ${Object.values(manifest.tables).filter((p) => p.length).length} tables, ${manifest.functions_executable.length} functions`);
+   } catch (error) {
+     await client.query("ROLLBACK").catch(() => undefined);
+     throw error;
+-- 
+2.43.0
+

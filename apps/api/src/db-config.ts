@@ -2,7 +2,7 @@ import type { PoolConfig } from "pg";
 import { isLoopbackHost, parseDatabaseTarget } from "./db-safety.js";
 
 type Env = Record<string, string | undefined>;
-export type UrlVariable = "DATABASE_URL" | "DIRECT_DATABASE_URL";
+export type UrlVariable = "DATABASE_URL" | "DIRECT_DATABASE_URL" | "WORKER_DATABASE_URL";
 
 const MIN_CONNECT_TIMEOUT_MS = 1_000;
 const MAX_CONNECT_TIMEOUT_MS = 60_000;

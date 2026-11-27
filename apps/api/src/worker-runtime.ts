@@ -1056,7 +1056,7 @@ export async function runIntakeWorker(
   pool: Pool,
   workerId: string,
   signal: AbortSignal,
-  options: WorkerLoopOptions | number = {},
+  options: (WorkerLoopOptions & { onlyRunId?: string }) | number = {},
 ): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
   const loopOptions = typeof options === "number" ? { pollMs: options } : options;
@@ -1067,7 +1067,7 @@ export async function runIntakeWorker(
   signal.addEventListener("abort", () => { if (scheduler) clearInterval(scheduler); }, { once: true });
   await runWorkerLoop({
     reapExhaustedLeases: () => worker.reapExhaustedLeases(),
-    claimNext: () => worker.claimNext(intakeStepKeys(process.env)),
+    claimNext: () => worker.claimNext(intakeStepKeys(process.env), typeof options === "number" ? undefined : options.onlyRunId),
     fail: (stepId, reason, retryable) => worker.fail(stepId, reason, retryable),
     execute: (step) => dispatchIntakeStep(pool, worker, step, { workerId, source: new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) }) }),
     maxAttempts: worker.maxAttempts,

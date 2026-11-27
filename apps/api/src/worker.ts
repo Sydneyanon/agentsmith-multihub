@@ -25,7 +25,7 @@ export class WorkflowWorker {
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error("maxAttempts must be positive");
   }
 
-  /** `onlyRunId` limits the claim to one run (the operator CLI executes exactly the assignment it was asked to). */
+  /** `onlyRunId` limits the claim to one run (the operator CLI and R1's temporary worker execute exactly the run they were given). */
   async claimNext(allowedStepKeys?: readonly string[], onlyRunId?: string): Promise<ClaimedStep | null> {
     if (allowedStepKeys && allowedStepKeys.length === 0) return null;
     const client = await this.pool.connect();
