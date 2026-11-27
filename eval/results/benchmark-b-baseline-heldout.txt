@@ -1,0 +1,15 @@
+## structural-analyzer on eval/heldout/contracts
+labels: 47; findings: 18; reproducible across file order: true; findings in unlabelled functions (unscored): 0
+TOTAL tp=18 fp=0 fn=0 tn=29 precision=1 recall=1; key line exact 17/18, within 2 lines 18/18
+  reentrancy      tp=4 fp=0 fn=0 tn=5 precision=1 recall=1
+  access-control  tp=6 fp=0 fn=0 tn=8 precision=1 recall=1
+  tx-origin       tp=1 fp=0 fn=0 tn=2 precision=1 recall=1
+  initializer     tp=2 fp=0 fn=0 tn=3 precision=1 recall=1
+  delegatecall    tp=2 fp=0 fn=0 tn=4 precision=1 recall=1
+  unchecked-call  tp=2 fp=0 fn=0 tn=4 precision=1 recall=1
+  selfdestruct    tp=1 fp=0 fn=0 tn=3 precision=1 recall=1
+REENTRANCY VALIDATION (execution):
+  contracts/ReentBankA.sol:redeem -> refuted (label vulnerable=true) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: shares[ms
+  contracts/ReentHelperA.sol:withdraw -> refuted (label vulnerable=true) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: funds[msg
+  contracts/ReentRewardsA.sol:claim -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering c
+  contracts/ReentVaultA.sol:withdraw -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering w
