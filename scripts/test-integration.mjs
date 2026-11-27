@@ -8,7 +8,7 @@ if (!process.env.TEST_DATABASE_URL) {
     "Point it at a disposable local Postgres, e.g. postgres://user@127.0.0.1:5432/postgres");
   process.exit(2);
 }
-const result = spawnSync("npx", ["vitest", "run", "integration"], {
+const result = spawnSync("npx", ["vitest", "run", "integration", "--exclude", ".claude/**"], {
   stdio: "inherit",
   env: { ...process.env, REQUIRE_INTEGRATION: "1" },
 });

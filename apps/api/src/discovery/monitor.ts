@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { outboundFetch } from "../net/outbound.js";
+import { githubApiAuthHeader } from "../net/github-auth.js";
 import { orgReposUrl, parseOrgRepos } from "./github-org.js";
 import { scoreOpportunity } from "./priority.js";
 import { DiscoveryError, githubOrgConfigSchema, GITHUB_API_ORIGIN, type NormalizedOpportunity } from "./types.js";
@@ -90,7 +91,7 @@ export async function monitorSource(options: MonitorOptions): Promise<MonitorRes
   try {
     response = await (options.fetcher ?? outboundFetch)(url, {
       method: "GET", redirect: "manual", signal: AbortSignal.timeout(options.timeoutMs ?? 15_000),
-      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "AgentSmith-MultiHub-discovery/0.1", ...(src.etag ? { "if-none-match": src.etag } : {}) },
+      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "AgentSmith-MultiHub-discovery/0.1", ...githubApiAuthHeader(), ...(src.etag ? { "if-none-match": src.etag } : {}) },
     });
   } catch (error) {
     const name = (error as { name?: string }).name;

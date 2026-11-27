@@ -19,7 +19,7 @@ import type { GitFixture } from "../apps/api/src/acquisition/testing/git-fixture
 import type { TreeEntry } from "../apps/api/src/acquisition/github-source.js";
 import { join } from "node:path";
 import { acquireRepository } from "../apps/api/src/acquisition/acquire.js";
-import { GitHubSource, type RepositorySource } from "../apps/api/src/acquisition/github-source.js";
+import { githubSourceFromEnv, type RepositorySource } from "../apps/api/src/acquisition/github-source.js";
 import { FakeSource } from "../apps/api/src/acquisition/testing/fake-source.js";
 import { buildGitFixture } from "../apps/api/src/acquisition/testing/git-fixture.js";
 import { buildDossier, renderDossierMarkdown, runChallenge, runStructuralAnalysis } from "../apps/api/src/analysis/solidity/pipeline.js";
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     console.log(`PASSIVE analysis of ${repository} at pinned commit ${ref} from a read-only clone (archive and tree produced by git from that commit; GitHub API not used); nothing from the repository is executed.`);
   } else {
     console.log(`PASSIVE read of ${target} at ${ref}: hosts api.github.com and codeload.github.com only; nothing from the repository is executed.`);
-    source = new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) });
+    source = githubSourceFromEnv();
   }
   const db = await migratedTestDatabase(); const t0 = Date.now();
   try {

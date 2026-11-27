@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import pg, { type Pool, type PoolClient } from "pg";
 import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep } from "../acquisition/step.js";
-import { GitHubSource, type RepositorySource } from "../acquisition/github-source.js";
+import { githubSourceFromEnv, type RepositorySource } from "../acquisition/github-source.js";
 import { ResearchStore } from "../research-state.js";
 import { WorkflowWorker } from "../worker.js";
 import { POLICY_SHA256, RESEARCH_POLICY_V0 } from "./decisions.js";
@@ -437,7 +437,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         let source: RepositorySource | undefined;
         if (pending.some((s) => s.step_key === ACQUIRE_STEP_KEY)) {
           if (a.flags["allow-network"] !== true) throw new Refusal("acquisition needs --allow-network (it reads one public repository from GitHub); nothing was executed");
-          source = (io.sourceFactory ?? (() => new GitHubSource({})))();
+          source = (io.sourceFactory ?? (() => githubSourceFromEnv()))();
         }
         const workerId = `loop-cli-${process.pid}`; const worker = new WorkflowWorker(p, workerId, 600, 1);
         const done: Array<{ step: string; status: string }> = [];

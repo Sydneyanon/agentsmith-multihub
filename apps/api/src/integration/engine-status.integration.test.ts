@@ -29,7 +29,10 @@ describe.skipIf(skipIntegration)("GET /v1/engine/status over real Postgres (CR2)
     return r.rows[0]!.id;
   };
 
+  // Hermetic: the ambient GITHUB_TOKEN (whatever this machine has) must not change the engine state these tests assert.
+  const savedGitHubToken = process.env.GITHUB_TOKEN;
   beforeAll(async () => {
+    delete process.env.GITHUB_TOKEN;
     assertIntegrationConfigured();
     db = await migratedTestDatabase();
     app = Fastify({ logger: false });
@@ -37,7 +40,24 @@ describe.skipIf(skipIntegration)("GET /v1/engine/status over real Postgres (CR2)
     registerEngineStatusRoutes(app, db.pool, { build: { commit: null, image: null, built_at: null, source: "none" }, dataKind: "test", expectedMigrations: expectedMigrations() });
     await app.ready();
   });
-  afterAll(async () => { await app?.close(); await worker?.end(); await db?.drop(); });
+  afterAll(async () => { if (savedGitHubToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = savedGitHubToken; await app?.close(); await worker?.end(); await db?.drop(); });
+
+  it("reports the GitHub auth mode, never the token; a malformed secret is an attention reason and is not used", async () => {
+    const token = "github_pat_" + "Z".repeat(82);
+    try {
+      process.env.GITHUB_TOKEN = token;
+      const ok = await status();
+      expect(ok.body.github).toMatchObject({ mode: "authenticated", problem: null });
+      expect(ok.raw).not.toContain(token);
+      process.env.GITHUB_TOKEN = `${token}\n`;
+      const bad = await status();
+      expect(bad.body.github.mode).toBe("misconfigured");
+      expect(bad.body.engine.state).toBe("attention");
+      expect(bad.body.engine.reasons.join(" ")).toMatch(/GITHUB_TOKEN is set but is not used/);
+      expect(bad.raw).not.toContain(token);
+    } finally { delete process.env.GITHUB_TOKEN; }
+    expect((await status()).body.github).toMatchObject({ mode: "unauthenticated", problem: null });
+  });
 
   it("an empty database is idle: no runs, no worker, nothing queued, schema complete, every stage empty or not built", async () => {
     const { body } = await status();

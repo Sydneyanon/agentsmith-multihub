@@ -5,11 +5,14 @@ import { httpStatusError } from "../step-errors.js";
 import { AcquisitionError } from "./errors.js";
 import { resolveLimits, type AcquisitionLimits } from "./limits.js";
 import { escapeForReport } from "./paths.js";
+import { readGitHubAuth } from "../net/github-auth.js";
 
 export type RepositoryIdentity = { repositoryId: number; fullName: string; defaultBranch: string; archived: boolean; fork: boolean };
 export type ResolvedCommit = { commitSha: string; treeSha: string };
 export type TreeEntry = { path: string; mode: string; type: "blob" | "tree" | "commit"; sha: string; size?: number };
 export type GitTree = { sha: string; truncated: boolean; entries: TreeEntry[] };
+/** GitHub's rate-limit headers from the latest API response (no values from the request: never the token). */
+export type RateLimitObservation = { limit: number | null; remaining: number | null; resetEpoch: number | null; resource: string | null; observedAt: string };
 export type OpenedArchive = { body: AsyncIterable<Uint8Array>; finalHost: string };
 
 /** What the acquisition needs from a hosting service. The real one talks to GitHub; tests supply a fake built from a real local git repository. */
@@ -92,6 +95,12 @@ export class GitHubSource implements RepositorySource {
   private readonly apiOrigin: string;
   private readonly allowedOrigins: Set<string>;
   private readonly timeoutMs: number;
+  private lastRate: RateLimitObservation | null = null;
+
+  /** Whether this source sends a token (never the token itself). */
+  get authenticated(): boolean { return Boolean(this.options.token); }
+  /** The latest rate-limit headers GitHub returned, for reports and backoff decisions. */
+  get rateLimit(): RateLimitObservation | null { return this.lastRate; }
 
   constructor(private readonly options: GitHubSourceOptions = {}) {
     this.limits = resolveLimits(options.limits);
@@ -137,6 +146,7 @@ export class GitHubSource implements RepositorySource {
       } finally {
         clearTimeout(timer);
       }
+      if (url.origin === this.apiOrigin) this.observeRate(response);
       if (response.status >= 300 && response.status < 400 && response.status !== 304) {
         const location = response.headers.get("location");
         await response.body?.cancel().catch(() => undefined);
@@ -150,6 +160,13 @@ export class GitHubSource implements RepositorySource {
     throw new AcquisitionError("redirect_refused", `more than ${this.limits.maxRedirects} redirects`);
   }
 
+  private observeRate(response: Response): void {
+    const n = (h: string) => { const v = response.headers.get(h); return v !== null && /^\d+$/.test(v) ? Number(v) : null; };
+    if (response.headers.get("x-ratelimit-limit") === null && response.headers.get("x-ratelimit-remaining") === null) return;
+    const resource = response.headers.get("x-ratelimit-resource");
+    this.lastRate = { limit: n("x-ratelimit-limit"), remaining: n("x-ratelimit-remaining"), resetEpoch: n("x-ratelimit-reset"), resource: resource && /^[a-z_]{1,40}$/.test(resource) ? resource : null, observedAt: new Date().toISOString() };
+  }
+
   private networkError(error: unknown, signal?: AbortSignal): AcquisitionError {
     if (error instanceof AcquisitionError) return error;
     if (signal?.aborted) return new AcquisitionError("timeout", "the acquisition was cancelled or ran out of time", true);
@@ -161,7 +178,15 @@ export class GitHubSource implements RepositorySource {
   private failure(label: string, response: Response, notFound: "repository_not_found" | "commit_unavailable" = "repository_not_found"): AcquisitionError {
     const base = httpStatusError(label, response);
     if (response.status === 404) return new AcquisitionError(notFound, `${label} was not found (it may not exist, or it is not public)`);
+    // 401: the token itself was refused (expired, revoked or wrong). Permanent until an operator fixes the secret; never retried.
+    if (response.status === 401) return new AcquisitionError("auth_failed", this.options.token
+      ? `GitHub refused the configured token for ${label} (HTTP 401): it may be expired, revoked or mistyped; fix the GITHUB_TOKEN secret`
+      : `GitHub requires authentication for ${label} (HTTP 401)`);
+    // 403 that is not a rate limit (rate limits are classified by httpStatusError as retryable with a wait): access refused by policy.
+    if (response.status === 403 && !base.retryable) return new AcquisitionError("access_denied", `GitHub refused access to ${label} (HTTP 403)${this.options.token ? ": the token may not cover public repositories, or an organisation policy blocks it" : ""}`);
     if (response.status === 422 && notFound === "commit_unavailable") return new AcquisitionError("commit_unavailable", `${label} does not resolve to a commit`);
+    if ((response.status === 403 || response.status === 429) && base.retryable)
+      return new AcquisitionError("upstream_http", `${base.message}: GitHub rate limit reached (${this.options.token ? "authenticated" : "unauthenticated: 60 requests/hour; configure GITHUB_TOKEN"})${base.retryAfterSeconds ? `; retry after ${base.retryAfterSeconds} s` : ""}`, true, base.retryAfterSeconds, { rate_limit: this.lastRate });
     return new AcquisitionError("upstream_http", base.message, base.retryable, base.retryAfterSeconds);
   }
 
@@ -182,6 +207,14 @@ export class GitHubSource implements RepositorySource {
     const result = schema.safeParse(parsed);
     if (!result.success) throw new AcquisitionError("unexpected_response", `${label} does not have the expected shape`, false, undefined, { issues: result.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`) });
     return result.data;
+  }
+
+  /** GET /rate_limit: GitHub documents that this call does not count against the primary rate limit. Used by the live check. */
+  async rateLimitStatus(signal?: AbortSignal): Promise<{ core: { limit: number; remaining: number; reset: number } }> {
+    const response = await this.request(`${this.apiOrigin}/rate_limit`, "application/vnd.github+json", signal);
+    if (!response.ok) throw this.failure("the rate-limit status", response);
+    const schema = z.object({ resources: z.object({ core: z.object({ limit: z.number().int(), remaining: z.number().int(), reset: z.number().int() }) }) });
+    return { core: (await this.readJson(response, schema, "the rate-limit response")).resources.core };
   }
 
   async getRepository(owner: string, repo: string, signal?: AbortSignal): Promise<RepositoryIdentity> {
@@ -228,4 +261,13 @@ export class GitHubSource implements RepositorySource {
       })(),
     };
   }
+}
+
+/**
+ * The GitHub source every production path uses (worker acquisition, enrichment verification, repository monitoring, the operator CLI,
+ * the live check). The token, if configured and well-formed, comes from github-auth.ts; a misconfigured value is never sent.
+ */
+export function githubSourceFromEnv(env: NodeJS.ProcessEnv = process.env, options: Omit<GitHubSourceOptions, "token"> = {}): GitHubSource {
+  const auth = readGitHubAuth(env);
+  return new GitHubSource({ ...options, ...(auth.token ? { token: auth.token } : {}) });
 }

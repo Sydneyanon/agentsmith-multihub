@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { buildPoolConfig, stderrWarning } from "../db-config.js";
-import { GitHubSource } from "../acquisition/github-source.js";
+import { githubSourceFromEnv } from "../acquisition/github-source.js";
 import { monitorRepositories } from "./monitor.js";
 
 /**
@@ -21,7 +21,7 @@ const pool = new Pool(buildPoolConfig(process.env, { max: 4, onWarning: stderrWa
 pool.on("error", (e) => console.error(JSON.stringify({ level: "error", msg: "idle_database_connection_error", error: e.message })));
 try {
   const maxArg = flag("--max");
-  const source = new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) });
+  const source = githubSourceFromEnv();
   const r = await monitorRepositories(pool, { source }, { ...(maxArg ? { maxRescans: Number(maxArg) } : {}), structuralAnalysis: args.includes("--structural") });
   console.log(JSON.stringify({ level: "info", msg: "repo_monitor_finished", checked: r.checked, queued: r.queued, up_to_date: r.up_to_date,
     already_queued: r.already_queued, unavailable: r.unavailable, errors: r.errors, skipped_cap: r.skipped_cap }));

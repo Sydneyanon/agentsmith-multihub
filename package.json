@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.build.json && tsc -p apps/web/tsconfig.json && node scripts/copy-web.mjs",
     "start": "node dist/apps/api/src/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web/tsconfig.test.json",
-    "test": "vitest run --exclude '**/*.integration.test.ts'",
+    "test": "vitest run --exclude '**/*.integration.test.ts' --exclude '.claude/**'",
     "test:integration": "node scripts/test-integration.mjs",
     "test:integration:restricted": "TEST_RUNTIME_ROLE=1 node scripts/test-integration.mjs",
     "db:migrate": "node dist/scripts/migrate.js",

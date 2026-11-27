@@ -3,12 +3,13 @@ import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext
 import { ANALYSIS_STEP_KEYS, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
 import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
 import { dispatchEngineStep, ENGINE_LOOP_SWITCH, ENGINE_STEP_KEYS } from "./engine/steps.js";
-import { GitHubSource, type RepositorySource } from "./acquisition/github-source.js";
+import { githubSourceFromEnv, type RepositorySource } from "./acquisition/github-source.js";
 import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
 import { resolveSourceReference } from "./source-resolver.js";
 import { outboundFetch } from "./net/outbound.js";
+import { githubApiAuthHeader } from "./net/github-auth.js";
 import { MONITOR_STEP_KEY, ensureDueMonitorRuns, processMonitorSourceStep } from "./discovery/step.js";
 import { LeaseLostError, httpStatusError } from "./step-errors.js";
 import { defaultLog, runWorkerLoop, type LogFn, type WorkerLoopOptions } from "./worker-loop.js";
@@ -128,6 +129,7 @@ export async function processProjectIdentification(worker: WorkflowWorker, step:
       accept: "application/vnd.github+json",
       "x-github-api-version": "2022-11-28",
       "user-agent": "AgentSmith-MultiHub/0.1",
+      ...githubApiAuthHeader(), // api.github.com only (both callers use fixed api.github.com URLs; redirects are refused)
     },
     signal: AbortSignal.timeout(8_000),
   });
@@ -267,6 +269,7 @@ async function githubGet(url: string, maxBytes: number): Promise<{ response: Res
       accept: "application/vnd.github+json",
       "x-github-api-version": "2022-11-28",
       "user-agent": "AgentSmith-MultiHub/0.1",
+      ...(new URL(url).origin === "https://api.github.com" ? githubApiAuthHeader() : {}), // api.github.com only (both callers use fixed api.github.com URLs; redirects are refused)
     },
     signal: AbortSignal.timeout(10_000),
   });
@@ -1060,7 +1063,7 @@ export async function runIntakeWorker(
   options: (WorkerLoopOptions & { onlyRunId?: string; source?: RepositorySource }) | number = {},
 ): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
-  const source = (typeof options === "number" ? undefined : options.source) ?? new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) });
+  const source = (typeof options === "number" ? undefined : options.source) ?? githubSourceFromEnv();
   const loopOptions = typeof options === "number" ? { pollMs: options } : options;
   // Discovery is double-gated: this switch AND at least one source a human has enabled. With either off, nothing is ever fetched.
   const scheduler = process.env.DISCOVERY_ENABLED === "true"

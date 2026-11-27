@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { buildPoolConfig, stderrWarning } from "../db-config.js";
-import { GitHubSource } from "../acquisition/github-source.js";
+import { githubSourceFromEnv } from "../acquisition/github-source.js";
 import { createHttpGet } from "./http.js";
 import { enrichEligibleProgrammes } from "./enrich.js";
 
@@ -20,7 +20,7 @@ const pool = new Pool(buildPoolConfig(process.env, { max: 4, onWarning: stderrWa
 pool.on("error", (e) => console.error(JSON.stringify({ level: "error", msg: "idle_database_connection_error", error: e.message })));
 try {
   const maxArg = flag("--max");
-  const deps = { get: createHttpGet(), github: new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) }) };
+  const deps = { get: createHttpGet(), github: githubSourceFromEnv() };
   const r = await enrichEligibleProgrammes(pool, deps, { ...(maxArg ? { maxProgrammes: Number(maxArg) } : {}) });
   const outcomes: Record<string, number> = {};
   for (const x of r.results) outcomes[x.outcome] = (outcomes[x.outcome] ?? 0) + 1;

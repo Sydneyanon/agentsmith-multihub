@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import { ANALYZE_STEP_KEY, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
 import { REPOSITORY_RESEARCH_WORKFLOW } from "./acquisition/step.js";
+import { describeGitHubAuth } from "./net/github-auth.js";
 
 /**
  * CR2 (docs/control-room-plan.md): one read-only, database-backed description of what the engine is doing right now.
@@ -127,6 +128,8 @@ export function registerEngineStatusRoutes(app: FastifyInstance, pool: Pool | un
     if (failed24h) reasons.push(`${failed24h} step(s) failed in the last 24 hours`);
     if (queuedTotal && workersSeen === 0) reasons.push(`${queuedTotal} step(s) are queued but no worker is connected`);
     if (expected && appliedNames) { const missing = expected.filter((m) => !appliedNames.includes(m)); if (missing.length) reasons.push(`migrations shipped with this build but not applied: ${missing.join(", ")}`); }
+    const github = describeGitHubAuth(); // mode only: the token never appears in the status
+    if (github.problem) reasons.push(github.problem);
     const state = reasons.length ? "attention" : liveTotal > 0 ? "working" : queuedTotal > 0 ? "queued" : "idle";
     const lanes: Record<string, { label: string; kind: "structural" | "legacy" | "other" }> = {
       [REPOSITORY_RESEARCH_WORKFLOW]: { label: "Structural repository research (T-149)", kind: "structural" },
@@ -138,6 +141,7 @@ export function registerEngineStatusRoutes(app: FastifyInstance, pool: Pool | un
       generated_at: new Date(now!.at).toISOString(),
       data_kind: info.dataKind,
       build: info.build,
+      github,
       schema: {
         ledger_readable: appliedNames !== null,
         applied: appliedNames, expected,
