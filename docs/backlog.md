@@ -4,14 +4,14 @@ Source of truth for scope is `docs/ROADMAP.md`; this file lists small, independe
 Tasks are design-first where architecture is involved, to prevent drift. Status of all tasks: **not started** (2026-11-26) unless stated.
 
 ## Recommended next implementation task
-**T-040 Unified opportunity model: design (documentation only), including the discovery-before-scanning workflow and the Immunefi program lifecycle (new, updated, paused, closed).** Reason: every other discovery task (more sources, URL intake, dedupe, priority engine, Control Room, the 5.2 hand-off) depends on one shared identity for project, repository, commit, scope and provenance.
+**T-199 Operator CLI for the research loop (stage by stage, explicit invocation only).** Reason (2026-11-27): the vertical slice (`docs/research-loop.md`) works end to end on throwaway databases, but its stages are library functions; a person needs a safe, auditable way to drive one cycle before A38. Earlier recommendation, kept for the record: T-040 unified opportunity model design.
 Today's table is GitHub-only and keyed `github:owner/repo`; adding Immunefi, Code4rena, Sherlock or pasted URLs on top of it would create exactly the disconnected duplicate pipelines the roadmap forbids. It needs no spending, no environment access and no migration,
 so it can proceed now. In parallel, the single most valuable **owner-side** action is T-010 (live GitHub shape check), because 5.0 and 5.2 are both unverified without it.
 
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); see the series at the end. A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); assigned 2026-11-27: **T-198 to T-200** (research loop follow-ups); see the series at the end. A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -1034,7 +1034,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Acceptance criteria | Reviewed design; migration drafted for disposable DBs only; Control Room panels specified. |
 | Required tests | Design only; draft migration tested on throwaway DBs. |
 | Security considerations | Records hold research content; same access rules as hypotheses. |
-| Approval required | **A28** (design); applying the migration is **A29**. | **Status 2026-11-26: A28 approved (design only); design written** (`docs/research-decision-records.md`). Owner instruction: no migration file and no application; reuses the T-144 draft for coverage, effort and outcomes.
+| Approval required | **A28** (design); applying the migration is **A29**. | **Status 2026-11-26: A28 approved (design only); design written** (`docs/research-decision-records.md`). Owner instruction: no migration file and no application; reuses the T-144 draft for coverage, effort and outcomes. **Update 2026-11-27:** for the research-loop slice the design is drafted as `db/drafts/a29-engine-loop/` (throwaway databases only; never in `db/migrations`); the owner is asked to confirm this was in bounds (A29).
 
 ### T-192: Deterministic research policy v0 and its offline evaluation
 | Field | |
@@ -1046,6 +1046,8 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Required tests | Determinism and unknown-handling tests; evaluation script reproducible. |
 | Security considerations | None (offline). |
 | Approval required | Design review; the offline run follows A23. |
+
+**Status 2026-11-27: policy v0 IMPLEMENTED (not evaluated)** as `research-policy/0` (`apps/api/src/engine/decisions.ts`), using T-051 for opportunities and the new component priority (`apps/api/src/priority/component.ts`, T-052) for targets. The offline evaluation on corpus 5 is not run.
 
 ### T-193: ML-1 design and pre-registered evaluation protocol
 | Field | |
@@ -1101,3 +1103,38 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Required tests | Runtime-role integration test. |
 | Security considerations | Read-only, non-secret table; still a least-privilege change. |
 | Approval required | **A30**. |
+
+## Research loop follow-ups (T-198 to T-200; proposed, not authorised; see `docs/research-loop.md`)
+
+### T-198: One opportunity scorer
+| Field | |
+|---|---|
+| Phase | priority |
+| Dependencies | none |
+| Scope | Replace the simple 0008 ordering in `discovery/priority.ts` (used by the monitor for `priority_score`) with the T-051 engine, or label the column as a legacy display order. No second scorer may feed a decision. |
+| Acceptance criteria | One scoring path for every decision; the monitor's projection documented; existing discovery tests updated deliberately. |
+| Required tests | Unit tests showing the projection equals the T-051 score, or that no decision reads it. |
+| Security considerations | None. |
+| Approval required | Branch implementation. |
+
+### T-199: Operator CLI for the research loop
+| Field | |
+|---|---|
+| Phase | T-149 S4 |
+| Dependencies | the A29 draft (done on the branch) |
+| Scope | `scripts/research-loop.ts`: register, verify, rank, select, map-and-assign, ingest, follow-up, ledger, each invoked explicitly by a named operator against a database URL given at the command line; prints the decision, its candidates and reasons. No scheduler, no daemon, no network beyond the acquisition step. |
+| Acceptance criteria | A full cycle on a throwaway database driven only through the CLI; every command refuses to run against a database without the drafts; dry-run by default for writes. |
+| Required tests | CLI integration test on a throwaway database. |
+| Security considerations | Never prints credentials; refuses a production database URL unless A38 names it. |
+| Approval required | Branch implementation; running it on a persistent database is **A38**. |
+
+### T-200: Control Room: why this target, coverage and outcomes
+| Field | |
+|---|---|
+| Phase | Control Room |
+| Dependencies | A29 applied |
+| Scope | The read-only panels of A28 §5: latest decisions with reasons and skipped alternatives, coverage by component and class (examined, not modelled), the outcome ledger with unexplored and unadjudicated counts. |
+| Acceptance criteria | Panels render from the authenticated API only; unknowns shown as unknown; no write path. |
+| Required tests | Web unit tests and an API integration test. |
+| Security considerations | Same access as hypotheses. |
+| Approval required | Branch implementation; deployment is a release decision. |

@@ -21,14 +21,14 @@ export type StoredHypothesis = { id: string; finding: Finding; spanIds: string[]
 const MODEL_BLOB_LIMIT = 1_048_576;
 export type StoredProtocolModel = { sha256: string; stored: boolean; components: number; functions: number; callEdges: number; unknowns: number };
 
-async function readSnapshotSources(pool: Pool, snapshotId: string): Promise<Array<{ path: string; text: string }>> {
+export async function readSnapshotSources(pool: Pool, snapshotId: string): Promise<Array<{ path: string; text: string }>> {
   const r = await pool.query<{ path: string; text: string }>(
     `SELECT f.path, convert_from(b.content, 'UTF8') AS text FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256
       WHERE f.snapshot_id = $1 AND f.path LIKE '%.sol' ORDER BY f.path COLLATE "C"`, [snapshotId]);
   return r.rows;
 }
 
-export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
+export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
   const sources = await readSnapshotSources(pool, snapshotId);
   // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
   const pm = buildProtocolModel(sources); const bytes = Buffer.from(pm.json, "utf8");
@@ -41,6 +41,7 @@ export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, le
     const id = await store.createEvidenceSpan(lease, { snapshotId, path: file, lineStart: line, lineEnd: line }); spanCache.set(key, id); return id;
   };
   for (const f of findings) {
+    if (options.include && !options.include(f)) continue; // an assignment scoped to target components stores only their findings
     const seen = new Set<string>(); const spans: Array<{ spanId: string; role: "primary" | "supporting" | "context" }> = [];
     for (const s of f.spans) { const k = `${s.file}:${s.lineStart}`; if (seen.has(k)) continue; seen.add(k); spans.push({ spanId: await span(s.file, s.lineStart), role: spans.length === 0 ? "primary" : s.role === "primary" ? "supporting" : s.role }); }
     const made = await store.createHypothesis(lease, {

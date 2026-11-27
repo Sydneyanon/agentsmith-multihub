@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext } from "./acquisition/step.js";
 import { ANALYSIS_STEP_KEYS, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
 import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
+import { dispatchEngineStep, ENGINE_LOOP_SWITCH, ENGINE_STEP_KEYS } from "./engine/steps.js";
 import { GitHubSource } from "./acquisition/github-source.js";
 import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
@@ -1020,7 +1021,9 @@ const INTAKE_STEP_KEYS = [
 
 /** The step keys a worker claims. The analysis stages are included ONLY when the switch is exactly "true"; otherwise they stay queued and untouched. */
 export function intakeStepKeys(env: Record<string, string | undefined>): readonly string[] {
-  return env[STRUCTURAL_ANALYSIS_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS] : INTAKE_STEP_KEYS;
+  if (env[STRUCTURAL_ANALYSIS_SWITCH] !== "true") return INTAKE_STEP_KEYS;
+  // research-loop assignments need BOTH switches (exactly "true"); both are off everywhere by default
+  return env[ENGINE_LOOP_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS] : [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS];
 }
 
 async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep, acquire: Omit<AcquireStepContext, "pool" | "worker">): Promise<void> {
@@ -1035,6 +1038,7 @@ async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: Clai
   else if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ pool, worker, ...acquire }, step);
   else if (step.step_key === MONITOR_STEP_KEY) await processMonitorSourceStep({ pool, worker }, step);
   else if (await dispatchAnalysisStep({ pool, worker, workerId: acquire.workerId }, step)) { /* handled */ }
+  else if (await dispatchEngineStep({ pool, worker, workerId: acquire.workerId }, step)) { /* handled */ }
   else throw new Error(`No handler registered for step: ${step.step_key}`);
 }
 

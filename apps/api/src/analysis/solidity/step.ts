@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
  */
 export type AnalysisStepContext = { pool: Pool; worker: WorkflowWorker; workerId: string; heartbeatMs?: number };
 
-async function sealedSnapshot(pool: Pool, store: ResearchStore, runId: string): Promise<{ snapshotId: string; commitSha: string; manifestSha256: string; repository: string }> {
+export async function sealedSnapshot(pool: Pool, store: ResearchStore, runId: string): Promise<{ snapshotId: string; commitSha: string; manifestSha256: string; repository: string }> {
   const r = await pool.query<{ output: Record<string, unknown> }>("SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = $2 AND status = 'succeeded'", [runId, ACQUIRE_STEP_KEY]);
   const out = r.rows[0]?.output;
   if (!out || typeof out["snapshot_id"] !== "string") throw new Error("the acquisition step has not produced a sealed snapshot for this run");
@@ -24,7 +24,7 @@ async function sealedSnapshot(pool: Pool, store: ResearchStore, runId: string): 
   return { snapshotId: out["snapshot_id"], commitSha: String(out["commit_sha"]), manifestSha256: String(out["manifest_sha256"]), repository: String(out["repository"]) };
 }
 
-async function withHeartbeat<T>(ctx: AnalysisStepContext, step: ClaimedStep, f: () => Promise<T>): Promise<T> {
+export async function withHeartbeat<T>(ctx: AnalysisStepContext, step: ClaimedStep, f: () => Promise<T>): Promise<T> {
   let lost = false;
   const beat = setInterval(() => { ctx.worker.heartbeat(step.id).then((alive) => { if (!alive) lost = true; }, () => undefined); }, ctx.heartbeatMs ?? 30_000);
   try { const r = await f(); if (lost) throw new LeaseLostError("the step lease was lost during analysis"); return r; } finally { clearInterval(beat); }

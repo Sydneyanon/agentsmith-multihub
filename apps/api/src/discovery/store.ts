@@ -83,17 +83,25 @@ const approveSchema = z.object({ repository: z.string().regex(/^[A-Za-z0-9_.-]{1
  * Approval is not authorisation to test anything: the run is passive reading (`repository_research`, passive_only).
  */
 export async function approveOpportunity(pool: Pool, id: string, input: z.input<typeof approveSchema>, actor: string): Promise<{ runId: string; stepId: string | null; reused: boolean }> {
-  const parsed = approveSchema.parse(input);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const result = await approveOpportunityIn(client, id, input, actor);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; } finally { client.release(); }
+}
+
+/** The same approval inside the caller's transaction (the research loop records its human decision record in the same transaction). */
+export async function approveOpportunityIn(client: Pick<PoolClient, "query">, id: string, input: z.input<typeof approveSchema>, actor: string): Promise<{ runId: string; stepId: string | null; reused: boolean }> {
+  const parsed = approveSchema.parse(input);
+  {
     const row = (await client.query<{ state: string; repository_candidates: RepositoryCandidate[] }>(`SELECT state, repository_candidates FROM bounty_opportunities WHERE id = $1 FOR UPDATE`, [id])).rows[0];
     if (!row) throw new DiscoveryError("not_found", "no such opportunity");
     if (row.state === "queued") {
       const prior = (await client.query<{ research_run_id: string }>(`SELECT research_run_id FROM opportunity_events WHERE opportunity_id = $1 AND event_type = 'queued' ORDER BY seq DESC LIMIT 1`, [id])).rows[0]!;
       const queuedRepo = (await client.query<{ payload: { repository?: string } }>(`SELECT payload FROM opportunity_events WHERE opportunity_id = $1 AND event_type = 'queued' ORDER BY seq DESC LIMIT 1`, [id])).rows[0]?.payload.repository;
       if (queuedRepo && queuedRepo.toLowerCase() !== parsed.repository.toLowerCase()) throw new DiscoveryError("invalid_state", `already queued for ${queuedRepo}, not ${parsed.repository}`);
-      await client.query("COMMIT");
       return { runId: prior.research_run_id, stepId: null, reused: true };
     }
     if (row.state !== "discovered") throw new DiscoveryError("invalid_state", `an opportunity in state ${row.state} cannot be approved`);
@@ -106,9 +114,8 @@ export async function approveOpportunity(pool: Pool, id: string, input: z.input<
       [id, actor, run.runId, JSON.stringify({ repository: chosen.repository })]);
     await client.query(`UPDATE bounty_opportunities SET state = 'queued', updated_at = now() WHERE id = $1`, [id]);
     await audit(client, actor, "discovery.opportunity.approved", "bounty_opportunity", id, "A human approved passive research of a candidate repository", { repository: chosen.repository, research_run_id: run.runId });
-    await client.query("COMMIT");
     return { runId: run.runId, stepId: run.stepId, reused: false };
-  } catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; } finally { client.release(); }
+  }
 }
 
 export async function dismissOpportunity(pool: Pool, id: string, reason: string, actor: string): Promise<void> {
