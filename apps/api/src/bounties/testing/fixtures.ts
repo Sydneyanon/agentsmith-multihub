@@ -12,6 +12,12 @@ export const BOARD_JSON = () => fixture("board-programs-2026-11-27.json.gz");
 export const SHERLOCK_HTML = () => fixture("sherlock-bug-bounties-2026-11-27.html.gz");
 export const HACKENPROOF_HTML = () => fixture("hackenproof-programs-p1-2026-11-27.html.gz");
 export const IMMUNEFI_JSON = () => fixture("immunefi-public-api-2026-11-27.json.gz");
+// Representative (hand-written, not scraped) programme detail pages for enrichment, mirroring the real structure observed on
+// 2026-11-27: a Sherlock page with two in-scope repos + an auditor/report repo, a HackenProof page with in-scope repos, and a
+// web-only programme with no repository in scope.
+export const SHERLOCK_DETAIL_11 = () => fixture("sherlock-bug-bounty-11-representative.html.gz");
+export const SHERLOCK_DETAIL_NOREPO = () => fixture("sherlock-bug-bounty-norepo-representative.html.gz");
+export const HACKENPROOF_QUANTOVA = () => fixture("hackenproof-program-quantova-representative.html.gz");
 
 export type Route = { status?: number; body: string; contentType?: string; headers?: Record<string, string>; location?: string } | ((url: string) => { status?: number; body: string; contentType?: string; location?: string });
 /** A recorded HttpGet: serves fixtures by exact URL, counts requests, and answers 404 for anything else. */

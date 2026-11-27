@@ -29,7 +29,9 @@
     "bounties:promote": "node dist/apps/api/src/bounties/promote-main.js",
     "bounties:promote:dev": "tsx apps/api/src/bounties/promote-main.ts",
     "bounties:monitor": "node dist/apps/api/src/bounties/monitor-main.js",
-    "bounties:monitor:dev": "tsx apps/api/src/bounties/monitor-main.ts"
+    "bounties:monitor:dev": "tsx apps/api/src/bounties/monitor-main.ts",
+    "bounties:enrich": "node dist/apps/api/src/bounties/enrich-main.js",
+    "bounties:enrich:dev": "tsx apps/api/src/bounties/enrich-main.ts"
   },
   "dependencies": {
     "fastify": "^5.2.1",

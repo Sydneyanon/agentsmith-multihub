@@ -54,6 +54,11 @@
    "INSERT",
    "UPDATE"
   ],
+  "bounty_repository_mappings": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
   "bounty_research_links": [
    "SELECT",
    "INSERT"
