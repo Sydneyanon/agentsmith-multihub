@@ -1,6 +1,6 @@
 # Vulnerability-detection benchmark (Priority B)
 
-Status: **baseline established; expansion designed.** 2026-11-27.
+Status: **B0–B3 complete; B4 audited and blocked on owner gates (A22/A23).** 2026-11-27.
 
 This is the benchmark that answers the only question that matters for the engine: *can AgentSmith actually
 find vulnerabilities?* It builds on the existing evaluation machinery (`eval/run-eval.ts`, the frozen corpora,
@@ -97,15 +97,51 @@ before first score; `eval/exposure.json` tracks contamination; `eval/verify-froz
 
 ## 4. Build plan (increments)
 
-- [x] **B0 — baseline.** Measure the deterministic analyzer blind; record saturation + the exploitability split. *(this doc + `eval/results/benchmark-b-baseline-heldout.*`)*
-- [x] **B1 — synthetic Layer A, first uncovered class.** accounting-error matched pair, frozen, exposure-registered; engine recall 0 — the gap, and proof the extension pipeline works end-to-end.
-- [x] **B2 — synthetic Layer A, four uncovered classes.** `eval/benchmark-b` now holds matched pairs for accounting-error, oracle-manipulation, state-transition and protocol-invariant; frozen (`MANIFEST.sha256`), exposure=blind. The analyzer scores **recall 0 on all four, 0 false positives, 0 stray findings** (`eval/results/benchmark-b-structural.txt`) — each pair is written so the only detectable difference is the semantic defect. Remaining uncovered classes to add next: business-logic, economic-attack, cross-contract, transaction-ordering.
-- [ ] **B3 — grader harness.** Extend `run-eval.ts` into a benchmark runner that also records time + AI spend and emits the metrics table; wire the AI-adjudication pass through the budget gateway.
-- [ ] **B4 — curated real-CVE Layer B.** 2–3 audited protocols at disclosed-vuln + patched commits, ground-truth verified against disclosures, pre-registered answer keys.
-- [ ] **B5 — baseline report across both layers**, then (and only then) consider detection changes, each re-scored blind.
+- [x] **B0 — baseline.** Deterministic analyzer blind on `eval/heldout`: P/R 1.000 on the 7 syntactic classes (saturated); EVM validation splits reentrancy 2 validated / 2 refuted. *(`eval/results/benchmark-b-baseline-heldout.*`)*
+- [x] **B1/B2 — synthetic Layer A, all eight semantic classes.** `eval/benchmark-b` **v3**: 8 matched pairs (16 contracts, 16 labels: 8 vulnerable, 8 secure). Versioned with an amendment log (`AMENDMENTS.md`, archived `versions/v1`, `versions/v2`); `eval/verify-frozen.sh` re-checks that every earlier version's files are byte-identical.
+- [x] **B3 — evaluation infrastructure.** `eval/bench/` runner + independent AI adjudication through `AiBudgetGateway` + model-facing view (see §6).
+- [ ] **B4 — curated real-CVE layer (`eval/heldout5`).** Audited (`docs/heldout5-b4-assessment.md`): protocol sound, no entries exist; selection needs an independent selector outside this repository (A22), scoring needs A23. Not started by design.
+- [ ] **B5 — baseline across both layers**, then (and only then) detection changes, each re-scored blind.
+
+### B2 results (benchmark-b v3, `eval/results/benchmark-b-v3-structural.*`)
+Every contract compiles (solc 0.8.28); every pair is verified **by execution** (`eval/benchmark-b/verify-behaviour.mjs`, 8/8: vulnerable variant exhibits the defect, secure variant does not); every label line is checked against the source.
+
+| class | pair | vulnerable variant shown by execution | recall | FP on secure twin |
+|---|---|---|:-:|:-:|
+| accounting-error | AccountingSale | 1 ether credits 10^33 tokens (fair 1000) | 0 | 0 |
+| oracle-manipulation | OraclePrice | spot 100x TWAP gives 100x borrow power | 0 | 0 |
+| state-transition | SalePhase | claim succeeds during Active | 0 | 0 |
+| protocol-invariant | SupplyInvariant | after burn, totalSupply != sum(balances) | 0 | 0 |
+| business-logic | ReferralSale | self-referral gets the discount | 0 | 0 |
+| economic-attack | DonationVault | victim gets 0 shares for 5 ether; attacker +5 ether | 0 | 0 |
+| cross-contract | AirdropTrust | ineligible caller claims via own eligibility contract | 0 | 0 |
+| transaction-ordering | SwapNoSlippage | front-run victim receives 8.19 vs quoted 9.90 | 0 | 0 |
+
+Overall: tp 0, fp 0, fn 8, tn 8 — recall 0, false-positive rate 0, **0 detector collisions, 0 unscored findings**, reproducible across file order. One collision was found and removed *during authoring* (pre-freeze): the reentrancy heuristic flagged a `view`/STATICCALL call to a caller-supplied contract — an analyzer false-positive pattern, recorded in `eval/benchmark-b/AMENDMENTS.md`.
 
 ## 5. Standing constraints
 
 No deployment, no worker activation, no Immunefi; disposable Postgres for any DB-backed run; all AI calls through
 the budget gateway (≤ $25/mo); frozen corpora and provenance preserved; answer keys never exposed to the engine;
 no weakening of detection to inflate a score.
+
+## 6. B3 — runner, adjudication and blinding (`eval/bench/`)
+
+- `benchmark.ts` / `run.ts`: wraps the existing black-box `score()`; records runner version, benchmark name + version + manifest
+  verification (SHA-256 of `MANIFEST.sha256`), analyzer capability + git commit + dirty flag, declared analyzer limitations,
+  exposure status, timing, per-class and overall precision / recall / false-positive rate, **detector collisions and unscored
+  findings** (which `score()` silently dropped), label integrity against the source (a label may sit in an internal callee; that is
+  reported, not hidden), and failures. A run is `complete` only if the manifest verifies, labels check out and the analyzer ran; a
+  recall of 0 is a result, not a failure. Verified on `heldout` (reproduces the B0 baseline exactly) and on benchmark-b v3.
+- `adjudicate.ts`: candidates are findings the deterministic grader cannot settle (collisions, unscored, label-contradicting).
+  Calls go **only** through `AiBudgetGateway` with task `independent_challenge` (configured tier3, $0.10 per call), one attempt
+  each, no retries; a budget/catalog block or a provider error halts the pass and the rest are recorded `unavailable` / `failed`,
+  never as judgments. Tokens and cost come from the gateway's own reservation ledger. Results sit in `record.ai`, separate from
+  the deterministic result, and cannot change labels.
+- `model-view.ts`: **benchmark-b's raw files are an answer key for any model** (explanatory `BUG (...)` comments and `Bad`/`Good`
+  contract names; corpora 1–4 have neither). Everything shown to a model passes through a view that blanks comments (line numbers
+  kept) and neutralises contract names and file paths; the mapping never leaves the runner.
+- Live status: AgentSmith has no production model adapter and its reviewed price catalog is empty by design, so adjudication from
+  the CLI is recorded **unavailable** ($0 spent). The gateway path is proven with fake adapters over real Postgres
+  (`eval/bench/adjudicate.integration.test.ts`, also under the least-privilege runtime role).
+
