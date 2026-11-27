@@ -93,3 +93,28 @@ Only after these pass is the page reported as live.
 - `BOUNTY_IMPORT_FETCH_POLICY=user_initiated`.
 - 0008; R1-apply; A26 or A34; any research worker or investigation.
 - Changes to the Hunt page or repository.
+
+---
+
+## Executed 2026-11-27 (A42 approved)
+
+Deployed from branch tip `c3cb953` (image rebuilt from HEAD and re-verified 39/39).
+
+| Stage | Result |
+|---|---|
+| Push | `registry.fly.io/agentsmith-hub@sha256:faef363a35bca3c63a4d7a8f7e685fbd63a20329551dba3118882a975d28d0f9` (tag `hub-c3cb953f9fed`); pushed config and last layer match the tested layer |
+| Pre-flight (read-only) | production had exactly 0001–0007, 0 `bounty_*` tables, discovery not installed |
+| Migration | one-off `--rm` machine applied **0011 only**; after: 8 migrations incl. 0011, 9 `bounty_*` tables, 0008 still absent; machine self-destroyed |
+| Deploy | `fly deploy … --image …@sha256:faef363a… --ha=false`; machine `2870320f99dd68` updated, healthy 1/1 (the `agentsmith-hub.fly.dev` DNS warning is expected — host guard returns 421 there) |
+| First collection | one-off `--rm` machine, community board only: 388 programmes at 07:44:06Z |
+| Schedule | `bounty-collector` (`8747e47a1501d8`), `schedule=hourly`, shared-cpu-1x 512MB, no restart; fired once at creation and correctly skipped the board as not-due (idempotent) |
+| Machines | API `late-meadow-8506` + `bounty-collector` only; **no worker** |
+
+**Acceptance checks (all pass):**
+- `/health/ready` 200; `/bounties/` 200 with strict CSP; `/hub/assets/public-bounties.js` and `bounties.css` 200.
+- `/public/bounties.json` 200 without a token, `overview.total` 388, last collection within the hour; sources show only `community-board` enabled, `sherlock`/`hackenproof`/`x` off, `immunefi`/`cantina` blocked.
+- `/v1/bounties` without a token 401; `/v1/bounties/health` with the token shows the board at 388 and every other source skipped (blocked or disabled).
+- `/v1/engine/status` (authenticated, token never left the machine): 8 migrations incl. 0011, nothing missing, discovery not installed, engine idle, `data_kind: production`.
+- Live browser: 388 of 388 shown, priority-sorted, honest "community report" labels; mobile (iPhone SE) horizontal overflow 0 px.
+
+**Not done (outside A42):** no Sherlock/HackenProof/X enablement; `BOUNTY_IMPORT_FETCH_POLICY` default; no 0008; no R1; no worker/research run; no change to the Hunt page.
