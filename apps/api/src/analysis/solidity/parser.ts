@@ -420,6 +420,13 @@ function parseContract(ps: P, file: string): ContractDef | null {
 
 export function parseSolidity(file: string, source: string): ParsedFile {
   const toks = lex(source); const problems: string[] = []; const ps = new P(toks, problems);
+  // The parser is error-tolerant: it never stops on malformed input. A file whose delimiters do not balance is not well-formed
+  // Solidity, so whatever was parsed from it may be incomplete; say so instead of reporting a clean analysis.
+  const depth: Record<string, number> = { "(": 0, "{": 0, "[": 0 }; const close: Record<string, string> = { ")": "(", "}": "{", "]": "[" };
+  let stray = 0;
+  for (const t of toks) if (t.k === "op") { if (t.v in depth) depth[t.v]! += 1; else if (t.v in close) { const o = close[t.v]!; if (depth[o]! > 0) depth[o]! -= 1; else stray += 1; } }
+  const open = Object.entries(depth).filter(([, n]) => n > 0).map(([d, n]) => `${n} unclosed '${d}'`);
+  if (open.length || stray) problems.push(`not well-formed Solidity (${[...open, ...(stray ? [`${stray} unmatched closing delimiter(s)`] : [])].join(", ")}): its analysis may be incomplete`);
   const contracts: ContractDef[] = [];
   while (ps.cur) {
     const t = ps.cur;

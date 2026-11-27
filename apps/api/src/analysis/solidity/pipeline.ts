@@ -113,10 +113,30 @@ export type AuthoritySummary = {
   roles: Array<{ variable: string; strength: string; holder: string; held_by: string | null; transfer: string; writers: string[] }>;
   open_authority_writes: string[]; callee_side_checks: string[]; factory_paths: string[]; proxy: string[]; initialisers: string[]; assumptions: string[]; unresolved: string[];
 };
+/**
+ * Whether the analysis behind a dossier actually covered the snapshot, from stored records only. A dossier is never presented as a
+ * complete investigation when it was not: `partial` lists every parser problem and every finding rejected for an uncitable span;
+ * `not_analysable` means the snapshot holds no Solidity (e.g. a non-EVM repository); `not_analysed` means no successful analysis
+ * step is recorded for the snapshot's run.
+ */
+export type AnalysisCoverage = { status: "complete" | "partial" | "not_analysable" | "not_analysed"; solidity_files: number; contracts: number | null; functions: number | null; problems: string[] };
 export type Dossier = {
   snapshot: { id: string; repository: string; commit_sha: string; file_count: number; manifest_sha256: string; verified: boolean };
+  coverage: AnalysisCoverage;
   summary: Record<string, number>; entries: DossierEntry[]; architecture: ArchitectureSection; limitations: string[]; content_sha256: string;
 };
+
+async function analysisCoverage(pool: Pool, snapshotId: string): Promise<AnalysisCoverage> {
+  const sol = Number((await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256 WHERE f.snapshot_id = $1 AND f.path LIKE '%.sol'`, [snapshotId])).rows[0]!.n);
+  const out = (await pool.query<{ output: { problems?: unknown; contracts?: unknown; functions?: unknown } | null }>(
+    `SELECT st.output FROM repo_snapshots s JOIN workflow_steps st ON st.workflow_run_id = s.workflow_run_id
+      WHERE s.id = $1 AND st.step_key = 'analyze_structure' AND st.status = 'succeeded' ORDER BY st.completed_at DESC LIMIT 1`, [snapshotId])).rows[0]?.output ?? null;
+  if (sol === 0) return { status: "not_analysable", solidity_files: 0, contracts: null, functions: null, problems: ["the snapshot contains no Solidity source; this engine analyses Solidity only"] };
+  if (!out) return { status: "not_analysed", solidity_files: sol, contracts: null, functions: null, problems: ["no successful structural-analysis step is recorded for this snapshot"] };
+  const problems = Array.isArray(out.problems) ? out.problems.map(String) : [];
+  return { status: problems.length ? "partial" : "complete", solidity_files: sol, contracts: typeof out.contracts === "number" ? out.contracts : null, functions: typeof out.functions === "number" ? out.functions : null, problems };
+}
 
 /** P3 consumer: what the dossier says about authority, with code locations, and with every unresolved or assumed path listed. */
 function authoritySummary(a: AuthorityFacts | null, at: (e: { file: string; lineStart: number; lineEnd: number }) => string): AuthoritySummary | null {
@@ -199,14 +219,17 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
     "The analysis is intra-repository: calls into code outside the snapshot, inline assembly and unresolved modifiers are not analysed (they are listed as assumptions where they affect a lead).",
   ];
   const architecture = await architectureFromStoredModel(pool, snapshotId);
+  const coverage = await analysisCoverage(pool, snapshotId);
   const content = entries.map((e) => [e.class, e.function, e.claim, e.evidence.map((x) => `${x.path}:${x.lines}:${x.text}`), e.evaluations.map((x) => `${x.evaluator}:${x.outcome}`), e.status]);
-  const content_sha256 = createHash("sha256").update(JSON.stringify([content, architecture.available ? architecture.model_sha256 : null])).digest("hex");
-  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, summary, entries, architecture, limitations, content_sha256 };
+  const content_sha256 = createHash("sha256").update(JSON.stringify([content, architecture.available ? architecture.model_sha256 : null, coverage])).digest("hex");
+  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, coverage, summary, entries, architecture, limitations, content_sha256 };
 }
 
 export function renderDossierMarkdown(d: Dossier): string {
   const o: string[] = [`# Research dossier: ${d.snapshot.repository} @ ${d.snapshot.commit_sha}\n`,
     `Snapshot ${d.snapshot.id}: ${d.snapshot.file_count} files, manifest \`${d.snapshot.manifest_sha256}\`, database verification ok=${d.snapshot.verified}. Content hash \`${d.content_sha256}\`.\n`,
+    `**Analysis coverage: ${d.coverage.status.toUpperCase().replace("_", " ")}** — ${d.coverage.solidity_files} Solidity files${d.coverage.contracts !== null ? `, ${d.coverage.contracts} contracts, ${d.coverage.functions} functions analysed` : ""}.${d.coverage.status === "complete" ? "" : " This is NOT a complete investigation of the snapshot."}\n`
+      + (d.coverage.problems.length ? d.coverage.problems.map((p) => `- ${p}`).join("\n") + "\n" : ""),
     `Status counts (derived by the database view): ${Object.entries(d.summary).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}.\n`, "## Leads\n"];
   d.entries.forEach((e, i) => {
     o.push(`### ${i + 1}. ${e.function} - ${e.class} (status: ${e.status})\n**Claim.** ${e.claim}\n`);

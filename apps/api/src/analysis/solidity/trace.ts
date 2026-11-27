@@ -6,6 +6,7 @@ import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
  * calls and modifiers INLINED, so a call hidden in a helper, a lock inside a modifier or a guard inside `_checkOwner()` is seen
  * where it executes. Control flow is approximated linearly; events inside non-terminating branches are marked conditional.
  */
+/** One step of a call path: `fn` (of `contract`) is entered at `file`:`line`, the call site in the CALLER's file. */
 export type Frame = { fn: string; contract: string; file: string; line: number };
 type Base = { line: number; file: string; contract: string; cond: boolean; prot: boolean; ret: boolean; chain: Frame[] };
 export type Ev =
@@ -95,7 +96,7 @@ export class Tracer {
     const use = uses[i]!; const def = this.ix.findModifier(ctx.contract, use.name);
     if (def && def.body) {
       // the modifier body runs in the DEPLOYED contract's context (virtual dispatch and state resolve there), not the declaring base's
-      const mctx: Ctx = { ...this.newCtx(def, ctx.contract, [...ctx.chain, { fn: `modifier ${def.name}`, contract: def.contract, file: def.file, line: use.line }], ctx.tainted, ctx.depth + 1, ctx.stack), branch: { ...ctx.branch } };
+      const mctx: Ctx = { ...this.newCtx(def, ctx.contract, [...ctx.chain, { fn: `modifier ${def.name}`, contract: def.contract, file: ctx.file, line: use.line }], ctx.tainted, ctx.depth + 1, ctx.stack), branch: { ...ctx.branch } };
       mctx.params = new Map(def.params.filter((p) => p.name).map((p) => [p.name!, p.type]));
       // a modifier parameter stands for the argument it was given: onlyBy(owner) compares the caller with `owner`, an authority
       def.params.forEach((p, k) => { const a = use.args[k]; if (!p.name || !a) return; if (this.isAuthority(a, ctx)) mctx.authLocals.add(p.name); if (this.tainted(a, ctx)) mctx.tainted.add(p.name); });
@@ -405,7 +406,9 @@ export class Tracer {
     if (ctx.depth >= 8 || ctx.stack.includes(key) || !callee.body) return;
     const tainted = new Set<string>();
     callee.params.forEach((p, i) => { const a = e.args[i]; if (p.name && a && (cross ? true : this.tainted(a, ctx))) tainted.add(p.name); });
-    const chain = [...ctx.chain, { fn: callee.name, contract, file: callee.file, line: e.line }];
+    // A frame is the call SITE: `e.line` is a line of the caller, so the file must be the caller's too (never the callee's definition
+    // file — mixing them cited lines that do not exist when a derived contract calls an inherited helper defined in a shorter file).
+    const chain = [...ctx.chain, { fn: callee.name, contract, file: ctx.file, line: e.line }];
     const sub = this.newCtx(callee, contract, chain, tainted, ctx.depth + 1, ctx.stack);
     sub.branch = { ...ctx.branch };
     callee.params.forEach((p, i) => { const a = e.args[i]; if (!p.name || !a) return; sub.aliases.set(p.name, { expr: a, ctx }); if (this.isAuthority(a, ctx)) sub.authLocals.add(p.name); });

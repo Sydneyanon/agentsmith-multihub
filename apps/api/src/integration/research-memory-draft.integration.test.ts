@@ -25,7 +25,8 @@ async function fingerprint(pool: pg.Pool): Promise<string> {
     await q(`SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' ORDER BY 1, 2`),
     await q(`SELECT conrelid::regclass::text AS t, conname, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE connamespace = 'public'::regnamespace ORDER BY 1, 2`),
     await q(`SELECT tgrelid::regclass::text AS t, tgname FROM pg_trigger WHERE NOT tgisinternal ORDER BY 1, 2`),
-    await q(`SELECT proname, md5(prosrc) AS h FROM pg_proc WHERE pronamespace = 'public'::regnamespace ORDER BY 1`),
+    // total order: overloaded functions share a name (pgcrypto's two `armor`s), so ordering by name alone returned ties in any order
+    await q(`SELECT proname, pg_get_function_identity_arguments(oid) AS args, md5(prosrc) AS h FROM pg_proc WHERE pronamespace = 'public'::regnamespace ORDER BY 1, 2, 3`),
   ].join("\n");
 }
 /** Hash of every pre-existing table over its PRE-EXISTING columns only (a new nullable column must not count as a change to old rows). */
