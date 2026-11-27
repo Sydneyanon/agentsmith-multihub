@@ -22,7 +22,12 @@ try {
   const maxArg = flag("--max");
   const deps = { get: createHttpGet(), github: new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) }) };
   const r = await enrichEligibleProgrammes(pool, deps, { ...(maxArg ? { maxProgrammes: Number(maxArg) } : {}) });
-  console.log(JSON.stringify({ level: "info", msg: "enrich_finished", attempted: r.attempted, enriched: r.enriched, verified_repositories: r.verified_repositories }));
+  const outcomes: Record<string, number> = {};
+  for (const x of r.results) outcomes[x.outcome] = (outcomes[x.outcome] ?? 0) + 1;
+  // One line per programme so an operator can see WHY a pass found nothing (robots, fetch error, no repository, all dropped).
+  for (const x of r.results) console.log(JSON.stringify({ level: "info", msg: "enrich_programme", outcome: x.outcome, platform: x.platform, url: x.officialUrl,
+    verified: x.verified, rejected: x.rejected, unavailable: x.unavailable, dropped: x.dropped, deferred: x.deferred, error: x.error }));
+  console.log(JSON.stringify({ level: "info", msg: "enrich_finished", attempted: r.attempted, enriched: r.enriched, verified_repositories: r.verified_repositories, outcomes }));
   process.exitCode = 0;
 } catch (e) {
   console.error(JSON.stringify({ level: "error", msg: "enrich_failed", error: (e as Error).message }));

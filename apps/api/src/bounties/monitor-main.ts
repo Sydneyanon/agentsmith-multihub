@@ -8,7 +8,8 @@ import { monitorRepositories } from "./monitor.js";
  * is new. Reuses the acquisition GitHub source for HEAD resolution and the existing repository_research pipeline for the run. It
  * creates only queued runs and calls no model; the worker does the analysis under the AiBudgetGateway.
  *
- *   node dist/apps/api/src/bounties/monitor-main.js [--max 25]
+ *   node dist/apps/api/src/bounties/monitor-main.js [--max 25] [--structural]
+ *   --structural: rescans include the analysis stages (without it a new commit is acquired but not analysed, so no dossier).
  *
  * NOT scheduled in production yet: it needs migrations 0012 (links) and 0013 (monitor state), and is meaningful only once programmes
  * have been promoted and the worker is active. Exit 0 on success, 1 on error.
@@ -21,7 +22,7 @@ pool.on("error", (e) => console.error(JSON.stringify({ level: "error", msg: "idl
 try {
   const maxArg = flag("--max");
   const source = new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) });
-  const r = await monitorRepositories(pool, { source }, { ...(maxArg ? { maxRescans: Number(maxArg) } : {}) });
+  const r = await monitorRepositories(pool, { source }, { ...(maxArg ? { maxRescans: Number(maxArg) } : {}), structuralAnalysis: args.includes("--structural") });
   console.log(JSON.stringify({ level: "info", msg: "repo_monitor_finished", checked: r.checked, queued: r.queued, up_to_date: r.up_to_date,
     already_queued: r.already_queued, unavailable: r.unavailable, errors: r.errors, skipped_cap: r.skipped_cap }));
   process.exitCode = 0;

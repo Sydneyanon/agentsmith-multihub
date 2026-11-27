@@ -118,4 +118,20 @@ describe.skipIf(skipIntegration)("repository monitor: the autonomous discover→
     const m2 = await monitorRepositories(db.pool, { source: fakeSource({ [repo]: sha("a") }), now: () => now });
     expect(m2.checked).toBe(0);
   });
+
+  it("queues analysis on a rescan only when asked (--structural): otherwise a new commit is acquired but never analysed", async () => {
+    const stepKeys = async (runId: string) => (await owner().query(`SELECT step_key FROM workflow_steps WHERE workflow_run_id = $1 ORDER BY sequence`, [runId])).rows.map((r) => r.step_key as string);
+    for (const [repo, structural] of [["acme/plain", false], ["acme/analysed", true]] as const) {
+      await seedEligible(repo.split("/")[1]!, repo);
+      await promoteEligibleProgrammes(db.pool, { createdBy: "test" });
+      const first = (await owner().query(`SELECT workflow_run_id FROM bounty_research_links WHERE repository = $1`, [repo])).rows[0].workflow_run_id as string;
+      await seal(first, repo, sha("a"));
+      const m = await monitorRepositories(db.pool, { source: fakeSource({ "acme/plain": sha("c"), "acme/analysed": sha("c") }) }, { structuralAnalysis: structural });
+      const rescan = m.checks.find((c) => c.repository === repo)!.runId!;
+      const keys = await stepKeys(rescan);
+      expect(keys[0]).toBe("acquire_repository");
+      if (structural) expect(keys).toEqual(expect.arrayContaining(["analyze_structure", "build_dossier"]));
+      else expect(keys).toEqual(["acquire_repository"]);
+    }
+  });
 });

@@ -67,6 +67,17 @@ describe.skipIf(skipIntegration)("programme -> repository enrichment over real P
     expect(await verifiedRepositoriesFor(db.pool, id)).toEqual(["acme/real"]); // ghost excluded
   });
 
+  it("reports verification_deferred (never 'enriched') when GitHub refuses, and records no mapping it could not confirm", async () => {
+    const id = await prog("https://audits.sherlock.xyz/bug-bounties/8");
+    const body = "scope: https://github.com/acme/limited";
+    const limited = { async getRepository(): Promise<never> { throw new AcquisitionError("upstream_http", "GitHub API rate limit exceeded (HTTP 403)"); } };
+    const r = await enrichProgramme(db.pool, { get: fakeHttp(sherlockRoutes(8, body)), github: limited }, id);
+    expect(r).toMatchObject({ outcome: "verification_deferred", verified: 0, deferred: 1 });
+    expect(r.error).toMatch(/acme\/limited: .*rate limit/);
+    expect(await mappings(id)).toEqual([]);              // nothing recorded: it is retried next pass
+    expect(await verifiedRepositoriesFor(db.pool, id)).toEqual([]);
+  });
+
   it("reports no_repositories for a programme whose page lists none", async () => {
     const id = await prog("https://audits.sherlock.xyz/bug-bounties/100");
     const r = await enrichProgramme(db.pool, { get: fakeHttp(sherlockRoutes(100, SHERLOCK_DETAIL_NOREPO())), github: fakeGithub() }, id);

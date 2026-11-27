@@ -21,7 +21,8 @@ import { planRepositoryResearch } from "./repo-intel.js";
 
 export type MonitorSource = Pick<RepositorySource, "getRepository" | "resolveCommit">;
 export type MonitorDeps = { source: MonitorSource; createRun?: CreateRun; now?: () => Date };
-export type MonitorOptions = { maxRescans?: number; backoffBaseSeconds?: number; maxBackoffSeconds?: number; disableAfterFailures?: number };
+/** structuralAnalysis: append the analysis stages to queued rescans (as the bridge does with --structural). Default false: acquisition only. */
+export type MonitorOptions = { maxRescans?: number; backoffBaseSeconds?: number; maxBackoffSeconds?: number; disableAfterFailures?: number; structuralAnalysis?: boolean };
 export type MonitorOutcome = "up_to_date" | "first_scan_queued" | "rescan_queued" | "already_queued" | "unavailable" | "error" | "skipped_cap";
 export type RepoCheck = { repository: string; outcome: MonitorOutcome; headCommit: string | null; decision: string | null; runId: string | null; error: string | null };
 export type MonitorResult = {
@@ -29,13 +30,13 @@ export type MonitorResult = {
   checks: RepoCheck[];
 };
 
-type Cfg = { source: MonitorSource; now: () => Date; createRun: CreateRun; maxRescans: number; backoffBase: number; maxBackoff: number; disableAfter: number };
+type Cfg = { source: MonitorSource; now: () => Date; createRun: CreateRun; maxRescans: number; backoffBase: number; maxBackoff: number; disableAfter: number; structuralAnalysis: boolean };
 
 /** Monitor every tracked repository once. Repositories are tracked as soon as the bridge links them to a programme. */
 export async function monitorRepositories(pool: Pool, deps: MonitorDeps, opts: MonitorOptions = {}): Promise<MonitorResult> {
   const cfg: Cfg = {
     source: deps.source, now: deps.now ?? (() => new Date()), createRun: deps.createRun ?? createRepositoryResearchRunIn,
-    maxRescans: opts.maxRescans ?? 25, backoffBase: opts.backoffBaseSeconds ?? 300, maxBackoff: opts.maxBackoffSeconds ?? 6 * 3600, disableAfter: opts.disableAfterFailures ?? 10,
+    maxRescans: opts.maxRescans ?? 25, backoffBase: opts.backoffBaseSeconds ?? 300, maxBackoff: opts.maxBackoffSeconds ?? 6 * 3600, disableAfter: opts.disableAfterFailures ?? 10, structuralAnalysis: opts.structuralAnalysis ?? false,
   };
   const res: MonitorResult = { checked: 0, queued: 0, up_to_date: 0, already_queued: 0, unavailable: 0, errors: 0, skipped_cap: 0, checks: [] };
 
@@ -95,7 +96,7 @@ async function monitorOne(pool: Pool, repository: string, cfg: Cfg, res: Monitor
   let runId: string;
   try {
     await client.query("BEGIN");
-    ({ runId } = await cfg.createRun(client, { repository, ref: headCommit }, "repo-monitor", { structuralAnalysis: false }));
+    ({ runId } = await cfg.createRun(client, { repository, ref: headCommit }, "repo-monitor", { structuralAnalysis: cfg.structuralAnalysis }));
     await client.query(
       `INSERT INTO bounty_research_links (bounty_program_id, repository, ref, workflow_run_id, reason, created_by)
          SELECT DISTINCT bounty_program_id, $1, $2, $3::uuid, $4, 'repo-monitor' FROM bounty_research_links WHERE repository = $1

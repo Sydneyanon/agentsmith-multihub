@@ -3,6 +3,11 @@ import { githubRepoFromUrl, resolveProgrammeRepositories } from "./repo-resolve.
 import type { Resolution } from "./resolve.js";
 
 describe("githubRepoFromUrl", () => {
+  it("drops a sentence-ending full stop that a page left on the URL (found live on a HackenProof programme page)", () => {
+    expect(githubRepoFromUrl("https://github.com/smardex-dev/smart-contracts.")).toBe("smardex-dev/smart-contracts");
+    expect(githubRepoFromUrl("https://github.com/acme/vault.git.")).toBe("acme/vault");
+    expect(githubRepoFromUrl("https://github.com/acme/my.repo")).toBe("acme/my.repo"); // inner dots are part of real names
+  });
   it("extracts owner/name and lowercases, stripping .git and deep paths", () => {
     expect(githubRepoFromUrl("https://github.com/Compound-Finance/compound-protocol")).toBe("compound-finance/compound-protocol");
     expect(githubRepoFromUrl("https://github.com/aave/aave-v3-core.git")).toBe("aave/aave-v3-core");

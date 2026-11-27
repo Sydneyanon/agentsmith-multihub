@@ -23,6 +23,8 @@ export function githubRepoFromUrl(raw: string): string | null {
   if (segs.length < 2) return null;
   const owner = segs[0]!;
   let repo = segs[1]!;
+  // A URL at the end of a sentence carries the full stop ("see github.com/acme/contracts."): never part of the repository name.
+  repo = repo.replace(/\.+$/, "");
   if (repo.toLowerCase().endsWith(".git")) repo = repo.slice(0, -4);
   if (RESERVED_OWNERS.has(owner.toLowerCase())) return null;
   if (!NAME_PART.test(owner) || !NAME_PART.test(repo) || owner === "." || owner === ".." || repo === "." || repo === "..") return null;

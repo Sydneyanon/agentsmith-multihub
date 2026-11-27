@@ -3,7 +3,7 @@ import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext
 import { ANALYSIS_STEP_KEYS, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
 import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
 import { dispatchEngineStep, ENGINE_LOOP_SWITCH, ENGINE_STEP_KEYS } from "./engine/steps.js";
-import { GitHubSource } from "./acquisition/github-source.js";
+import { GitHubSource, type RepositorySource } from "./acquisition/github-source.js";
 import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
@@ -1056,9 +1056,11 @@ export async function runIntakeWorker(
   pool: Pool,
   workerId: string,
   signal: AbortSignal,
-  options: (WorkerLoopOptions & { onlyRunId?: string }) | number = {},
+  // `source` is injectable for tests and offline rehearsals (e.g. a local clone); production always uses GitHubSource.
+  options: (WorkerLoopOptions & { onlyRunId?: string; source?: RepositorySource }) | number = {},
 ): Promise<void> {
   const worker = new WorkflowWorker(pool, workerId);
+  const source = (typeof options === "number" ? undefined : options.source) ?? new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) });
   const loopOptions = typeof options === "number" ? { pollMs: options } : options;
   // Discovery is double-gated: this switch AND at least one source a human has enabled. With either off, nothing is ever fetched.
   const scheduler = process.env.DISCOVERY_ENABLED === "true"
@@ -1069,7 +1071,7 @@ export async function runIntakeWorker(
     reapExhaustedLeases: () => worker.reapExhaustedLeases(),
     claimNext: () => worker.claimNext(intakeStepKeys(process.env), typeof options === "number" ? undefined : options.onlyRunId),
     fail: (stepId, reason, retryable) => worker.fail(stepId, reason, retryable),
-    execute: (step) => dispatchIntakeStep(pool, worker, step, { workerId, source: new GitHubSource({ ...(process.env.GITHUB_TOKEN ? { token: process.env.GITHUB_TOKEN } : {}) }) }),
+    execute: (step) => dispatchIntakeStep(pool, worker, step, { workerId, source }),
     maxAttempts: worker.maxAttempts,
   }, signal, loopOptions);
 }
