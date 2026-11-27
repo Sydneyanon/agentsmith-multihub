@@ -96,7 +96,8 @@ p { margin: .4rem 0; }
 .form { display: grid; gap: .5rem; } .form label, .unlock-card label { font-size: .82rem; color: var(--muted); }
 input, select, textarea { width: 100%; min-height: 44px; padding: .5rem .7rem; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line2); border-radius: 9px; }
 textarea { min-height: 70px; }
-.toolbar { margin: .8rem 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .5rem; margin: .8rem 0; }
+.toolbar .btn { flex: 0 0 auto; }
 .callout { padding: .7rem .9rem; border-radius: 9px; background: rgba(34,211,238,.07); border: 1px solid rgba(34,211,238,.3); }
 .callout-warn { background: rgba(245,165,36,.09); border-color: rgba(245,165,36,.45); }
 
