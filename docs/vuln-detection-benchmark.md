@@ -98,8 +98,8 @@ before first score; `eval/exposure.json` tracks contamination; `eval/verify-froz
 ## 4. Build plan (increments)
 
 - [x] **B0 — baseline.** Measure the deterministic analyzer blind; record saturation + the exploitability split. *(this doc + `eval/results/benchmark-b-baseline-heldout.*`)*
-- [ ] **B1 — synthetic Layer A, first uncovered class.** One matched vuln/secure pair (e.g. accounting-error), frozen, exposure-registered; confirm the engine scores recall 0 (the gap), proving the extension pipeline.
-- [ ] **B2 — synthetic Layer A, remaining uncovered classes.** One pair per class; a single frozen `benchmark-b` corpus with a combined `labels.json`.
+- [x] **B1 — synthetic Layer A, first uncovered class.** accounting-error matched pair, frozen, exposure-registered; engine recall 0 — the gap, and proof the extension pipeline works end-to-end.
+- [x] **B2 — synthetic Layer A, four uncovered classes.** `eval/benchmark-b` now holds matched pairs for accounting-error, oracle-manipulation, state-transition and protocol-invariant; frozen (`MANIFEST.sha256`), exposure=blind. The analyzer scores **recall 0 on all four, 0 false positives, 0 stray findings** (`eval/results/benchmark-b-structural.txt`) — each pair is written so the only detectable difference is the semantic defect. Remaining uncovered classes to add next: business-logic, economic-attack, cross-contract, transaction-ordering.
 - [ ] **B3 — grader harness.** Extend `run-eval.ts` into a benchmark runner that also records time + AI spend and emits the metrics table; wire the AI-adjudication pass through the budget gateway.
 - [ ] **B4 — curated real-CVE Layer B.** 2–3 audited protocols at disclosed-vuln + patched commits, ground-truth verified against disclosures, pre-registered answer keys.
 - [ ] **B5 — baseline report across both layers**, then (and only then) consider detection changes, each re-scored blind.

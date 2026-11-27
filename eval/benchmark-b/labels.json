@@ -19,5 +19,68 @@
     "line": 19,
     "pair": "accounting-sale",
     "note": "Matched secure variant: credits msg.value / priceWei tokens, the correct amount. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/OraclePriceBad.sol",
+    "contract": "OraclePriceBad",
+    "function": "borrowPower",
+    "class": "oracle-manipulation",
+    "vulnerable": true,
+    "line": 24,
+    "pair": "oracle-price",
+    "exploitable": true,
+    "note": "Values collateral at the manipulable instantaneous spot price; an attacker moves the spot within one transaction and borrows against inflated collateral. The call is a view, so no reentrancy pattern."
+  },
+  {
+    "file": "contracts/OraclePriceGood.sol",
+    "contract": "OraclePriceGood",
+    "function": "borrowPower",
+    "class": "oracle-manipulation",
+    "vulnerable": false,
+    "line": 23,
+    "pair": "oracle-price",
+    "note": "Matched secure variant: uses a TWAP with a staleness check, which a single-transaction spot move cannot shift. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/SalePhaseBad.sol",
+    "contract": "SalePhaseBad",
+    "function": "claim",
+    "class": "state-transition",
+    "vulnerable": true,
+    "line": 23,
+    "pair": "sale-phase",
+    "exploitable": true,
+    "note": "claim() guards on `phase != Setup` instead of `phase == Ended`, allowing claims during Active before allocations are finalised."
+  },
+  {
+    "file": "contracts/SalePhaseGood.sol",
+    "contract": "SalePhaseGood",
+    "function": "claim",
+    "class": "state-transition",
+    "vulnerable": false,
+    "line": 20,
+    "pair": "sale-phase",
+    "note": "Matched secure variant: claim() correctly requires `phase == Ended`. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/SupplyInvariantBad.sol",
+    "contract": "SupplyInvariantBad",
+    "function": "burn",
+    "class": "protocol-invariant",
+    "vulnerable": true,
+    "line": 21,
+    "pair": "supply-invariant",
+    "exploitable": true,
+    "note": "burn() decrements the holder balance but not totalSupply, breaking sum(balances) == totalSupply; every calculation that trusts totalSupply is then corrupted."
+  },
+  {
+    "file": "contracts/SupplyInvariantGood.sol",
+    "contract": "SupplyInvariantGood",
+    "function": "burn",
+    "class": "protocol-invariant",
+    "vulnerable": false,
+    "line": 18,
+    "pair": "supply-invariant",
+    "note": "Matched secure variant: burn() decrements both balance and totalSupply, preserving the invariant. Flagging this is a false positive."
   }
 ]
