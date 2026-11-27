@@ -4,8 +4,9 @@ import { z } from "zod";
 import { runCollection } from "./collect.js";
 import { createHttpGet, type HttpGet } from "./http.js";
 import { fetchPolicy, runImport } from "./import.js";
-import { health, listDuplicates, listImports, listPrograms, overview, programDetail, publicFeed } from "./queries.js";
-import { addCorrection, CORRECTABLE, decideDuplicate } from "./store.js";
+import { health, listDuplicates, listImports, listPrograms, overview, programDetail, publicFeed, researchCandidates } from "./queries.js";
+import { addCorrection, CORRECTABLE, decideDuplicate, setBountySourceEnabled } from "./store.js";
+import { ADAPTERS } from "./adapters.js";
 import { BountyError } from "./types.js";
 
 /**
@@ -30,7 +31,7 @@ const correctionBody = z.object({ field: z.enum(CORRECTABLE), value: z.unknown()
 
 function fail(reply: FastifyReply, error: unknown) {
   if (error instanceof BountyError) {
-    const status = error.code === "not_found" ? 404 : error.code === "invalid_state" ? 409 : 400;
+    const status = error.code === "not_found" ? 404 : error.code === "invalid_state" || error.code === "source_blocked" ? 409 : 400;
     return reply.code(status).send({ error: error.code, message: error.message });
   }
   if (error instanceof z.ZodError) return reply.code(400).send({ error: "invalid_request", details: error.flatten() });
@@ -113,6 +114,22 @@ export function registerBountyRoutes(app: FastifyInstance, pool: Pool | undefine
     try {
       const p = z.object({ id, decision: z.enum(["merge", "reject"]) }).parse(request.params);
       const r = await decideDuplicate(pool!, p.id, p.decision, OPERATOR);
+      cached = null;
+      return r;
+    } catch (error) { return fail(reply, error); }
+  });
+
+  app.get("/v1/bounties/candidates", async (_request, reply) => {
+    if (need(reply)) return reply;
+    try { return { candidates: await researchCandidates(pool!) }; } catch (error) { return fail(reply, error); }
+  });
+  // Act on an owner's source-access decision: one authenticated call, not a manual database edit. Enabling a blocked source is refused.
+  app.post("/v1/bounties/sources/:key/:action", async (request, reply) => {
+    if (need(reply)) return reply;
+    try {
+      const p = z.object({ key: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,40}$/), action: z.enum(["enable", "disable"]) }).parse(request.params);
+      const b = z.object({ access_status: z.string().max(40).optional(), note: z.string().max(1000).optional() }).strict().parse(request.body ?? {});
+      const r = await setBountySourceEnabled(pool!, p.key, p.action === "enable", OPERATOR, { adapterBlocked: !!ADAPTERS[p.key]?.blocked, ...(b.access_status ? { accessStatus: b.access_status } : {}), ...(b.note ? { note: b.note } : {}) });
       cached = null;
       return r;
     } catch (error) { return fail(reply, error); }

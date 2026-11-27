@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { classifyTags, communityBoard, hackenproof, parseBoard, parseHackenproofPage, parseSherlock, sherlock, ADAPTERS } from "./adapters.js";
+import { classifyTags, communityBoard, hackenproof, immunefi, parseBoard, parseHackenproofPage, parseImmunefi, parseSherlock, sherlock, ADAPTERS } from "./adapters.js";
 import { canonicalFromUrl, nameKey, normaliseUrl } from "./canonical.js";
 import { classifyXUrl, cleanTitle, embeddedData, extractOpportunities, htmlToDocument, parseOembed } from "./extract.js";
 import { assertPublicHttpUrl, createHttpGet, robotsAllows } from "./http.js";
 import { amountsIn, parseTierText, usdComparable } from "./money.js";
 import { scoreProgramme, SCORING_VERSION } from "./rank.js";
 import { resolveProgramme, type ObservationInput } from "./resolve.js";
-import { BOARD_JSON, EMPTY_HP_PAGE, fakeHttp, fixture, HACKENPROOF_HTML, SHERLOCK_HTML, standardRoutes } from "./testing/fixtures.js";
+import { classifyEligibility } from "./eligibility.js";
+import { BOARD_JSON, EMPTY_HP_PAGE, fakeHttp, fixture, HACKENPROOF_HTML, IMMUNEFI_JSON, SHERLOCK_HTML, standardRoutes } from "./testing/fixtures.js";
 import { BountyError } from "./types.js";
 
 const ctx = () => ({ robots: new Map<string, string | null>(), sleep: async () => undefined });
@@ -81,9 +82,10 @@ describe("adapter fetch behaviour", () => {
     expect(r).toMatchObject({ ok: true, complete: true, pages: 2 });
     expect(sleeps).toEqual([2000]);
   });
-  it("blocked sources never fetch", async () => {
+  it("a blocked source never fetches (Cantina: no permitted method)", async () => {
     const http = fakeHttp({});
-    for (const k of ["immunefi", "cantina"]) { expect(ADAPTERS[k]!.blocked).toMatch(/robots|Terms/); expect(await ADAPTERS[k]!.retrieve(http, ctx())).toMatchObject({ ok: false, retryable: false }); }
+    expect(ADAPTERS.cantina!.blocked).toMatch(/robots/);
+    expect(await ADAPTERS.cantina!.retrieve(http, ctx())).toMatchObject({ ok: false, retryable: false });
     expect(http.calls).toEqual([]);
   });
 });
@@ -305,5 +307,42 @@ describe("URL safety", () => {
     expect(robotsAllows(fixture("cantina-robots.txt"), "/bounties").allowed).toBe(true);
     expect(robotsAllows("User-agent: *\nDisallow: /a\nAllow: /a/b\n", "/a/b/c").allowed).toBe(true);
     expect(robotsAllows("", "/anything").allowed).toBe(true);
+  });
+});
+
+describe("Immunefi public-api adapter (real captured response, 2026-11-27)", () => {
+  it("parses the public feed: official URL, reward, chains, in-scope repos and status; nothing invented", () => {
+    const { items, problems } = parseImmunefi(JSON.parse(IMMUNEFI_JSON()));
+    expect(problems).toEqual([]);
+    expect(items.length).toBeGreaterThanOrEqual(10);
+    const comp = items.find((i) => i.sourceRef === "immunefi:compoundfinance")!;
+    expect(comp).toMatchObject({ projectName: "Compound Finance", platform: "Immunefi", officialUrl: "https://immunefi.com/bug-bounty/compoundfinance/information", maxReward: 1000000, chains: ["ETH"], statusClaim: "active" });
+    expect(comp.assetTypes).toContain("Smart contract");
+    expect(comp.otherUrls.some((u) => /github\.com/.test(u))).toBe(true); // in-scope repository captured
+    expect(canonicalFromUrl(comp.officialUrl)?.key).toBe("immunefi:compoundfinance");
+    expect(() => parseImmunefi({ not: "an array" })).toThrow(/not a JSON array/);
+    const noReward = parseImmunefi([{ slug: "x", project: "X" }]).items[0]!;
+    expect(noReward.maxReward).toBeNull(); expect(noReward.unresolved).toContain("maxReward");
+  });
+  it("is fetched only when enabled: the adapter is not blocked, but the registry keeps it off by default", async () => {
+    const res = await immunefi.retrieve(fakeHttp(standardRoutes()), ctx());
+    expect(res.ok).toBe(true);
+    expect(immunefi.blocked).toBeUndefined();
+  });
+});
+
+describe("eligibility: collected lead vs. programme AgentSmith can hunt", () => {
+  const res = (fields: Record<string, unknown>, verification = "community_reported"): import("./resolve.js").Resolution =>
+    ({ resolved: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, { value: v, source: "x", authority: 3, observedAt: "", conflicts: [] }])), verification } as never);
+  it("classifies by scope, reward and official confirmation; never invents verification", () => {
+    expect(classifyEligibility(res({ projectName: "Acme Post-Incident Forensics Bounty Hunt", maxReward: 1e6, officialUrl: "https://immunefi.com/bug-bounty/acme/information", chains: ["ETH"] })).tier).toBe("ineligible");
+    expect(classifyEligibility(res({ projectName: "WebCo", maxReward: 1e5, officialUrl: "https://hackenproof.com/programs/webco", assetTypes: ["Websites & apps"] })).tier).toBe("out_of_engine_scope");
+    expect(classifyEligibility(res({ projectName: "NoLink", maxReward: 1e5, chains: ["ETH"] })).tier).toBe("out_of_engine_scope");
+    const community = classifyEligibility(res({ projectName: "DefiCo", maxReward: 1e6, officialUrl: "https://immunefi.com/bug-bounty/defico/information", chains: ["ETH"], assetTypes: ["Smart contract"] }));
+    expect(community).toMatchObject({ tier: "needs_verification", engineSuitable: true, confirmable: "manual_only" });
+    const sherlock = classifyEligibility(res({ projectName: "ShCo", maxReward: 1e6, officialUrl: "https://audits.sherlock.xyz/bug-bounties/9", chains: ["ETH"], assetTypes: ["Smart contract"] }));
+    expect(sherlock.confirmable).toBe("automated"); // Sherlock is a source AgentSmith may read
+    const official = classifyEligibility(res({ projectName: "OkCo", maxReward: 1e6, officialUrl: "https://audits.sherlock.xyz/bug-bounties/9", chains: ["ETH"], assetTypes: ["Smart contract"] }, "official_confirmed"));
+    expect(official).toMatchObject({ tier: "eligible", confirmable: "already_official" });
   });
 });

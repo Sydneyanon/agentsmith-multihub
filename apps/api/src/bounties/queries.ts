@@ -1,5 +1,30 @@
 import type { Pool } from "pg";
+import { classifyEligibility, eligibilitySummary, type Eligibility } from "./eligibility.js";
+import type { Resolution } from "./resolve.js";
 import { SCORING_VERSION } from "./rank.js";
+
+/** Classify a stored row's resolved fields + verification into an eligibility tier (pure; no official verification is invented). */
+export function eligOf(resolved: unknown, verification: string): Eligibility {
+  return classifyEligibility({ resolved: (resolved ?? {}) as Resolution["resolved"], verification } as Resolution);
+}
+
+/** The honest headline: of all collected programmes, how many are genuinely eligible / need verification / out of this engine's scope. */
+export async function eligibilityOverview(pool: Pool): Promise<Record<string, number>> {
+  const rows = await pool.query<{ resolved: unknown; verification: string }>("SELECT resolved, verification FROM bounty_programs WHERE merged_into IS NULL");
+  return eligibilitySummary(rows.rows.map((r) => eligOf(r.resolved, r.verification)));
+}
+
+/** Engine-suitable programmes a human could take toward an investigation, ranked. "eligible" = officially confirmed; the rest need verification. */
+export async function researchCandidates(pool: Pool): Promise<Array<Record<string, unknown>>> {
+  const { items } = await listPrograms(pool, { sort: "priority", limit: 1000 });
+  const out: Array<Record<string, unknown>> = [];
+  for (const r of items as Array<Record<string, unknown>>) {
+    const e = eligOf(r.resolved, String(r.verification));
+    if (!e.engineSuitable || e.tier === "ineligible") continue;
+    out.push({ id: r.id, project: r.project_name, key: r.canonical_key, verification: r.verification, priority: r.priority === null ? null : Number(r.priority), reward: r.reward, eligibility: e });
+  }
+  return out;
+}
 
 /** Read models for the API and the dashboard. Public projections carry programme facts and provenance links only. */
 export type ListFilters = { q?: string; chain?: string; tech?: string; category?: string; source?: string; status?: string; verification?: string; minReward?: number; needsVerification?: boolean;
@@ -55,7 +80,7 @@ export async function overview(pool: Pool): Promise<Record<string, unknown>> {
   const changed = await pool.query<{ n: number }>("SELECT count(DISTINCT program_id)::int AS n FROM bounty_program_changes WHERE field NOT LIKE '\\_%' AND changed_at > now() - interval '7 days'");
   const last = await pool.query<{ source_key: string; last_success_at: Date | null }>("SELECT source_key, last_success_at FROM bounty_sources WHERE last_success_at IS NOT NULL ORDER BY last_success_at DESC LIMIT 1");
   const dup = await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM bounty_duplicate_candidates WHERE status = 'open'");
-  return { ...r.rows[0], changed_7d: changed.rows[0]!.n, open_duplicate_candidates: dup.rows[0]!.n, last_successful_collection: last.rows[0] ?? null };
+  return { ...r.rows[0], changed_7d: changed.rows[0]!.n, open_duplicate_candidates: dup.rows[0]!.n, last_successful_collection: last.rows[0] ?? null, eligibility: await eligibilityOverview(pool) };
 }
 
 export async function programDetail(pool: Pool, id: string): Promise<Record<string, unknown> | null> {
@@ -70,7 +95,7 @@ export async function programDetail(pool: Pool, id: string): Promise<Record<stri
   const dups = await pool.query(`SELECT d.id, d.reason, d.status, d.created_at, d.decided_by, CASE WHEN d.program_a = $1 THEN d.program_b ELSE d.program_a END AS other_id, o.project_name AS other_name, o.canonical_key AS other_key
       FROM bounty_duplicate_candidates d JOIN bounty_programs o ON o.id = CASE WHEN d.program_a = $1 THEN d.program_b ELSE d.program_a END WHERE $1 IN (d.program_a, d.program_b) ORDER BY d.created_at`, [id]);
   const scores = await pool.query("SELECT scoring_version, computed_at, priority FROM bounty_scores WHERE program_id = $1 ORDER BY computed_at DESC", [id]);
-  return { ...p.rows[0], observations: obs.rows, changes: changes.rows, duplicates: dups.rows, score_history: scores.rows };
+  return { ...p.rows[0], eligibility: eligOf(p.rows[0].resolved, p.rows[0].verification), observations: obs.rows, changes: changes.rows, duplicates: dups.rows, score_history: scores.rows };
 }
 
 export async function health(pool: Pool): Promise<Record<string, unknown>> {
@@ -110,10 +135,11 @@ export async function publicFeed(pool: Pool): Promise<Record<string, unknown>> {
     status: r.status, status_basis: r.status_basis, verification: r.verification, priority: r.priority === null ? null : Number(r.priority), components: r.components, explanation: r.explanation,
     first_seen: r.first_seen_at, last_checked: r.last_checked_at, last_verified: r.last_verified_at, updated: r.updated_at,
     sources: (r.sources as Array<{ source: string; url: string | null; listed: boolean }>).filter((s) => s.source !== "operator" && s.source !== "text-import").map((s) => ({ source: s.source, url: s.source === "web-import" ? null : s.url, listed: s.listed })),
+    eligibility: eligOf(r.resolved, r.verification as string),
   }));
   const h = await health(pool);
   return {
-    generated_at: new Date().toISOString(), scoring_version: SCORING_VERSION, overview: await overview(pool), programmes: pub,
+    generated_at: new Date().toISOString(), scoring_version: SCORING_VERSION, overview: await overview(pool), eligibility: eligibilitySummary(pub.map((x) => x.eligibility)), programmes: pub,
     sources: (h.sources as Array<Record<string, unknown>>).map((s) => ({ key: s.source_key, name: s.display_name, kind: s.kind, enabled: s.enabled, access_status: s.access_status, access_note: s.access_note,
       last_success_at: s.last_success_at, programmes: s.programs_shown, last_outcome: (s.last_check as { outcome?: string } | null)?.outcome ?? null })),
   };

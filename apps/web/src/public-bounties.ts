@@ -13,12 +13,19 @@ export type Programme = {
   launched: string | null; source_updated: string | null; status: string; status_basis: string; verification: string; priority: number | null;
   components: Record<string, { score: number | null; why: string }> | null; explanation: string[] | null;
   first_seen: string; last_checked: string | null; last_verified: string | null; updated: string; sources: Array<{ source: string; url: string | null; listed: boolean }>;
+  eligibility?: { tier: string; engineSuitable: boolean; confirmable: string; reasons: string[] };
 };
-export type Feed = { generated_at: string; scoring_version: string; overview: Record<string, unknown>; programmes: Programme[];
+export type Feed = { generated_at: string; scoring_version: string; overview: Record<string, unknown>; eligibility?: Record<string, number>; programmes: Programme[];
   sources: Array<{ key: string; name: string; kind: string; enabled: boolean; access_status: string; access_note: string; last_success_at: string | null; programmes: number; last_outcome: string | null }> };
-export type Filters = { q: string; chain: string; tech: string; source: string; status: string; verification: string; minReward: number; sort: string; includeRecovery: boolean };
-export const DEFAULT_FILTERS: Filters = { q: "", chain: "", tech: "", source: "", status: "", verification: "", minReward: 0, sort: "priority", includeRecovery: false };
+export type Filters = { q: string; chain: string; tech: string; source: string; status: string; verification: string; eligibility: string; minReward: number; sort: string; includeRecovery: boolean };
+export const DEFAULT_FILTERS: Filters = { q: "", chain: "", tech: "", source: "", status: "", verification: "", eligibility: "", minReward: 0, sort: "priority", includeRecovery: false };
 
+export const ELIGIBILITY: Record<string, { label: string; tone: string; hint: string }> = {
+  eligible: { label: "Eligible to hunt", tone: "ok", hint: "Officially confirmed, smart-contract scoped, reward stated. A human still verifies the exact repository and scope before any investigation." },
+  needs_verification: { label: "Candidate · needs verification", tone: "waiting", hint: "Smart-contract scoped with a stated reward, but not yet confirmed on an official source by AgentSmith." },
+  out_of_engine_scope: { label: "Out of engine scope", tone: "seen", hint: "A real bounty, but not smart-contract work this engine analyses (web/app only, or no recognised official URL)." },
+  ineligible: { label: "Not a vuln bounty", tone: "seen", hint: "A recovery/forensics bounty, or no reward stated." },
+};
 export const VERIFICATION: Record<string, { label: string; tone: string; hint: string }> = {
   official_confirmed: { label: "Official · confirmed", tone: "ok", hint: "Listed on its official platform; AgentSmith confirmed the listing within the last 48 hours." },
   official_stale: { label: "Official · check stale", tone: "waiting", hint: "Listed on its official platform, but the last confirmation is older than 48 hours." },
@@ -60,6 +67,7 @@ export function applyFilters(list: readonly Programme[], f: Filters): Programme[
     if (f.source && !(p.sources.some((s) => s.source === f.source) || (p.platform ?? "").toLowerCase() === f.source.toLowerCase())) return false;
     if (f.status && p.status !== f.status) return false;
     if (f.verification === "needs" ? p.verification === "official_confirmed" : f.verification && p.verification !== f.verification) return false;
+    if (f.eligibility && (p.eligibility?.tier ?? "") !== f.eligibility) return false;
     if (f.minReward > 0 && (p.max_reward === null || p.max_reward < f.minReward)) return false;
     return true;
   });
@@ -83,7 +91,7 @@ function card(p: Programme, open: (p: Programme) => void): HTMLElement {
     h("div", { class: "bcard-top" },
       h("div", { class: "bcard-name" }, h("strong", {}, p.project), p.programme && p.programme !== p.project ? h("span", { class: "muted" }, ` · ${p.programme}`) : null),
       h("div", { class: "bcard-reward", title: p.reward_source ? `stated by ${SOURCE_NAME[p.reward_source] ?? p.reward_source}` : "" }, p.max_reward === null ? h("span", { class: "muted" }, "reward not stated") : `up to ${money(p.max_reward, p.currency)}`)),
-    h("div", { class: "bcard-meta" }, chip(s.label, s.tone), chip(v.label, v.tone, v.hint), p.platform ? chip(p.platform, "seen") : null, p.reward_conflicts ? chip("reward disputed", "flagged", "Another source states a different reward") : null),
+    h("div", { class: "bcard-meta" }, p.eligibility ? chip((ELIGIBILITY[p.eligibility.tier] ?? { label: p.eligibility.tier }).label, (ELIGIBILITY[p.eligibility.tier] ?? { tone: "seen" }).tone, (ELIGIBILITY[p.eligibility.tier] ?? { hint: "" }).hint) : null, chip(s.label, s.tone), chip(v.label, v.tone, v.hint), p.platform ? chip(p.platform, "seen") : null, p.reward_conflicts ? chip("reward disputed", "flagged", "Another source states a different reward") : null),
     h("div", { class: "bcard-tags" }, [...p.chains.slice(0, 5), ...p.asset_types.slice(0, 3)].join(" · ") || h("span", { class: "muted" }, "scope not stated")),
     h("div", { class: "bcard-foot" }, h("span", { class: "prio", title: "Opportunity priority (0–100): see the detail for how it is calculated" }, p.priority === null ? "priority —" : `priority ${p.priority.toFixed(0)}`),
       h("span", { class: "muted" }, `checked ${when(p.last_checked)} · ${p.sources.length} source${p.sources.length === 1 ? "" : "s"}`)));
@@ -132,15 +140,19 @@ export function render(root: HTMLElement, feed: Feed, filters: Filters, setFilte
       h("div", {}, h("div", { class: "title" }, "BOUNTY INTELLIGENCE"), h("div", { class: "sub" }, `Public bug bounty programmes collected from ${feed.sources.filter((s) => s.last_success_at).map((s) => SOURCE_NAME[s.key] ?? s.name).join(", ") || "no source yet"} · last collection ${last ? when(last.last_success_at) : "never"}`)),
       h("a", { class: "btn-import", href: "/hub/#/bounties/import", title: "Operators only: opens the private hub, which asks for the access token" }, "+ Add bounty / Import URL")),
     h("section", { class: "stats" },
-      stat("opportunities", o.total, "waiting"), stat("active (official)", o.active_official, "ok", "Listed as live on an official platform"),
-      stat("officially listed", o.officially_listed, "ok"), stat("community / X only", o.without_official_source, "queued", "No official-platform source; shown, but not confirmed"),
-      stat("new (7 days)", o.new_7d, "running"), stat("changed (7 days)", o.changed_7d, "running"), stat("need verification", o.needs_verification, "flagged")),
+      stat("collected leads", o.total, "waiting"),
+      stat("eligible to hunt", (feed.eligibility?.eligible ?? 0), "ok", "Officially confirmed, smart-contract scoped, reward stated"),
+      stat("candidates (need verification)", (feed.eligibility?.needs_verification ?? 0), "queued", "Smart-contract scoped with a reward, not yet officially confirmed by AgentSmith"),
+      stat("engine-suitable", (feed.eligibility?.engine_suitable ?? 0), "waiting", "Smart-contract scope and a recognised official URL"),
+      stat("officially confirmed", o.officially_confirmed, "ok"),
+      stat("new (7 days)", o.new_7d, "running"), stat("need verification", o.needs_verification, "flagged")),
     h("section", { class: "panel filters", "aria-label": "Search and filters" },
       search,
       h("div", { class: "row" },
         select("Sort", filters.sort, [["priority", "Opportunity priority"], ["reward", "Highest reward"], ["discovered", "Recently discovered"], ["updated", "Recently updated"], ["completeness", "Most complete"]], (v) => set({ sort: v })),
         select("Status", filters.status, [["", "Any status"], ...Object.entries(STATUS).map(([k, v]) => [k, v.label] as [string, string])], (v) => set({ status: v })),
         select("Verification", filters.verification, [["", "Any"], ["needs", "Needs verification"], ...Object.entries(VERIFICATION).map(([k, v]) => [k, v.label] as [string, string])], (v) => set({ verification: v })),
+        select("Hunting eligibility", filters.eligibility, [["", "Any"], ...Object.entries(ELIGIBILITY).map(([k, v]) => [k, v.label] as [string, string])], (v) => set({ eligibility: v })),
         select("Chain", filters.chain, [["", "Any chain"], ...facet((p) => p.chains).map((c) => [c, c] as [string, string])], (v) => set({ chain: v })),
         select("Technology / scope", filters.tech, [["", "Any"], ...facet((p) => [...p.asset_types, ...p.technologies, ...p.categories]).slice(0, 80).map((c) => [c, c] as [string, string])], (v) => set({ tech: v })),
         select("Source / platform", filters.source, [["", "Any"], ...facet((p) => [...p.sources.map((s) => s.source), ...(p.platform ? [p.platform] : [])]).map((c) => [c, SOURCE_NAME[c] ?? c] as [string, string])], (v) => set({ source: v })),

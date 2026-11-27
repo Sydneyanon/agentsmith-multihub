@@ -269,8 +269,72 @@ export const hackenproof: SourceAdapter = {
 // ---------------------------------------------------------------------------------------------------------------------------
 // Blocked sources: registered so their state is visible, never fetched.
 
+// ---------------------------------------------------------------------------------------------------------------------------
+// Immunefi: https://immunefi.com/public-api/bounties.json — a public JSON feed of every programme. robots.txt is `Allow: /` and the
+// response is `cache-control: public`. It carries official status, rewards, chains and the in-scope assets (GitHub/docs URLs), so it
+// confirms programmes and gives verified repositories. It is DISABLED by default and the registry keeps it off pending an owner decision
+// on whether Immunefi's Terms of Use permit reading this endpoint (see docs/source-access-decisions.md); enabling is an operator action.
+
+export const IMMUNEFI_URL = "https://immunefi.com/public-api/bounties.json";
+type ImmunefiAsset = { url?: string; type?: string };
+type ImmunefiProgram = { slug?: string; project?: string; maxBounty?: number | null; rewardsToken?: string | null; ecosystem?: string[]; productType?: string[]; projectType?: string[];
+  kyc?: boolean | null; isPaused?: boolean; inviteOnly?: boolean; launchDate?: string | null; updatedDate?: string | null; endDate?: string | null; assets?: ImmunefiAsset[]; githubUrl?: string | null; websiteUrl?: string | null };
+
+export function parseImmunefi(json: unknown): { items: ExtractedOpportunity[]; problems: string[] } {
+  if (!Array.isArray(json)) throw new Error("the public-api response is not a JSON array");
+  const items: ExtractedOpportunity[] = []; const problems: string[] = []; const seen = new Set<string>();
+  for (const raw of json as ImmunefiProgram[]) {
+    if (!raw || typeof raw.slug !== "string" || !raw.slug) { problems.push("skipped a programme without a slug"); continue; }
+    if (seen.has(raw.slug)) { problems.push(`duplicate slug ${raw.slug}`); continue; }
+    seen.add(raw.slug);
+    const o = emptyOpportunity(`immunefi:${raw.slug}`, (raw.project && String(raw.project).trim()) || raw.slug);
+    o.programmeName = (raw.project && String(raw.project).trim()) || raw.slug;
+    o.platform = "Immunefi";
+    o.officialUrl = `https://immunefi.com/bug-bounty/${raw.slug}/information`;
+    o.maxReward = typeof raw.maxBounty === "number" && raw.maxBounty > 0 ? raw.maxBounty : null;
+    o.rewardCurrency = raw.rewardsToken ? String(raw.rewardsToken).split("/")[0]!.trim() : (o.maxReward !== null ? "USD" : null);
+    o.rewardType = o.maxReward !== null ? "up_to" : null;
+    o.chains = uniqCI((raw.ecosystem ?? []).map(String));
+    const assetTypes = new Set<string>();
+    const repos: string[] = [];
+    for (const a of raw.assets ?? []) {
+      if (a?.type === "smart_contract") assetTypes.add("Smart contract");
+      else if (a?.type === "websites_and_applications" || a?.type === "web") assetTypes.add("Websites & apps");
+      else if (a?.type === "blockchain_dlt") assetTypes.add("Blockchain/DLT");
+      const u = a?.url && /^https?:\/\//.test(a.url) ? normaliseUrl(a.url) : null;
+      if (u && /github\.com\//i.test(u)) repos.push(u);
+    }
+    o.assetTypes = [...assetTypes];
+    o.technologies = uniqCI([...(raw.productType ?? []), ...(raw.projectType ?? [])].map(String));
+    o.otherUrls = [...new Set(repos)].slice(0, 50);
+    o.kycRequired = typeof raw.kyc === "boolean" ? raw.kyc : null;
+    o.statusClaim = raw.isPaused ? "paused" : "active";
+    o.launchedAt = raw.launchDate ? String(raw.launchDate).slice(0, 10) : null;
+    o.sourceUpdatedAt = raw.updatedDate ? String(raw.updatedDate).slice(0, 10) : null;
+    o.sourceTitle = o.programmeName;
+    if (raw.inviteOnly) o.unresolved.push("inviteOnly");
+    if (o.maxReward === null) o.unresolved.push("maxReward");
+    items.push(o);
+  }
+  return { items, problems };
+}
+
+export const immunefi: SourceAdapter = {
+  key: "immunefi", hosts: ["immunefi.com"],
+  async retrieve(get, ctx) {
+    const robots = await checkRobots(get, IMMUNEFI_URL, ctx.robots);
+    if (!robots.allowed) return { ok: false, httpStatus: null, error: `robots.txt: ${robots.reason}`, retryable: true, retryAfterSeconds: 3600 };
+    const r = await get(IMMUNEFI_URL, { accept: "application/json", maxBytes: 16 * 1024 * 1024 });
+    if (r.status === 429 || r.status >= 500) return { ok: false, httpStatus: r.status, error: `HTTP ${r.status}`, retryable: true, retryAfterSeconds: r.retryAfterSeconds };
+    if (r.status !== 200) return { ok: false, httpStatus: r.status, error: `HTTP ${r.status}`, retryable: false, retryAfterSeconds: null };
+    try {
+      const { items, problems } = parseImmunefi(JSON.parse(r.body));
+      return { ok: true, complete: items.length > 0, httpStatus: r.status, bytes: r.bytes, contentSha256: r.sha256, pages: 1, items, notes: problems.slice(0, 20) };
+    } catch (e) { return { ok: false, httpStatus: r.status, error: `could not parse the public-api response: ${(e as Error).message}`, retryable: false, retryAfterSeconds: null }; }
+  },
+};
+
 const blocked = (key: string, reason: string): SourceAdapter => ({ key, hosts: [], blocked: reason, retrieve: async () => ({ ok: false, httpStatus: null, error: reason, retryable: false, retryAfterSeconds: null }) });
-export const immunefi = blocked("immunefi", "Immunefi's Terms of Use (section 4) forbid robots and automated access; its listings arrive through the community board");
 export const cantina = blocked("cantina", "Cantina's listing is built in the browser from /api/, which its robots.txt disallows; its listings arrive through the community board");
 
 export const ADAPTERS: Record<string, SourceAdapter> = { "community-board": communityBoard, sherlock, hackenproof, immunefi, cantina };

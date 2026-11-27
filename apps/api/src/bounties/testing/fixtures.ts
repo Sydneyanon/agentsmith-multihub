@@ -11,6 +11,7 @@ export const fixture = (name: string): string => {
 export const BOARD_JSON = () => fixture("board-programs-2026-11-27.json.gz");
 export const SHERLOCK_HTML = () => fixture("sherlock-bug-bounties-2026-11-27.html.gz");
 export const HACKENPROOF_HTML = () => fixture("hackenproof-programs-p1-2026-11-27.html.gz");
+export const IMMUNEFI_JSON = () => fixture("immunefi-public-api-2026-11-27.json.gz");
 
 export type Route = { status?: number; body: string; contentType?: string; headers?: Record<string, string>; location?: string } | ((url: string) => { status?: number; body: string; contentType?: string; location?: string });
 /** A recorded HttpGet: serves fixtures by exact URL, counts requests, and answers 404 for anything else. */
@@ -39,4 +40,6 @@ export const standardRoutes = (): Record<string, Route> => ({
   "https://hackenproof.com/robots.txt": { body: "User-agent: *\nAllow: /\n", contentType: "text/plain" },
   "https://hackenproof.com/programs": { body: HACKENPROOF_HTML() },
   "https://hackenproof.com/programs?page=2": { body: EMPTY_HP_PAGE },
+  "https://immunefi.com/robots.txt": { body: "User-agent: *\nAllow: /\n", contentType: "text/plain" },
+  "https://immunefi.com/public-api/bounties.json": { body: IMMUNEFI_JSON(), contentType: "application/json" },
 });

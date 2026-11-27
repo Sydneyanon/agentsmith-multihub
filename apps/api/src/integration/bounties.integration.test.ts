@@ -3,8 +3,8 @@ import { buildApp } from "../app.js";
 import { AuthFailureLimiter } from "../auth.js";
 import { runCollection } from "../bounties/collect.js";
 import { runImport } from "../bounties/import.js";
-import { publicFeed } from "../bounties/queries.js";
-import { addCorrection, decideDuplicate } from "../bounties/store.js";
+import { publicFeed, researchCandidates } from "../bounties/queries.js";
+import { addCorrection, decideDuplicate, setBountySourceEnabled } from "../bounties/store.js";
 import { BOARD_JSON, fakeHttp, standardRoutes, type Route } from "../bounties/testing/fixtures.js";
 import { migratedTestDatabase, skipIntegration, type TestDatabase } from "./harness.js";
 
@@ -136,11 +136,11 @@ describe.skipIf(skipIntegration)("bounty intelligence collection over real Postg
       const zeta = (await owner().query("SELECT p.verification, p.status, o.source_key, o.source_author, o.source_url FROM bounty_programs p JOIN bounty_observations o ON o.program_id = p.id WHERE p.name_key = 'zetachain'")).rows[0];
       expect(zeta).toEqual({ verification: "social_reported", status: "requires_verification", source_key: "x", source_author: "@bountyfeed", source_url: "https://x.com/bountyfeed/status/1866000000000000001" });
     });
-    it("a platform programme URL for a blocked platform is recorded from the URL without fetching it", async () => {
+    it("a platform programme URL for a disabled source is recorded from the URL without fetching it", async () => {
       const h = http();
       const r = await runImport(db.pool, h, { url: "https://immunefi.com/bug-bounty/brand-new-protocol/information/", submittedBy: "operator" }, at(14));
       expect(r).toMatchObject({ urlKind: "platform_programme", retrieved: false, added: 1 });
-      expect(r.limitations.join(" ")).toMatch(/Terms of Use/);
+      expect(r.limitations.join(" ")).toMatch(/not an enabled collection source/);
       expect(h.calls.some((u) => u.includes("immunefi.com"))).toBe(false);
     });
   });
@@ -196,6 +196,29 @@ describe.skipIf(skipIntegration)("bounty intelligence collection over real Postg
     expect(await count("SELECT count(*) AS n FROM bounty_observations WHERE program_id = $1", [m.survivor])).toBe(before);
     expect(await count("SELECT count(*) AS n FROM bounty_programs WHERE merged_into = $1", [m.survivor])).toBe(1);
     await expect(decideDuplicate(db.pool, cand.id, "reject", "operator")).rejects.toMatchObject({ code: "invalid_state" });
+  });
+
+  describe("resolving a source-access decision: enabling Immunefi collects from its public-api; a blocked source cannot be enabled", () => {
+    it("enabling a blocked source (Cantina) is refused", async () => {
+      await expect(setBountySourceEnabled(db.pool, "cantina", true, "operator", { adapterBlocked: true })).rejects.toMatchObject({ code: "source_blocked" });
+      expect((await owner().query("SELECT enabled FROM bounty_sources WHERE source_key='cantina'")).rows[0].enabled).toBe(false);
+    });
+    it("once enabled, Immunefi's public-api is collected, programmes are officially confirmed with in-scope repos, and they become research candidates", async () => {
+      const r0 = await runCollection(db.pool, { trigger: "test", startedBy: "t", http: fakeHttp(standardRoutes()), now: at(20), force: true, sources: ["immunefi"], sleep: async () => undefined });
+      expect(["skipped_blocked", "skipped_disabled"]).toContain(r0.checks[0]!.outcome); // off until the owner decides
+      const en = await setBountySourceEnabled(db.pool, "immunefi", true, "owner", { accessStatus: "permitted", note: "owner approved reading the public-api endpoint" });
+      expect(en).toMatchObject({ enabled: true, accessStatus: "permitted" });
+      const r = await runCollection(db.pool, { trigger: "test", startedBy: "t", http: fakeHttp(standardRoutes()), now: at(21), force: true, sources: ["immunefi"], sleep: async () => undefined });
+      expect(r.checks[0]).toMatchObject({ outcome: "fetched", listings: 12 });
+      const comp = (await owner().query("SELECT verification, status, resolved FROM bounty_programs WHERE canonical_key='immunefi:compoundfinance'")).rows[0];
+      expect(comp.verification).toBe("official_confirmed");
+      expect(comp.resolved.chains.value).toContain("ETH");
+      const cand = await researchCandidates(db.pool);
+      const c = cand.find((x) => (x as { key: string }).key === "immunefi:compoundfinance") as { eligibility: { tier: string; engineSuitable: boolean } } | undefined;
+      expect(c).toBeTruthy(); expect(c!.eligibility).toMatchObject({ tier: "eligible", engineSuitable: true });
+      // restore the shipped default so later tests see the registry as deployed
+      await setBountySourceEnabled(db.pool, "immunefi", false, "owner", { accessStatus: "blocked_terms" });
+    });
   });
 
   it("the API: operator routes need the token, the public feed does not and carries no descriptions or import text", async () => {

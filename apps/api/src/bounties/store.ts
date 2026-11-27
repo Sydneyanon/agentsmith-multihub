@@ -189,3 +189,22 @@ export async function decideDuplicate(pool: Pool, candidateId: string, decision:
     return { survivor };
   } catch (e) { await client.query("ROLLBACK"); throw e; } finally { client.release(); }
 }
+
+/**
+ * Enable or disable a collection source (operator action). Enabling a source whose adapter is blocked, or that has no adapter, is
+ * refused — a blocked source (Cantina; Immunefi until its terms decision keeps it off) cannot be turned on by mistake. Enabling sets
+ * access_status to the given value (default 'permitted') and records the actor; this is the one authenticated call that acts on an
+ * owner's source-access decision, instead of a manual database edit.
+ */
+export async function setBountySourceEnabled(pool: Pool, sourceKey: string, enabled: boolean, by: string, opts: { accessStatus?: string; adapterBlocked?: boolean; note?: string } = {}): Promise<{ sourceKey: string; enabled: boolean; accessStatus: string }> {
+  const cur = (await pool.query<{ access_status: string; enabled: boolean }>("SELECT access_status, enabled FROM bounty_sources WHERE source_key = $1", [sourceKey])).rows[0];
+  if (!cur) throw new BountyError("not_found", `no source ${sourceKey}`);
+  if (enabled && opts.adapterBlocked) throw new BountyError("source_blocked", `${sourceKey} cannot be enabled: its access is blocked, not an owner decision`);
+  const access = enabled ? (opts.accessStatus ?? "permitted") : (opts.accessStatus ?? cur.access_status);
+  const r = (await pool.query<{ access_status: string; enabled: boolean }>(
+    "UPDATE bounty_sources SET enabled = $2, access_status = $3, access_note = CASE WHEN $4::text IS NULL THEN access_note ELSE $4 END, updated_at = now() WHERE source_key = $1 RETURNING enabled, access_status",
+    [sourceKey, enabled, access, opts.note ?? null])).rows[0]!;
+  await pool.query("INSERT INTO bounty_collection_runs (trigger, started_by, started_at, finished_at, status, summary) VALUES ('manual', $1, now(), now(), 'succeeded', $2::jsonb)",
+    [by, JSON.stringify({ action: enabled ? "source_enabled" : "source_disabled", source: sourceKey, access_status: access })]);
+  return { sourceKey, enabled: r.enabled, accessStatus: r.access_status };
+}
