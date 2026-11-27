@@ -81,10 +81,25 @@ check "other hostnames (hunt, fly.dev) -> 421" '[ "$(H hunt.agentsmithdesk.xyz /
 check "/v1/research/overview without token -> 401" '[ "$(H $HOSTN /v1/research/overview)" = 401 ]'
 check "/v1/research/overview with the token -> 200 with real database" '[ "$(H $HOSTN /v1/research/overview -H "Authorization: Bearer $TOKEN")" = 200 ]'
 check "research data is empty on a fresh database (no seeded records)" '[ "$(curl -s -H "Host: $HOSTN" -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/research/overview" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[\"projects\"][\"total\"]+d[\"research\"][\"hypotheses\"][\"total\"])")" = 0 ]'
+if [ -f "$ROOTFS/app/dist/web/bounties.html" ]; then
+  echo "== bounty intelligence (only when the image ships it)"
+  check "GET /bounties/ -> 200 without a token, strict CSP" '[ "$(H $HOSTN /bounties/)" = 200 ] && curl -s -D - -o /dev/null -H "Host: $HOSTN" "http://127.0.0.1:$PORT/bounties/" | grep -i "^content-security-policy:" | grep -q "default-src .none."'
+  check "GET /hub/assets/public-bounties.js and bounties.css -> 200" '[ "$(H $HOSTN /hub/assets/public-bounties.js)" = 200 ] && [ "$(H $HOSTN /hub/assets/bounties.css)" = 200 ]'
+  check "GET /public/bounties.json -> 200 without a token, empty on a fresh database" '[ "$(curl -s -H "Host: $HOSTN" "http://127.0.0.1:$PORT/public/bounties.json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[\"programmes\"]), d[\"overview\"][\"total\"])")" = "0 0" ]'
+  check "source registry as shipped: only the community board enabled; Sherlock, HackenProof, X off; Immunefi, Cantina blocked" '[ "$(psql "$DBURL" -Atc "select string_agg(concat_ws(chr(58), source_key, enabled, access_status), chr(44) order by source_key) from bounty_sources where kind in (chr(111)||chr(102)||chr(102)||chr(105)||chr(99)||chr(105)||chr(97)||chr(108)||chr(95)||chr(112)||chr(108)||chr(97)||chr(116)||chr(102)||chr(111)||chr(114)||chr(109), chr(99)||chr(111)||chr(109)||chr(109)||chr(117)||chr(110)||chr(105)||chr(116)||chr(121)||chr(95)||chr(105)||chr(110)||chr(100)||chr(101)||chr(120), chr(115)||chr(111)||chr(99)||chr(105)||chr(97)||chr(108))")" = "cantina:f:blocked_robots,community-board:t:permitted,hackenproof:f:owner_decision_required,immunefi:f:blocked_terms,sherlock:f:owner_decision_required,x:f:owner_decision_required" ]'
+  check "/v1/bounties and POST /v1/bounties/imports without token -> 401" '[ "$(H $HOSTN /v1/bounties)" = 401 ] && [ "$(H $HOSTN /v1/bounties/imports -X POST)" = 401 ]'
+  check "/v1/bounties/health with the token -> 200" '[ "$(H $HOSTN /v1/bounties/health -H "Authorization: Bearer $TOKEN")" = 200 ]'
+  OUT="$(run_in sh -c "cd /app && $CA_ENV DATABASE_URL='$DBURL' timeout 120 node dist/apps/api/src/bounties/collect-main.js --trigger manual" 2>&1)"; RC=$?
+  echo "$OUT" | tail -1 | cut -c1-300 | sed 's/^/     /'
+  check "the collector runs inside the image and records its run (rc=$RC; a sandbox without direct DNS records an honest failure)" '[ "$RC" = 0 ] || [ "$RC" = 1 ] || [ "$RC" = 2 ]; [ "$(psql "$DBURL" -Atc "select count(*) from bounty_collection_runs where finished_at is not null")" -ge 1 ]'
+  check "the collector never contacted a blocked or disabled source" '[ "$(psql "$DBURL" -Atc "select count(*) from bounty_source_checks where source_key in ('"'"'immunefi'"'"','"'"'cantina'"'"','"'"'sherlock'"'"','"'"'hackenproof'"'"') and outcome not in ('"'"'skipped_blocked'"'"','"'"'skipped_disabled'"'"')")" = 0 ]'
+fi
+
 for i in $(seq 1 11); do H $HOSTN /v1/research/overview -H "Authorization: Bearer wrong" >/dev/null; done
 check "repeated wrong tokens are throttled (429)" '[ "$(H $HOSTN /v1/research/overview -H "Authorization: Bearer wrong")" = 429 ]'
 check "...but the valid operator token is never locked out (200)" '[ "$(H $HOSTN /v1/research/overview -H "Authorization: Bearer $TOKEN")" = 200 ]'
 check "token never appears in the server log" '! grep -q "$TOKEN" /tmp/hubimg.log'
+
 
 echo; echo "image smoke test: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
