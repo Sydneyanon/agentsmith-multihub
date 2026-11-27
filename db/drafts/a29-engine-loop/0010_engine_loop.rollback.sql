@@ -1,4 +1,14 @@
 -- DRAFT A29 rollback: restores the schema left by 0001-0008 plus the T-144 draft. Only valid while the new rows hold no data that must be kept.
+DROP TRIGGER IF EXISTS hypothesis_reviews_attended_guard ON hypothesis_reviews;
+DROP FUNCTION IF EXISTS hypothesis_reviews_attended_guard();
+ALTER TABLE hypothesis_reviews DROP CONSTRAINT IF EXISTS hypothesis_reviews_attended_shape;
+ALTER TABLE hypothesis_reviews DROP CONSTRAINT hypothesis_reviews_reviewer_kind_check;
+ALTER TABLE hypothesis_reviews ADD CONSTRAINT hypothesis_reviews_reviewer_kind_check CHECK (reviewer_kind IN ('model','human'));
+ALTER TABLE hypothesis_events DROP CONSTRAINT hypothesis_events_actor_kind_check;
+ALTER TABLE hypothesis_events ADD CONSTRAINT hypothesis_events_actor_kind_check CHECK (actor_kind IN ('deterministic_rule','model','human'));
+ALTER TABLE hypotheses DROP CONSTRAINT IF EXISTS hypotheses_attended_version;
+ALTER TABLE hypotheses DROP CONSTRAINT hypotheses_generator_kind_check;
+ALTER TABLE hypotheses ADD CONSTRAINT hypotheses_generator_kind_check CHECK (generator_kind IN ('deterministic_rule','model','human'));
 ALTER TABLE opportunity_events DROP CONSTRAINT IF EXISTS opportunity_events_assessed_shape;
 ALTER TABLE opportunity_events DROP CONSTRAINT IF EXISTS opportunity_events_verified_shape;
 ALTER TABLE opportunity_events DROP CONSTRAINT IF EXISTS opportunity_events_policy_only_assesses;

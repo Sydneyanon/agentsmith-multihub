@@ -19,7 +19,7 @@ describe("component priority (T-052, extending T-051) over capability-class pair
     const a = componentFeatures(model, [], ONE).map((f) => scoreComponent(f, totalPairs(ONE)));
     expect(a).toEqual(componentFeatures(model, [], ONE).map((f) => scoreComponent(f, totalPairs(ONE))));
     for (const s of a) {
-      expect(s.contributions.map((c) => c.feature)).toEqual(["unexplored", "entry-points", "external-calls", "unguarded-writes", "cost"]);
+      expect(s.contributions.map((c) => c.feature)).toEqual(["unexplored", "entry-points", "external-calls", "unguarded-writes", "specialist-surface", "cost"]);
       for (const c of s.contributions) expect(c.reason.length).toBeGreaterThan(10);
       expect(s.score).toBeGreaterThanOrEqual(0); expect(s.score).toBeLessThanOrEqual(100);
       expect(JSON.stringify(s)).not.toMatch(/probab/i);

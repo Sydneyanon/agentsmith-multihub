@@ -3,14 +3,15 @@ import { approveOpportunityIn } from "../discovery/store.js";
 import { buildProtocolModel, type ProtocolModel } from "../analysis/solidity/protocol-model.js";
 import { readSnapshotSources } from "../analysis/solidity/pipeline.js";
 import { sealedSnapshot } from "../analysis/solidity/step.js";
-import { componentFeatures, scoreComponent, totalPairs, type ComponentMemory } from "../priority/component.js";
+import { componentFeatures, scoreComponent, totalPairs, type ComponentFeatures, type ComponentMemory, type SurfaceMap } from "../priority/component.js";
 import { scoringComponentsFromModel } from "../priority/from-model.js";
 import type { CoverageRecord } from "../priority/coverage.js";
 import { POLICY_V1 } from "../priority/policy.js";
 import { allocate, scoreOpportunity, type PriorityAssessment } from "../priority/score.js";
 import { ResearchStore } from "../research-state.js";
 import { NOT_MODELLED_CLASSES } from "./classes.js";
-import { availability, capabilityById, producers, TRACKED_CLASSES, type Capability } from "./capabilities.js";
+import { ATTENDED_CHALLENGE_STEP_KEY, availability, capabilityById, pinnedVersion, producers, reviewers, TRACKED_CLASSES, type Capability } from "./capabilities.js";
+import { createChallengeRunIn } from "./attended.js";
 import { addCandidates, openDecision, RESEARCH_POLICY_V0, type Candidate, type Db, type Feature } from "./decisions.js";
 import { checkVerdict, readRegistry, recordAssessment, verifiedRepositories, type Assessment, type RegistryEntry } from "./registry.js";
 import { CHALLENGE_TARGET_STEP_KEY, createInvestigationRunIn, producerOutput } from "./steps.js";
@@ -189,14 +190,16 @@ export async function sameVersionSnapshots(db: Db, snapshotId: string): Promise<
 export type MapStage = {
   decisionId: string; snapshotId: string; commitSha: string; repository: string; protocolModelSha256: string;
   assignment: { runId: string; target: string; mode: "exploit" | "explore"; capability: string; targets: string[] } | null;
+  challenge: { runId: string; claims: number; capability: string } | null;
   reviewRequests: string[]; exhausted: boolean; candidates: Candidate[];
 };
 
 /** Supported-by-independent-evidence leads on this version with no human outcome yet, not already sent for review by an earlier decision. */
 async function leadsAwaitingHuman(db: Db, snapshotIds: readonly string[]): Promise<Array<{ id: string; family: string; evaluators: string[] }>> {
   return (await db.query<{ id: string; family: string; evaluators: string[] }>(
-    `SELECT h.id, h.family, array_agg(DISTINCT e.evaluator_id ORDER BY e.evaluator_id) AS evaluators FROM hypotheses h
-       JOIN hypothesis_evaluations e ON e.hypothesis_id = h.id AND e.outcome = 'supports' AND e.evaluator_id <> h.generator_id
+    `SELECT h.id, h.family, array_agg(DISTINCT x.who ORDER BY x.who) AS evaluators FROM hypotheses h
+       JOIN (SELECT e.hypothesis_id, 'evidence:' || e.evaluator_id AS who FROM hypothesis_evaluations e JOIN hypotheses g ON g.id = e.hypothesis_id WHERE e.outcome = 'supports' AND e.evaluator_id <> g.generator_id
+             UNION ALL SELECT r.hypothesis_id, 'review:' || r.reviewer_id FROM hypothesis_reviews r WHERE r.reviewer_kind = 'attended_model' AND r.verdict = 'supports') x ON x.hypothesis_id = h.id
       WHERE h.snapshot_id = ANY($1::uuid[])
         AND NOT EXISTS (SELECT 1 FROM hypothesis_outcomes o WHERE o.hypothesis_id = h.id)
         AND NOT EXISTS (SELECT 1 FROM research_decision_candidates c WHERE c.candidate_ref = h.id::text AND c.action = 'request_human_review')
@@ -208,10 +211,46 @@ async function leadsAwaitingHuman(db: Db, snapshotIds: readonly string[]): Promi
  * pending classes (ties: declaration order). Complementary machines each get their turn; a tool that failed here is not retried at the
  * same version. A whole-snapshot tool takes every component it has not examined in one assignment.
  */
-function chooseCapability(caps: readonly Capability[], pendingByCapability: Record<string, string[]>): Capability | null {
-  let best: Capability | null = null;
-  for (const c of caps) { const n = pendingByCapability[c.id]?.length ?? 0; if (n > 0 && (!best || n > (pendingByCapability[best.id]?.length ?? 0))) best = c; }
-  return best;
+function signal(name: Capability["profile"]["relevance"][number]["signal"], x: ComponentFeatures): number {
+  return name === "ledger_vars" ? x.ledgerVars : name === "external_calls" ? x.externalCalls : name === "entry_points" ? x.entryPoints / 4 : name === "unguarded_writes" ? x.unguardedWrites : x.listVars;
+}
+export type CapabilityValue = { capability: string; pending: number; relevance: number; costUnits: number; value: number; runtime: string };
+/**
+ * Choose the specialist for a target by stated, deterministic value: pending classes x relevance (protocol-model facts the capability
+ * is good at) / cost units. A mapper that has not mapped this snapshot goes first. Ties: declaration order. Every capability's value is
+ * recorded in the decision, so "why this specialist" is answerable and replayable.
+ */
+function chooseCapability(caps: readonly Capability[], x: ComponentFeatures): { cap: Capability | null; table: CapabilityValue[] } {
+  const table = caps.map((c) => {
+    const pending = x.pendingByCapability[c.id]?.length ?? 0;
+    const relevance = Math.round((1 + c.profile.relevance.reduce((n, r) => n + r.weight * Math.min(1, signal(r.signal, x)), 0)) * 100) / 100;
+    return { capability: `${c.id}@${c.version}`, pending, relevance, costUnits: c.profile.costUnits, value: Math.round((pending * relevance / c.profile.costUnits) * 1000) / 1000, runtime: c.profile.runtime };
+  });
+  const mapper = caps.find((c) => c.profile.precedes && (x.pendingByCapability[c.id]?.length ?? 0) > 0);
+  if (mapper) return { cap: mapper, table };
+  let best: Capability | null = null; let bestV = 0;
+  caps.forEach((c, i) => { const v = table[i]!.value; if (v > bestV) { best = c; bestV = v; } });
+  return { cap: best, table };
+}
+
+/** The latest imported scoping map for this version: contract -> best attack-surface rank. */
+async function surfaceMap(db: Db, version: readonly string[]): Promise<SurfaceMap | null> {
+  const r = (await db.query<{ output: { scope?: { attack_surface?: Array<{ rank: number; target: string }> }; pinned_version?: string } }>(
+    `SELECT s.output FROM workflow_steps s WHERE s.status = 'succeeded' AND s.output->'capability'->>'id' = 'claude-scoping' AND (s.output->>'snapshot_id')::uuid = ANY($1::uuid[]) ORDER BY s.completed_at DESC LIMIT 1`, [version])).rows[0];
+  const list = r?.output.scope?.attack_surface ?? []; if (!list.length) return null;
+  const ranks = new Map<string, number>();
+  for (const e of list) { const c = e.target.split(/[.:(\s]/)[0]!; if (!ranks.has(c) || ranks.get(c)! > e.rank) ranks.set(c, e.rank); }
+  return { ranks, source: `claude-scoping@${r!.output.pinned_version ?? "?"}` };
+}
+
+/** Attended (model) claims that no reviewer has challenged and no challenge assignment already covers. */
+async function claimsAwaitingChallenge(db: Db, version: readonly string[]): Promise<Array<{ id: string }>> {
+  return (await db.query<{ id: string }>(
+    `SELECT h.id FROM hypotheses h WHERE h.snapshot_id = ANY($1::uuid[]) AND h.generator_kind = 'attended_model'
+        AND NOT EXISTS (SELECT 1 FROM hypothesis_outcomes o WHERE o.hypothesis_id = h.id)
+        AND NOT EXISTS (SELECT 1 FROM hypothesis_reviews r WHERE r.hypothesis_id = h.id AND r.reviewer_kind IN ('attended_model','human'))
+        AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.step_key = $2 AND s.status IN ('queued','running','succeeded') AND s.input->'claims' @> jsonb_build_array(jsonb_build_object('hypothesisId', h.id::text)))
+      ORDER BY h.created_at, h.id`, [version, ATTENDED_CHALLENGE_STEP_KEY])).rows;
 }
 
 export async function mapAndAssign(pool: Pool, runId: string, level: "component" | "follow_up" = "component", env: Env = process.env): Promise<MapStage> {
@@ -219,12 +258,25 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
   const built = buildProtocolModel(await readSnapshotSources(pool, snap.snapshotId));
   const { memory } = await coverageMemory(pool, built.model.components.map((c) => c.contentSha256));
   const caps = producers(env); const avail = availability(env);
-  const features = componentFeatures(built.model, memory, caps);
+  const version0 = await sameVersionSnapshots(pool, snap.snapshotId);
+  const surface = await surfaceMap(pool, version0);
+  const features = componentFeatures(built.model, memory, caps, surface);
+  // work already assigned and not finished is taken: a (capability, component) pair with an open assignment is not pending again
+  const open = new Set((await pool.query<{ cap: string; comp: string }>(
+    `SELECT r.input->'assignment'->'capability'->>'id' cap, t comp FROM workflow_runs r, jsonb_array_elements_text(r.input->'assignment'->'targets') t
+      WHERE r.status IN ('queued','running') AND r.input ? 'assignment'`)).rows.map((r) => `${r.cap}|${r.comp}`));
+  const inFlight = new Map<string, string[]>();
+  for (const x of features) {
+    for (const capId of Object.keys(x.pendingByCapability)) if (open.has(`${capId}|${x.id}`)) { delete x.pendingByCapability[capId]; inFlight.set(x.id, [...(inFlight.get(x.id) ?? []), capId]); }
+    x.pendingPairs = Object.values(x.pendingByCapability).reduce((n, v) => n + v.length, 0);
+  }
   const pairs = totalPairs(caps);
   const scored = features.map((x) => ({ x, a: scoreComponent(x, pairs) }));
   const pending = scored.filter((s) => s.x.pendingPairs > 0);
   const version = await sameVersionSnapshots(pool, snap.snapshotId);
   const reviews = level === "follow_up" ? await leadsAwaitingHuman(pool, version) : [];
+  const challenger = level === "follow_up" ? reviewers(env)[0] ?? null : null;
+  const toChallenge = challenger ? await claimsAwaitingChallenge(pool, version) : [];
   const seed = Number((await pool.query<{ n: string }>("SELECT count(*) n FROM research_decisions WHERE snapshot_id = ANY($1::uuid[])", [version])).rows[0]!.n);
   const pick = pickOne(pending.map((p) => p.a), seed);
   const rank = new Map([...scored].sort((a, b) => b.a.score - a.a.score || a.a.id.localeCompare(b.a.id)).map((s, i) => [s.a.id, i + 1]));
@@ -237,7 +289,8 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
         reviews.length ? `${reviews.length} lead(s) supported by an independent evaluator sent for human review.` : "", `${pending.length} of ${scored.length} components still have unexamined classes.`].filter(Boolean).join(" "),
     });
     let assignment: MapStage["assignment"] = null; let created: { runId: string; investigateStepId: string } | null = null;
-    const cap = chosen ? chooseCapability(caps, chosen.x.pendingByCapability) : null;
+    const choice = chosen ? chooseCapability(caps, chosen.x) : { cap: null, table: [] as CapabilityValue[] };
+    const cap = choice.cap;
     // a whole-snapshot tool examines every component it has not examined yet, in one run
     const bundle = chosen && cap ? (cap.scope === "snapshot" ? scored.filter((s) => (s.x.pendingByCapability[cap.id]?.length ?? 0) > 0) : [chosen]) : [];
     if (chosen && cap) {
@@ -246,6 +299,13 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
       assignment = { runId: created.runId, target: chosen.x.id, mode: pick.mode, capability: `${cap.id}@${cap.version}`, targets: bundle.map((b) => b.x.id) };
     }
     const bundled = new Set(bundle.map((b) => b.x.id));
+    // independent challenge is required for every attended (model) claim: a blinded review by a different specialist, never by its producer
+    let challenge: MapStage["challenge"] = null; let challengeRun: { runId: string; stepId: string } | null = null;
+    if (challenger && toChallenge.length) {
+      const claims = toChallenge.map((h, i) => ({ claim: `C${String(i + 1).padStart(2, "0")}`, hypothesisId: h.id }));
+      challengeRun = await createChallengeRunIn(c, { decisionId, capability: { id: challenger.id, version: challenger.version }, repository: snap.repository, commitSha: snap.commitSha, manifestSha256: snap.manifestSha256, claims }, POLICY_ID);
+      challenge = { runId: challengeRun.runId, claims: claims.length, capability: `${challenger.id}@${pinnedVersion(challenger)}` };
+    }
     const src = `protocol model ${built.sha256.slice(0, 12)}`;
     const candidates: Candidate[] = [
       ...reviews.map((h): Candidate => ({ kind: "hypothesis", ref: h.id, features: { family: f(h.family, "hypotheses"), independent_supports: f(h.evaluators, "hypothesis_evaluations (evaluator differs from generator)"), human_outcome: unknown("no human outcome recorded") },
@@ -255,16 +315,22 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
         return { kind: "component", ref: s.a.id,
           features: { content_sha256: f(s.x.contentSha256, src), entry_points: f(s.x.entryPoints, src), external_calls: f(s.x.externalCalls, src), unguarded_writes: f(s.x.unguardedWrites, src), functions: f(s.x.functions, src),
             examined_classes: f(s.x.examinedClasses, "research_coverage at this content hash"), pending_by_capability: f(s.x.pendingByCapability, "research_coverage x engine/capabilities.ts (available producers)"),
-            capabilities: f(avail.map((v) => ({ id: `${v.capability.id}@${v.capability.version}`, kind: v.capability.kind, available: v.available, reason: v.reason })), "engine/capabilities.ts + this machine"),
+            capabilities: f(avail.map((v) => ({ id: `${v.capability.id}@${v.capability.version}`, kind: v.capability.kind, runtime: v.capability.profile.runtime, available: v.available, reason: v.reason })), "engine/capabilities.ts + this machine"),
+            ledger_vars: f(s.x.ledgerVars, `${src} (P2 state roles)`), list_vars: f(s.x.listVars, src),
+            surface_rank: s.x.surfaceRank === null ? unknown("no scoping map ranks this component") : f(s.x.surfaceRank, s.x.surfaceSource ?? "scoping map"),
+            ...(isChosen ? { capability_values: f(choice.table, "value = pending classes x relevance / cost units (engine/loop.ts chooseCapability)") } : {}),
             not_modelled_classes: f([...NOT_MODELLED_CLASSES], "engine/capabilities.ts: no capability examines them") },
           scoreComponents: { score: s.a.score, contributions: s.a.contributions, flags: s.a.flags, policy: s.a.policyVersion },
-          action: isChosen || inBundle ? "investigate" : isPending ? "defer" : "complete",
-          reason: isChosen ? `${pick.reason}; ${cap!.id}@${cap!.version} chosen: most pending classes here (${(s.x.pendingByCapability[cap!.id] ?? []).join(", ")})` : inBundle ? `bundled: ${cap!.id} examines the whole compilation unit in one run` : isPending ? `rank ${rank.get(s.a.id)} by score; one assignment per decision` : "every available capability has examined its classes at this content hash",
+          action: isChosen || inBundle ? "investigate" : isPending || inFlight.has(s.a.id) ? "defer" : "complete",
+          reason: isChosen ? `${pick.reason}; ${cap!.id}@${cap!.version} chosen: ${cap!.profile.precedes ? "a mapper goes first on an unmapped snapshot" : "highest value (pending classes x relevance / cost)"} (${(s.x.pendingByCapability[cap!.id] ?? []).join(", ")})` : inBundle ? `bundled: ${cap!.id} examines the whole compilation unit in one run` : isPending ? `rank ${rank.get(s.a.id)} by score; one assignment per decision` : inFlight.has(s.a.id) ? `in progress: open assignment for ${inFlight.get(s.a.id)!.join(", ")}` : "every available capability has examined its classes at this content hash",
           selectionProbability: isChosen ? pick.probability : null, ...((isChosen || inBundle) && created ? { resultingRunId: created.runId, resultingStepId: created.investigateStepId } : {}) };
       }),
+      ...(challengeRun ? toChallenge.map((h): Candidate => ({ kind: "hypothesis", ref: h.id, features: { generator_kind: f("attended_model", "hypotheses"), reviews: f(0, "hypothesis_reviews (attended or human)") },
+        scoreComponents: { rule: "every attended (model) claim gets a blinded challenge by a different specialist before any human review" }, action: "investigate",
+        reason: `blinded challenge by ${challenge!.capability}; a review is an opinion, never technical evidence`, resultingRunId: challengeRun!.runId, resultingStepId: challengeRun!.stepId })) : []),
     ];
     await addCandidates(c, decisionId, candidates);
-    return { decisionId, snapshotId: snap.snapshotId, commitSha: snap.commitSha, repository: snap.repository, protocolModelSha256: built.sha256, assignment, reviewRequests: reviews.map((h) => h.id), exhausted: !chosen, candidates };
+    return { decisionId, snapshotId: snap.snapshotId, commitSha: snap.commitSha, repository: snap.repository, protocolModelSha256: built.sha256, assignment, challenge, reviewRequests: reviews.map((h) => h.id), exhausted: !chosen && !challenge, candidates };
   });
 }
 
@@ -275,11 +341,21 @@ export type LeadAccount = {
   claim: { generatorKind: string; generatorId: string };              // plane 1: what a generator (rule or model) claims
   evidence: Array<{ evaluatorId: string; outcome: string }>;           // plane 2: independent evaluators only (evaluator != generator)
   human: { reviews: string[]; outcome: string | null };                // plane 3: human adjudication; the only source of an outcome
+  modelReviews: Array<{ reviewerId: string; verdict: string }>;        // independent specialists' opinions: never evidence, never an outcome
   machineStatus: "supported_unadjudicated" | "weakened" | "contradicted" | "unchallenged";
 };
 export type IngestStage = { runId: string; decisionId: string; capability: string; toolFailure: string | null; coverageRows: number; effortRows: number; alreadyIngested: boolean; leads: LeadAccount[] };
 
 export async function ingestInvestigation(pool: Pool, runId: string): Promise<IngestStage> {
+  const chal = (await pool.query<{ id: string; status: string; output: Record<string, unknown> | null; input: { decisionId: string; claims: Array<{ hypothesisId: string }> } }>(
+    "SELECT id, status, output, input FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = $2", [runId, ATTENDED_CHALLENGE_STEP_KEY])).rows[0];
+  if (chal) { // a challenge assignment: reviews are already recorded; memory gets its effort
+    if (chal.status !== "succeeded") throw new Error("the challenge has not been imported; nothing is ingested from partial results");
+    const already = Number((await pool.query<{ n: string }>("SELECT count(*) n FROM research_effort WHERE workflow_run_id = $1", [runId])).rows[0]!.n) > 0;
+    if (!already) await pool.query("INSERT INTO research_effort (workflow_run_id, step_id, method, wall_ms, decision_id) VALUES ($1,$2,$3,$4,$5)",
+      [runId, chal.id, String((chal.output?.["capability"] as { id?: string } | undefined)?.id ?? "challenger"), Math.max(0, Math.round(Number(chal.output?.["wall_ms"] ?? 0))), chal.input.decisionId]);
+    return { runId, decisionId: chal.input.decisionId, capability: String((chal.output?.["capability"] as { id?: string } | undefined)?.id ?? "challenger"), toolFailure: null, coverageRows: 0, effortRows: already ? 0 : 1, alreadyIngested: already, leads: await accountFor(pool, chal.input.claims.map((c) => c.hypothesisId)) };
+  }
   const prod = await producerOutput(pool, runId);
   const ch = (await pool.query<{ id: string; status: string; output: Record<string, unknown> | null }>("SELECT id, status, output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = $2", [runId, CHALLENGE_TARGET_STEP_KEY])).rows[0];
   if (!prod || !ch) throw new Error("not an investigation assignment");
@@ -296,6 +372,8 @@ export async function ingestInvestigation(pool: Pool, runId: string): Promise<In
       for (const t of out.targets) {
         const rows: Array<[string, string, string | null]> = [
           ...(failed ? cap.classes.map((k): [string, string, string | null] => [k, "abstained", reasonCode]) : out.classes_examined.map((k): [string, string, null] => [k, "examined", null])),
+          // declared classes the producer says it did not examine: 'abstained', so memory says so and the same version is not re-assigned
+          ...(failed ? [] : cap.classes.filter((k) => !out.classes_examined.includes(k)).map((k): [string, string, string] => [k, "abstained", "not_examined_by_specialist"])),
           ...NOT_MODELLED_CLASSES.map((k): [string, string, string] => [k, "not_modelled", "no_specialist_for_class"])];
         for (const [klass, result, reason] of rows) {
           // a not-modelled class was examined by nobody: it names no method, so it is never mistaken for this capability's work
@@ -317,17 +395,18 @@ export async function ingestInvestigation(pool: Pool, runId: string): Promise<In
 
 export async function accountFor(db: Db, hypothesisIds: readonly string[]): Promise<LeadAccount[]> {
   if (!hypothesisIds.length) return [];
-  const rows = (await db.query<{ id: string; family: string; generator_kind: string; generator_id: string; evals: Array<{ e: string; o: string }> | null; reviews: string[] | null; outcome: string | null }>(
+  const rows = (await db.query<{ id: string; family: string; generator_kind: string; generator_id: string; evals: Array<{ e: string; o: string }> | null; reviews: string[] | null; mreviews: Array<{ reviewerId: string; verdict: string }> | null; outcome: string | null }>(
     `SELECT h.id, h.family, h.generator_kind, h.generator_id,
             (SELECT jsonb_agg(jsonb_build_object('e', e.evaluator_id, 'o', e.outcome) ORDER BY e.created_at, e.id) FROM hypothesis_evaluations e WHERE e.hypothesis_id = h.id AND e.evaluator_id <> h.generator_id) AS evals,
             (SELECT array_agg(r.verdict ORDER BY r.created_at) FROM hypothesis_reviews r WHERE r.hypothesis_id = h.id AND r.reviewer_kind = 'human') AS reviews,
+            (SELECT jsonb_agg(jsonb_build_object('reviewerId', r.reviewer_id, 'verdict', r.verdict) ORDER BY r.created_at) FROM hypothesis_reviews r WHERE r.hypothesis_id = h.id AND r.reviewer_kind IN ('model','attended_model')) AS mreviews,
             (SELECT o.category FROM hypothesis_outcomes o WHERE o.hypothesis_id = h.id ORDER BY o.created_at DESC, o.id DESC LIMIT 1) AS outcome
        FROM hypotheses h WHERE h.id = ANY($1::uuid[]) ORDER BY h.family, h.id`, [hypothesisIds])).rows;
   return rows.map((r) => {
     // "no-independent-validator" is an abstention record, not evidence
     const evidence = (r.evals ?? []).filter((x) => x.e !== "no-independent-validator").map((x) => ({ evaluatorId: x.e, outcome: x.o }));
     const has = (o: string) => evidence.some((x) => x.outcome === o);
-    return { hypothesisId: r.id, family: r.family, claim: { generatorKind: r.generator_kind, generatorId: r.generator_id }, evidence, human: { reviews: r.reviews ?? [], outcome: r.outcome },
+    return { hypothesisId: r.id, family: r.family, claim: { generatorKind: r.generator_kind, generatorId: r.generator_id }, evidence, human: { reviews: r.reviews ?? [], outcome: r.outcome }, modelReviews: r.mreviews ?? [],
       machineStatus: has("contradicts") ? "contradicted" : has("supports") ? "supported_unadjudicated" : has("weakens") ? "weakened" : "unchallenged" };
   });
 }

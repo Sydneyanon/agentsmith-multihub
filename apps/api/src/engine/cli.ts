@@ -9,6 +9,9 @@ import { accountFor, ingestInvestigation, mapAndAssign, outcomeLedger, rankOppor
 import { readRegistry, recordVerification, registerManualOpportunity, type CheckKind } from "./registry.js";
 import { CHALLENGE_TARGET_STEP_KEY, dispatchEngineStep, ENGINE_STEP_KEYS, producerOutput } from "./steps.js";
 import { withDryRun } from "./effects.js";
+import { brief, exportSnapshot, importChallenge, importSpecialist } from "./attended.js";
+import { compareSpecialists } from "./compare.js";
+import { ATTENDED_CHALLENGE_STEP_KEY, ATTENDED_STEP_KEY } from "./capabilities.js";
 
 /**
  * T-199: the operator interface to the research loop. One explicit command per stage; nothing runs by itself.
@@ -35,9 +38,9 @@ export const EXIT = { ok: 0, usage: 2, refused: 3, failed: 1 } as const;
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const DISPOSABLE_NAME = /^agentsmith_(test|scratch)_[a-z0-9_]{1,50}$/;
-const WRITE_COMMANDS = new Set(["register", "verify", "rank", "select", "map", "ingest", "adjudicate"]);
+const WRITE_COMMANDS = new Set(["register", "verify", "rank", "select", "map", "ingest", "adjudicate", "export-snapshot", "import-specialist", "import-challenge"]);
 const EXEC_COMMANDS = new Set(["run-assignment"]);
-const READ_COMMANDS = new Set(["status", "next", "registry", "show-decision", "ledger", "leads"]);
+const READ_COMMANDS = new Set(["status", "next", "registry", "show-decision", "ledger", "leads", "brief", "compare"]);
 
 class Refusal extends Error { constructor(m: string) { super(m); this.name = "Refusal"; } }
 class Usage extends Error { constructor(m: string) { super(m); this.name = "Usage"; } }
@@ -161,20 +164,27 @@ async function renderDecision(io: CliIo, db: Pick<Pool, "query">, id: string, ve
 
 // -------------------------------------------------------------------------------------------------------------- next action
 
-export type NextAction = { command: string; who: "agentsmith" | "human" | "operator"; reason: string };
+export type NextAction = { command: string; who: "agentsmith" | "human" | "operator" | "attended"; reason: string };
 /** What the loop should do next, from the recorded state alone. Read-only. */
 export async function nextActions(db: Pick<Pool, "query">): Promise<NextAction[]> {
   const out: NextAction[] = [];
-  const runs = (await db.query<{ id: string; created_by: string; status: string; keys: string[]; done: boolean; engine: boolean }>(
-    `SELECT r.id, r.created_by, r.status, array_agg(s.step_key ORDER BY s.sequence) keys, bool_and(s.status = 'succeeded') done,
+  const runs = (await db.query<{ id: string; created_by: string; status: string; keys: string[]; statuses: string[]; done: boolean; engine: boolean }>(
+    `SELECT r.id, r.created_by, r.status, array_agg(s.step_key ORDER BY s.sequence) keys, array_agg(s.status ORDER BY s.sequence) statuses, bool_and(s.status = 'succeeded') done,
             bool_or(s.step_key = ANY($1::text[])) engine
-       FROM workflow_runs r JOIN workflow_steps s ON s.workflow_run_id = r.id WHERE r.workflow_type = 'repository_research' GROUP BY r.id ORDER BY r.created_at`, [[...ENGINE_STEP_KEYS]])).rows;
+       FROM workflow_runs r JOIN workflow_steps s ON s.workflow_run_id = r.id WHERE r.workflow_type = 'repository_research' GROUP BY r.id ORDER BY r.created_at`, [[...ENGINE_STEP_KEYS, ATTENDED_STEP_KEY, ATTENDED_CHALLENGE_STEP_KEY]])).rows;
   for (const r of runs) {
     const failed = r.status === "failed";
     if (failed) { out.push({ command: `show the failure: SELECT error FROM workflow_steps WHERE workflow_run_id = '${r.id}'`, who: "operator", reason: `run ${short(r.id)} failed; nothing downstream will use it` }); continue; }
+    const firstPending = r.keys[r.statuses.findIndex((x) => x !== "succeeded")];
+    if (!r.done && (firstPending === ATTENDED_STEP_KEY || firstPending === ATTENDED_CHALLENGE_STEP_KEY)) {
+      const imp = firstPending === ATTENDED_STEP_KEY ? "import-specialist" : "import-challenge";
+      out.push({ command: `brief --run ${r.id}  ->  export-snapshot --run ${r.id} --dir <empty dir>  ->  run the specialist in an attended Claude Code session  ->  ${imp} --run ${r.id} --file <result.json> --operator <you>`, who: "attended",
+        reason: `assignment ${short(r.id)} waits for an attended specialist (interactive only; never run by a worker)` });
+      continue;
+    }
     if (!r.done) { out.push({ command: `run-assignment --run ${r.id}`, who: "operator", reason: `${r.engine ? "specialist assignment" : "acquisition"} ${short(r.id)} has steps waiting (${r.keys.join(" -> ")})` }); continue; }
     if (r.engine) {
-      const ingested = Number((await db.query<{ n: string }>("SELECT count(*) n FROM research_coverage WHERE workflow_run_id = $1", [r.id])).rows[0]!.n) > 0;
+      const ingested = Number((await db.query<{ n: string }>("SELECT (SELECT count(*) FROM research_coverage WHERE workflow_run_id = $1) + (SELECT count(*) FROM research_effort WHERE workflow_run_id = $1) n", [r.id])).rows[0]!.n) > 0;
       if (!ingested) { out.push({ command: `ingest --run ${r.id}`, who: "agentsmith", reason: `assignment ${short(r.id)} finished; its results are not in memory yet` }); continue; }
     }
     const followed = Number((await db.query<{ n: string }>("SELECT count(*) n FROM research_decisions WHERE context_run_id = $1", [r.id])).rows[0]!.n) > 0;
@@ -208,6 +218,10 @@ Human:       register --file <json> --operator <id>
                     [--review-verdict <supports|rejects|needs_more_evidence|inconclusive>] [--duplicate-of <uuid>]
 AgentSmith:  rank | map --run <uuid> [--follow-up] | ingest --run <uuid>
 Execution:   run-assignment --run <uuid> [--allow-network]   (dry run lists the steps; --execute runs them once, here, for that run only)
+Attended:    brief --run <uuid> | export-snapshot --run <uuid> --dir <empty dir> | compare --snapshot <uuid>
+             import-specialist --run <uuid> --file <result.json> --operator <id> [--tokens N] [--duration-ms N]
+             import-challenge  --run <uuid> --file <result.json> --operator <id> [--tokens N] [--duration-ms N]
+             (attended specialists are available only with AGENTSMITH_ATTENDED_OPERATOR set: interactive Claude Code sessions, never workers)
 Common:      --json  --verbose  --execute  --confirm <database name>`;
 
 export async function runCli(argv: readonly string[], io: CliIo): Promise<number> {
@@ -362,11 +376,46 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         if (json) emit({ ...r, executed: execute }); else io.out(`human outcome ${category} recorded for ${hid} by ${human} (the database enforces the confirmation rules)`);
         return EXIT.ok;
       }
+      case "brief": {
+        const b = await brief(p, str(a, "run")!);
+        if (json) emit(b); else io.out(JSON.stringify(b, null, 2));
+        return EXIT.ok;
+      }
+      case "compare": {
+        const c = await compareSpecialists(p, str(a, "snapshot")!);
+        if (json) emit(c);
+        else {
+          for (const [k, v] of Object.entries(c.capabilities)) io.out(`${k.padEnd(34)} examined ${v.components} component(s), ${v.classes.length} class(es); ${v.leads} lead(s); unique finds ${c.uniqueFinds[k] ?? 0}`);
+          for (const x of c.clusters) io.out(`  ${x.contract}.${x.function || "*"} [${x.class}] found by ${x.foundBy.map((f) => f.capability).join(", ")}${x.examinedNotFoundBy.length ? `; examined, not found by ${x.examinedNotFoundBy.join(", ")}` : ""}; technical supports ${x.evidence.technicalSupports}; model reviews ${JSON.stringify(x.evidence.modelReviews)}; human ${x.evidence.humanOutcome ?? "none"}`);
+          io.out("(examined-not-found is a candidate miss for that capability; it becomes the outcome 'missed' only through a human)");
+        }
+        return EXIT.ok;
+      }
+      case "export-snapshot": {
+        const run = str(a, "run")!; const dir = str(a, "dir")!;
+        if (!execute) { const n = (await p.query<{ n: string }>("SELECT count(*) n FROM repo_snapshot_files f JOIN workflow_steps s ON (s.output->>'snapshot_id')::uuid = f.snapshot_id WHERE s.workflow_run_id = $1 AND s.step_key = $2 AND s.status = 'succeeded'", [run, ACQUIRE_STEP_KEY])).rows[0]!.n; if (json) emit({ run, dir, files: Number(n), executed: false }); else io.out(`would write ${n} hash-checked files of the sealed snapshot to ${dir} (must be empty); nothing written`); return EXIT.ok; }
+        const r = await exportSnapshot(p, run, dir);
+        if (json) emit({ ...r, executed: true }); else io.out(`wrote ${r.files} files (manifest ${r.manifestSha256.slice(0, 12)}) to ${dir}; give the specialist that directory only`);
+        return EXIT.ok;
+      }
+      case "import-specialist": case "import-challenge": {
+        const run = str(a, "run")!; const raw = JSON.parse(readFileSync(str(a, "file")!, "utf8")) as unknown;
+        const tokens = str(a, "tokens", false); const dur = str(a, "duration-ms", false);
+        const meta = { operator: operator(), tokens: tokens ? Number(tokens) : null, durationMs: dur ? Number(dur) : null };
+        if (a.command === "import-specialist") {
+          const r = await stage((db) => importSpecialist(db, run, raw, meta));
+          if (json) emit({ ...r, executed: execute }); else io.out(`${r.capability}: ${r.stored} claim(s) stored as plane 1 (attended model); rejected ${JSON.stringify(r.rejected)}; examined ${r.classesExamined.join(", ")}\nnext: run-assignment --run ${run} (independent validators), then ingest`);
+        } else {
+          const r = await stage((db) => importChallenge(db, run, raw, meta));
+          if (json) emit({ ...r, executed: execute }); else io.out(`${r.reviews} blinded review(s) recorded (opinions, not evidence); unknown claim ids ${r.unknownClaims}\nnext: ingest --run ${run}`);
+        }
+        return EXIT.ok;
+      }
       case "run-assignment": {
         const run = str(a, "run")!;
         const steps = (await p.query<{ step_key: string; status: string; sequence: number }>("SELECT step_key, status, sequence FROM workflow_steps WHERE workflow_run_id = $1 ORDER BY sequence", [run])).rows;
         if (!steps.length) throw new Usage(`no run ${run}`);
-        const allowed = new Set([ACQUIRE_STEP_KEY, ...ENGINE_STEP_KEYS]);
+        const allowed = new Set([ACQUIRE_STEP_KEY, ...ENGINE_STEP_KEYS, ATTENDED_STEP_KEY, ATTENDED_CHALLENGE_STEP_KEY]);
         const foreign = steps.filter((s) => !allowed.has(s.step_key));
         if (foreign.length) throw new Refusal(`run ${run} has steps this tool does not execute (${foreign.map((s) => s.step_key).join(", ")}); only acquisition and research-loop assignments`);
         const pending = steps.filter((s) => s.status !== "succeeded");
@@ -392,7 +441,9 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         }
         const after = (await p.query<{ step_key: string; status: string }>("SELECT step_key, status FROM workflow_steps WHERE workflow_run_id = $1 ORDER BY sequence", [run])).rows;
         if (json) emit({ run, executed: done, steps: after });
-        else { for (const d of done) io.out(`  ${d.step}: ${d.status}`); const inv = after.some((s) => s.step_key === CHALLENGE_TARGET_STEP_KEY); io.out(after.every((s) => s.status === "succeeded") ? `next: ${inv ? `ingest --run ${run}` : `map --run ${run}`}` : "the run did not finish; see the step error"); }
+        const waiting = after.find((s) => s.status !== "succeeded" && (s.step_key === ATTENDED_STEP_KEY || s.step_key === ATTENDED_CHALLENGE_STEP_KEY));
+        if (waiting && !done.some((d) => d.status === "failed")) { if (json) return EXIT.ok; for (const d of done) io.out(`  ${d.step}: ${d.status}`); io.out(`waiting for an attended specialist (${waiting.step_key}): brief --run ${run}`); return EXIT.ok; }
+        if (!json) { for (const d of done) io.out(`  ${d.step}: ${d.status}`); const inv = after.some((s) => s.step_key === CHALLENGE_TARGET_STEP_KEY); io.out(after.every((s) => s.status === "succeeded") ? `next: ${inv ? `ingest --run ${run}` : `map --run ${run}`}` : "the run did not finish; see the step error"); }
         return after.every((s) => s.status === "succeeded") ? EXIT.ok : EXIT.failed;
       }
     }

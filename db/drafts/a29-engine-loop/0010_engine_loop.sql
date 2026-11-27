@@ -119,3 +119,30 @@ ALTER TABLE opportunity_events ADD CONSTRAINT opportunity_events_assessed_shape 
 
 CREATE TRIGGER research_decisions_immutable BEFORE UPDATE OR DELETE ON research_decisions FOR EACH ROW EXECUTE FUNCTION research_reject_mutation();
 CREATE TRIGGER research_decision_candidates_immutable BEFORE UPDATE OR DELETE ON research_decision_candidates FOR EACH ROW EXECUTE FUNCTION research_reject_mutation();
+
+-- 6. Attended specialist sessions (T-203). A Claude Code sub-agent run by a named operator in an attended session is NOT a paid,
+--    budget-reserved model call ('model' keeps requiring a gateway reservation) and NOT a human. It gets its own provenance kind,
+--    'attended_model', identified by capability id and a version that pins the prompt (e.g. '1+prompt-0123456789ab').
+--    Planes are unchanged: an attended model may write claims (hypotheses) and reviews, never evaluations (technical evidence stays
+--    'deterministic_rule' only, 0007) and never outcomes (human only, T-144). So no model output can make a finding confirmed.
+ALTER TABLE hypotheses DROP CONSTRAINT hypotheses_generator_kind_check;
+ALTER TABLE hypotheses ADD CONSTRAINT hypotheses_generator_kind_check CHECK (generator_kind IN ('deterministic_rule','model','human','attended_model'));
+ALTER TABLE hypotheses ADD CONSTRAINT hypotheses_attended_version CHECK (generator_kind <> 'attended_model' OR (generator_version ~ '^[0-9][0-9.]*\+prompt-[a-f0-9]{12}$' AND generator_reservation_id IS NULL));
+ALTER TABLE hypothesis_events DROP CONSTRAINT hypothesis_events_actor_kind_check;
+ALTER TABLE hypothesis_events ADD CONSTRAINT hypothesis_events_actor_kind_check CHECK (actor_kind IN ('deterministic_rule','model','human','attended_model'));
+ALTER TABLE hypothesis_reviews DROP CONSTRAINT hypothesis_reviews_reviewer_kind_check;
+ALTER TABLE hypothesis_reviews ADD CONSTRAINT hypothesis_reviews_reviewer_kind_check CHECK (reviewer_kind IN ('model','human','attended_model'));
+ALTER TABLE hypothesis_reviews ADD CONSTRAINT hypothesis_reviews_attended_shape CHECK (reviewer_kind <> 'attended_model' OR (
+  model_provider IS NOT NULL AND model_name IS NOT NULL AND model_prompt_version ~ '^[0-9][0-9.]*\+prompt-[a-f0-9]{12}$' AND model_reservation_id IS NULL AND review_mode = 'blinded_independent_assessment'));
+-- a specialist never reviews its own claim, in ANY mode (0007 only forbids it for blinded assessments by the same kind and id)
+CREATE FUNCTION hypothesis_reviews_attended_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE g text;
+BEGIN
+  SELECT generator_id INTO g FROM hypotheses WHERE id = NEW.hypothesis_id;
+  IF NEW.reviewer_kind = 'attended_model' AND NEW.reviewer_id = g THEN
+    RAISE EXCEPTION 'a specialist cannot review its own claim' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER hypothesis_reviews_attended_guard BEFORE INSERT ON hypothesis_reviews FOR EACH ROW EXECUTE FUNCTION hypothesis_reviews_attended_guard();

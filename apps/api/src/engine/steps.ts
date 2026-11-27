@@ -8,7 +8,7 @@ import type { Finding, FindingClass } from "../analysis/solidity/specialists.js"
 import { sealedSnapshot, withHeartbeat, type AnalysisStepContext } from "../analysis/solidity/step.js";
 import { MAX_SPAN_LINES, ResearchStore } from "../research-state.js";
 import type { ClaimedStep } from "../worker.js";
-import { capabilityById, SLITHER_STEP_KEY, SLITHER_VERSION } from "./capabilities.js";
+import { ATTENDED_STEP_KEY, capabilityById, SLITHER_STEP_KEY, SLITHER_VERSION } from "./capabilities.js";
 import { runSlither } from "./tools/slither.js";
 
 /**
@@ -45,7 +45,7 @@ export type LeadRef = { hypothesisId: string; class: string; contract: string; f
 export async function createInvestigationRunIn(client: Pick<PoolClient, "query">, raw: Assignment, createdBy: string): Promise<{ runId: string; investigateStepId: string }> {
   const a = assignmentSchema.parse(raw); parseRepositoryName(a.repository);
   const cap = capabilityById(a.capability.id);
-  if (cap.kind !== "producer" || cap.status !== "active" || cap.version !== a.capability.version) throw new Error(`capability ${a.capability.id}@${a.capability.version} is not an active producer`);
+  if ((cap.kind !== "producer" && cap.kind !== "mapper") || cap.status !== "active" || cap.version !== a.capability.version) throw new Error(`capability ${a.capability.id}@${a.capability.version} is not an active producer`);
   const run = await client.query<{ id: string; correlation_id: string }>(
     `INSERT INTO workflow_runs (workflow_type, status, input, created_by) VALUES ($1, 'queued', $2::jsonb, $3) RETURNING id, correlation_id`,
     [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: a.repository, ref: a.commitSha, source: "research_policy", assignment: { decision_id: a.decisionId, capability: a.capability, targets: a.targets.map((t) => t.componentId) }, execution_mode: "passive_only", authorization_status: "unverified" }), createdBy]);
@@ -143,7 +143,7 @@ export async function processSlitherScanStep(ctx: EngineStepContext, step: Claim
 /** Producer output of a run, whichever producer it was. */
 export async function producerOutput(pool: Pick<Pool, "query">, runId: string): Promise<{ stepId: string; stepKey: string; status: string; output: Record<string, unknown> | null } | null> {
   const r = (await pool.query<{ id: string; step_key: string; status: string; output: Record<string, unknown> | null }>(
-    "SELECT id, step_key, status, output FROM workflow_steps WHERE workflow_run_id = $1 AND sequence = 1 AND step_key = ANY($2::text[])", [runId, [INVESTIGATE_STEP_KEY, SLITHER_STEP_KEY]])).rows[0];
+    "SELECT id, step_key, status, output FROM workflow_steps WHERE workflow_run_id = $1 AND sequence = 1 AND step_key = ANY($2::text[])", [runId, [INVESTIGATE_STEP_KEY, SLITHER_STEP_KEY, ATTENDED_STEP_KEY]])).rows[0];
   return r ? { stepId: r.id, stepKey: r.step_key, status: r.status, output: r.output } : null;
 }
 

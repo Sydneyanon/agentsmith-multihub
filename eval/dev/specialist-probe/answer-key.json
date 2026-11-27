@@ -1,0 +1,19 @@
+{
+  "fixture": "specialist-probe/1",
+  "author": "the orchestrating session (written before any specialist ran; specialists never see this file)",
+  "seeded": [
+    { "id": "S1", "contract": "ShareVault", "functions": ["previewDeposit", "deposit", "totalAssets"], "class": "accounting-invariant", "title": "first-depositor share inflation via donation: totalAssets is the raw token balance, deposit rounds down with no virtual shares or minimum, so an attacker who deposits 1 wei and donates makes a victim's deposit mint 0 shares and takes it" },
+    { "id": "S2", "contract": "ShareVault", "functions": ["withdraw"], "class": "arithmetic-precision", "title": "withdraw(assets) rounds the shares to burn DOWN: when totalAssets > totalSupply a small withdrawal burns 0 shares, so assets can be drained repeatedly for free (should round up)" },
+    { "id": "S3", "contract": "RewardPool", "functions": ["stake"], "class": "accounting-invariant", "title": "stake() updates the pool but not the user (no rewards/userRewardPerTokenPaid checkpoint), so a new or topping-up staker is credited rewards accrued before the stake" },
+    { "id": "S4", "contract": "LendingPool", "functions": ["price", "borrow", "withdrawCollateral"], "also": ["SimplePair.sync", "SimplePair.swap0For1"], "class": "oracle-manipulation", "title": "collateral valued at the pair's spot reserves; reserves can be moved by a swap or by donating and calling the public sync(), so a borrower inflates the price and over-borrows (multi-contract, multi-step)" },
+    { "id": "S5", "contract": "LendingPool", "functions": ["setPair"], "class": "access-control", "title": "setPair has no access control: anyone points the oracle at a pair they control and borrows the pool dry" },
+    { "id": "S6", "contract": "PayoutSplitter", "functions": ["distribute"], "class": "liveness", "title": "push payments in one loop over a fixed recipient list: one recipient whose transfer reverts or returns false (blacklisted, paused token) blocks every distribution permanently" }
+  ],
+  "decoys": [
+    { "id": "D1", "contract": "RewardPool", "functions": ["claim"], "note": "state cleared before the transfer: not a reentrancy issue" },
+    { "id": "D2", "contract": "RewardPool", "functions": ["setRewardRate"], "note": "owner-only by design; centralisation, not a vulnerability" },
+    { "id": "D3", "contract": "LendingPool", "functions": ["borrowerCount", "borrow"], "note": "unbounded borrowers array is only iterated in a view function" },
+    { "id": "D4", "contract": "SimplePair", "functions": ["swap0For1"], "note": "transfer before sync is reentrant only with callback tokens; ambiguous, counted neither way if stated with that condition" }
+  ],
+  "scoring": "a finding matches a seeded issue when it names the same contract and function(s) and the same mechanism; a finding on a decoy without a valid condition is a false positive"
+}

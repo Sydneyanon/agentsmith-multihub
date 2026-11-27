@@ -47,7 +47,18 @@ function harness(db: TestDatabase, fx: GitFixture, env: Record<string, string>) 
     }
     throw new Error("the loop did not settle");
   };
-  return { cli, exec, json, q, bootstrap, drive };
+  /** follow `next` (as drive does) until a map decision assigns `capability`; returns that map's result */
+  const until = async (capability: string): Promise<Record<string, unknown>> => {
+    for (let i = 0; i < 60; i++) {
+      const actions = JSON.parse((await cli(["next", "--json"])).text) as Array<{ command: string; who: string }>;
+      const step = actions.find((x) => x.who !== "human" && x.who !== "attended" && x.command !== "rank"); if (!step) throw new Error(`${capability} was never assigned`);
+      const args = [...step.command.split(" "), ...(step.command.startsWith("run-assignment") ? ["--allow-network"] : [])];
+      if (step.command.startsWith("map")) { const m = await json(args); if ((m.assignment as { capability?: string } | null)?.capability === capability) return m; continue; }
+      const r = await exec(args); expect(r.code, `${step.command}\n${r.text}`).toBe(EXIT.ok);
+    }
+    throw new Error(`${capability} was never assigned`);
+  };
+  return { cli, exec, json, q, bootstrap, drive, until };
 }
 
 describe.skipIf(skipIntegration)("research loop with complementary machines (structural specialists + Slither, stand-in tool)", () => {
@@ -104,13 +115,15 @@ describe.skipIf(skipIntegration)("research loop with complementary machines (str
   it("AgentSmith chooses the specialist per target, Slither leads are challenged by independent validators, and both machines' coverage lands in memory", async () => {
     const db = await fresh(); const h = harness(db, fx, tools("ok"));
     const acq = await h.bootstrap(dir);
-    const first = await h.json(["map", "--run", acq]);
+    // value = pending classes x relevance / cost: the in-process specialists (7 classes, cost 1) go before Slither (12 classes, cost 2)
+    const zero = await h.json(["map", "--run", acq]);
+    expect((zero.assignment as { capability: string }).capability).toBe("solidity-structural-specialists@1");
+    const first = await h.until("slither@0.11.3");
     const a = first.assignment as { capability: string; targets: string[]; runId: string };
-    expect(a.capability).toBe("slither@0.11.3");                       // most pending classes on every component: 12 versus 7
     expect(a.targets.length).toBeGreaterThan(1);                         // whole-compilation-unit tool: one run, every component
     const cands = await h.q<{ action: string; reason: string }>("SELECT action, reason FROM research_decision_candidates WHERE decision_id = $1 AND candidate_kind = 'component'", [first.decisionId]);
-    expect(cands.every((c) => c.action === "investigate")).toBe(true);
-    expect(cands.some((c) => /slither@0.11.3 chosen: most pending classes/.test(c.reason))).toBe(true);
+    expect(cands.filter((c) => c.action === "investigate").length).toBe(a.targets.length);
+    expect(cands.some((c) => /slither@0.11.3 chosen: highest value/.test(c.reason))).toBe(true);
     expect(cands.some((c) => /bundled: slither examines the whole compilation unit/.test(c.reason))).toBe(true);
     expect((await h.exec(["run-assignment", "--run", a.runId, "--allow-network"])).code).toBe(EXIT.ok);
     const [prod] = await h.q<{ output: { status: string; tool: { version: string; raw_output_sha256: string; raw_output_blob: string; input_manifest_sha256: string }; leads: unknown[]; unmapped_detectors: Record<string, number> } }>("SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = 'slither_scan'", [a.runId]);
@@ -126,10 +139,6 @@ describe.skipIf(skipIntegration)("research loop with complementary machines (str
     expect((await h.q("SELECT 1 FROM hypotheses h WHERE h.workflow_run_id = $1 AND NOT EXISTS (SELECT 1 FROM hypothesis_evidence x WHERE x.hypothesis_id = h.id)", [a.runId])).length).toBe(0);
     const ing = await h.exec(["ingest", "--run", a.runId]);
     expect(ing.text).toMatch(/^slither@0\.11\.3: memory: \d+ coverage rows, 2 effort rows/m);
-    // the next action, from the updated state: the other machine, per component
-    const next = await h.json(["map", "--run", a.runId, "--follow-up"]);
-    expect((next.assignment as { capability: string }).capability).toBe("solidity-structural-specialists@1");
-    await h.exec(["run-assignment", "--run", (next.assignment as { runId: string }).runId, "--allow-network"]);
     await h.drive();
     // every component examined by BOTH machines at its current hash; what remains unexplored is exactly what nobody can examine here
     const per = await h.q<{ component_path: string; methods: string[] }>("SELECT component_path, array_agg(DISTINCT method ORDER BY method) methods FROM research_coverage WHERE result = 'examined' GROUP BY 1");
@@ -143,10 +152,9 @@ describe.skipIf(skipIntegration)("research loop with complementary machines (str
 
   it("a failed tool is an explicit state: recorded as abstained (not examined), never retried at the same version, and the other machine takes over", async () => {
     const db = await fresh(); const h = harness(db, fx, tools("compile_error"));
-    const acq = await h.bootstrap(dir);
-    const m = await h.json(["map", "--run", acq]);
+    await h.bootstrap(dir);
+    const m = await h.until("slither@0.11.3");
     const a = m.assignment as { capability: string; runId: string };
-    expect(a.capability).toBe("slither@0.11.3");
     expect((await h.exec(["run-assignment", "--run", a.runId, "--allow-network"])).code).toBe(EXIT.ok);
     const [prod] = await h.q<{ output: { status: string; failure: { code: string } } }>("SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = 'slither_scan'", [a.runId]);
     expect(prod!.output).toMatchObject({ status: "tool_failed", failure: { code: "compile_failed" } });

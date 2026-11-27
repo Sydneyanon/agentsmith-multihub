@@ -1,0 +1,182 @@
+[
+ {
+  "check": "reentrancy-no-eth",
+  "impact": "Medium",
+  "element": "stake",
+  "parent": "RewardPool"
+ },
+ {
+  "check": "events-maths",
+  "impact": "Low",
+  "element": "setRewardRate",
+  "parent": "RewardPool"
+ },
+ {
+  "check": "events-maths",
+  "impact": "Low",
+  "element": "withdraw",
+  "parent": "RewardPool"
+ },
+ {
+  "check": "reentrancy-benign",
+  "impact": "Low",
+  "element": "stake",
+  "parent": "RewardPool"
+ },
+ {
+  "check": "timestamp",
+  "impact": "Low",
+  "element": "claim",
+  "parent": "RewardPool"
+ },
+ {
+  "check": "solc-version",
+  "impact": "Informational",
+  "element": "^0.8.20",
+  "parent": ""
+ },
+ {
+  "check": "immutable-states",
+  "impact": "Optimization",
+  "element": "owner",
+  "parent": "RewardPool"
+ },
+ {
+  "check": "divide-before-multiply",
+  "impact": "Medium",
+  "element": "borrow",
+  "parent": "LendingPool"
+ },
+ {
+  "check": "divide-before-multiply",
+  "impact": "Medium",
+  "element": "withdrawCollateral",
+  "parent": "LendingPool"
+ },
+ {
+  "check": "reentrancy-no-eth",
+  "impact": "Medium",
+  "element": "swap0For1",
+  "parent": "SimplePair"
+ },
+ {
+  "check": "events-access",
+  "impact": "Low",
+  "element": "setOwner",
+  "parent": "LendingPool"
+ },
+ {
+  "check": "missing-zero-check",
+  "impact": "Low",
+  "element": "o",
+  "parent": "setOwner"
+ },
+ {
+  "check": "reentrancy-benign",
+  "impact": "Low",
+  "element": "repay",
+  "parent": "LendingPool"
+ },
+ {
+  "check": "reentrancy-benign",
+  "impact": "Low",
+  "element": "depositCollateral",
+  "parent": "LendingPool"
+ },
+ {
+  "check": "solc-version",
+  "impact": "Informational",
+  "element": "^0.8.20",
+  "parent": ""
+ },
+ {
+  "check": "cache-array-length",
+  "impact": "Optimization",
+  "element": "i < borrowers.length",
+  "parent": "borrowerCount"
+ },
+ {
+  "check": "solc-version",
+  "impact": "Informational",
+  "element": "^0.8.20",
+  "parent": ""
+ },
+ {
+  "check": "reentrancy-no-eth",
+  "impact": "Medium",
+  "element": "swap0For1",
+  "parent": "SimplePair"
+ },
+ {
+  "check": "solc-version",
+  "impact": "Informational",
+  "element": "^0.8.20",
+  "parent": ""
+ },
+ {
+  "check": "incorrect-equality",
+  "impact": "Medium",
+  "element": "previewDeposit",
+  "parent": "ShareVault"
+ },
+ {
+  "check": "reentrancy-no-eth",
+  "impact": "Medium",
+  "element": "deposit",
+  "parent": "ShareVault"
+ },
+ {
+  "check": "reentrancy-benign",
+  "impact": "Low",
+  "element": "deposit",
+  "parent": "ShareVault"
+ },
+ {
+  "check": "reentrancy-events",
+  "impact": "Low",
+  "element": "withdraw",
+  "parent": "ShareVault"
+ },
+ {
+  "check": "reentrancy-events",
+  "impact": "Low",
+  "element": "redeem",
+  "parent": "ShareVault"
+ },
+ {
+  "check": "reentrancy-events",
+  "impact": "Low",
+  "element": "deposit",
+  "parent": "ShareVault"
+ },
+ {
+  "check": "solc-version",
+  "impact": "Informational",
+  "element": "^0.8.20",
+  "parent": ""
+ },
+ {
+  "check": "uninitialized-local",
+  "impact": "Medium",
+  "element": "sum",
+  "parent": "constructor"
+ },
+ {
+  "check": "calls-loop",
+  "impact": "Low",
+  "element": "distribute",
+  "parent": "PayoutSplitter"
+ },
+ {
+  "check": "solc-version",
+  "impact": "Informational",
+  "element": "^0.8.20",
+  "parent": ""
+ },
+ {
+  "check": "immutable-states",
+  "impact": "Optimization",
+  "element": "owner",
+  "parent": "PayoutSplitter"
+ }
+]

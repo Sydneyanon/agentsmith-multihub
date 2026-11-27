@@ -41,7 +41,8 @@ export function manifestSha256(entries: readonly ManifestEntry[]): string {
 }
 
 export type GeneratorIdentity = {
-  kind: "deterministic_rule" | "model" | "human";
+  /** attended_model: a Claude Code sub-agent run by a named operator (A29 draft); never a budget-reserved call */
+  kind: "deterministic_rule" | "model" | "human" | "attended_model";
   id: string;
   version: string;
   /** Required for a model generator: the AI budget gateway reservation that paid for the call. */
@@ -391,16 +392,18 @@ export class ResearchStore {
    * which must carry its gateway reservation). The mode and what the reviewer saw are stored as facts.
    */
   async recordReview(
-    actor: { kind: "operator"; operatorId: string } | { kind: "step"; lease: StepLease },
+    actor: { kind: "operator"; operatorId: string } | { kind: "step"; lease: StepLease } | { kind: "attended"; operatorId: string },
     input: {
-      hypothesisId: string; reviewerKind: "model" | "human"; reviewerId: string; mode: ReviewMode; reviewerSaw: ReviewerSaw;
+      hypothesisId: string; reviewerKind: "model" | "human" | "attended_model"; reviewerId: string; mode: ReviewMode; reviewerSaw: ReviewerSaw;
       inputSha256: string; verdict: ReviewVerdict; rationale: string;
-      model?: { provider: string; name: string; promptVersion: string; reservationId: string };
+      model?: { provider: string; name: string; promptVersion: string; reservationId?: string };
     },
   ): Promise<string> {
     if (actor.kind === "operator" && (input.reviewerKind !== "human" || input.reviewerId !== actor.operatorId)) {
       throw new Error("an operator can only record a human review under their own identity");
     }
+    // an attended specialist's review is imported by a named operator into the reviewed hypothesis's own run (as human reviews are)
+    if (actor.kind === "attended" && input.reviewerKind !== "attended_model") throw new Error("the attended path records attended-model reviews only");
     const insert = async (client: PoolClient, runId: string, stepId: string | null): Promise<string> => {
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO hypothesis_reviews (workflow_run_id, hypothesis_id, produced_by_step_id, reviewer_kind, reviewer_id, review_mode, reviewer_saw,

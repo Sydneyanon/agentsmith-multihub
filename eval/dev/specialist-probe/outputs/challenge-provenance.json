@@ -1,0 +1,66 @@
+{
+ "C01": {
+  "producer": "accounting",
+  "index": 0
+ },
+ "C02": {
+  "producer": "accounting",
+  "index": 1
+ },
+ "C03": {
+  "producer": "accounting",
+  "index": 2
+ },
+ "C04": {
+  "producer": "accounting",
+  "index": 3
+ },
+ "C05": {
+  "producer": "accounting",
+  "index": 4
+ },
+ "C06": {
+  "producer": "liveness",
+  "index": 1
+ },
+ "C07": {
+  "producer": "accounting",
+  "index": 5
+ },
+ "C08": {
+  "producer": "accounting",
+  "index": 6
+ },
+ "C09": {
+  "producer": "accounting",
+  "index": 7
+ },
+ "C10": {
+  "producer": "accounting",
+  "index": 8
+ },
+ "C11": {
+  "producer": "accounting",
+  "index": 9
+ },
+ "C12": {
+  "producer": "liveness",
+  "index": 2
+ },
+ "C13": {
+  "producer": "liveness",
+  "index": 3
+ },
+ "C14": {
+  "producer": "assumptions",
+  "index": 7
+ },
+ "C15": {
+  "producer": "assumptions",
+  "index": 9
+ },
+ "C16": {
+  "producer": "liveness",
+  "index": 5
+ }
+}
