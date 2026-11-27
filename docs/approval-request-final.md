@@ -149,8 +149,8 @@ megabytes for one repository snapshot).
 
 ### A6 — One enrichment pass, then a dry run of the bridge  · approval: production write (mapping rows only)
 - **Commands:**
-  1. `fly machine run $IMG dist/apps/api/src/bounties/enrich-main.js --max 10 --app agentsmith-hub --region syd --rm --restart no`
-  2. `fly machine run $IMG dist/apps/api/src/bounties/promote-main.js --dry-run --structural --max 3 --app agentsmith-hub --region syd --rm --restart no`
+  1. `fly machine run $IMG --app agentsmith-hub --region syd --rm --restart no -- dist/apps/api/src/bounties/enrich-main.js --max 10`
+  2. `fly machine run $IMG --app agentsmith-hub --region syd --rm --restart no -- dist/apps/api/src/bounties/promote-main.js --dry-run --structural --max 3`
 - **Consequence:**
   - **Pass 1** reads up to 10 eligible programmes' official pages (robots-checked), extracts repository links and verifies each
     against GitHub. It writes rows to `bounty_repository_mappings` only. An unverifiable repository is recorded as `deferred`, never
@@ -172,9 +172,9 @@ megabytes for one repository snapshot).
 
 ### A8 — The first research run  · approval: production write + worker activation
 - **Commands:**
-  1. `fly machine run $IMG dist/apps/api/src/bounties/promote-main.js --structural --max 1 --app agentsmith-hub --region syd --rm --restart no`
+  1. `fly machine run $IMG --app agentsmith-hub --region syd --rm --restart no -- dist/apps/api/src/bounties/promote-main.js --structural --max 1`
      This creates **exactly one** queued run for the repository you chose; I confirm the run id and repository before step 2.
-  2. `fly machine run $IMG dist/apps/api/src/worker-main.js --app agentsmith-hub --region syd --name research-run-1 --vm-size shared-cpu-1x --vm-memory 512 --restart no --env STRUCTURAL_ANALYSIS_ENABLED=true --env HUB_REQUIRE_RESTRICTED_DB_ROLE=true --env WORKER_ONLY_RUN_ID=<that run id> --env WORKER_EXIT_WHEN_RUN_DONE=true`
+  2. `fly machine run $IMG --app agentsmith-hub --region syd --name research-run-1 --vm-size shared-cpu-1x --vm-memory 512 --restart no --env STRUCTURAL_ANALYSIS_ENABLED=true --env HUB_REQUIRE_RESTRICTED_DB_ROLE=true --env WORKER_ONLY_RUN_ID=<that run id> --env WORKER_EXIT_WHEN_RUN_DONE=true -- dist/apps/api/src/worker-main.js`
 - **Consequence:** one worker, confined as in §1.3, does four things:
   - acquires the repository at the pinned commit from GitHub;
   - seals the snapshot;

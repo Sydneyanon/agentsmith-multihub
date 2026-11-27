@@ -23,6 +23,7 @@ describe("fleet plan (read-only drift report)", () => {
     expect(plan[0]!.command).toBe(`fly machine update 2 --app agentsmith-hub --image ${D("a")} --yes`);
     expect(plan[1]).toMatchObject({ gate: "worker activation", requires: ["R1"] });
     expect(plan[1]!.command).toMatch(/--restart always --env STRUCTURAL_ANALYSIS_ENABLED=true/);
+    expect(plan[1]!.command).toMatch(/ -- worker\.js/); // the job command follows "--", so its own flags are not parsed by fly
   });
 
   it("flags config drift and undeclared machines without inventing a fix", () => {

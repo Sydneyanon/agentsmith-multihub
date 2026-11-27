@@ -30,7 +30,8 @@ export function planFleet(fleet: Fleet, actual: Actual[], targetImage: string): 
       const when = d.schedule ? ` --schedule ${d.schedule} --restart no` : ` --restart ${d.restart ?? "always"}`;
       const secretsNote = d.secrets?.length ? `  # first: fly secrets set (app-wide) ${d.secrets.join(", ")}` : "";
       out.push({ machine: d.name, kind: "missing", detail: `not running (${d.schedule ? `scheduled ${d.schedule}` : "always-on"})`, gate: d.gate, requires: req,
-        command: `fly machine run ${targetImage} ${(d.cmd ?? []).join(" ")} ${A} --region ${fleet.region} --name ${d.name} --vm-size shared-cpu-1x --vm-memory 512${when}${env}${secretsNote}` });
+        // the job's own command goes AFTER `--`: otherwise fly parses job flags such as --max as its own and refuses (found in A6)
+        command: `fly machine run ${targetImage} ${A} --region ${fleet.region} --name ${d.name} --vm-size shared-cpu-1x --vm-memory 512${when}${env} -- ${(d.cmd ?? []).join(" ")}${secretsNote}` });
       continue;
     }
     if (digestOf(a.image) !== digestOf(targetImage)) {
