@@ -1,0 +1,6 @@
+## structural-analyzer on eval/benchmark-b/contracts
+labels: 2; findings: 0; reproducible across file order: true; findings in unlabelled functions (unscored): 0
+TOTAL tp=0 fp=0 fn=1 tn=1 precision=null recall=0; key line exact 0/0, within 2 lines 0/0
+  accounting-error tp=0 fp=0 fn=1 tn=1 precision=null recall=0
+MISSED (false negatives):
+  contracts/AccountingSaleBad.sol:22 buy (accounting-error)
