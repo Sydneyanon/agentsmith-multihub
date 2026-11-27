@@ -121,9 +121,27 @@ export async function listDuplicates(pool: Pool, status = "open"): Promise<Array
 }
 
 /** The public feed: programme facts, scores and provenance links only. No descriptions, no import text, no operator notes, no errors. */
+/**
+ * Sources whose CONTENT may be collected internally and fed to the engine, but may NOT be republished on the public page without the
+ * platform's written permission. HackenProof's terms permit personal/internal use and forbid reproducing/publishing Content (owner
+ * decision, docs/source-access-decisions.md). On the public feed we therefore suppress any field value these sources are the basis for
+ * (falling back to a non-restricted source where one exists) and drop them from the advertised source list. AgentSmith's own derived
+ * eligibility tier is not the platform's content and is kept.
+ */
+export const RESTRICTED_PUBLIC_SOURCES = new Set(["hackenproof"]);
+
+export type ResolvedFieldView = { value: unknown; source: string; conflicts?: Array<{ value: unknown; source: string }> };
+/** Public-feed view of a resolved field: if a display-restricted source is the basis, fall back to the best non-restricted conflict, or hide. */
+export function publicFieldView(f: ResolvedFieldView | undefined): ResolvedFieldView | undefined {
+  if (!f || !RESTRICTED_PUBLIC_SOURCES.has(f.source)) return f;
+  const alt = (f.conflicts ?? []).find((c) => !RESTRICTED_PUBLIC_SOURCES.has(c.source));
+  return alt ? { ...f, value: alt.value, source: alt.source } : { ...f, value: null, source: "" };
+}
+
 export async function publicFeed(pool: Pool): Promise<Record<string, unknown>> {
   const { items } = await listPrograms(pool, { sort: "priority", limit: 1000 });
-  const v = (r: Record<string, unknown>, k: string) => (r.resolved as Record<string, { value: unknown; source: string; conflicts: unknown[] }>)[k];
+  const v = (r: Record<string, unknown>, k: string): ResolvedFieldView | undefined =>
+    publicFieldView((r.resolved as Record<string, ResolvedFieldView>)[k]);
   const pub = items.map((r) => ({
     id: r.id, key: r.canonical_key, project: r.project_name, programme: v(r, "programmeName")?.value ?? null, platform: v(r, "platform")?.value ?? null,
     official_url: v(r, "officialUrl")?.value ?? null,
@@ -134,7 +152,7 @@ export async function publicFeed(pool: Pool): Promise<Record<string, unknown>> {
     kyc: v(r, "kycRequired")?.value ?? null, fee: v(r, "submissionFee")?.value ?? null, launched: v(r, "launchedAt")?.value ?? null, source_updated: v(r, "sourceUpdatedAt")?.value ?? null,
     status: r.status, status_basis: r.status_basis, verification: r.verification, priority: r.priority === null ? null : Number(r.priority), components: r.components, explanation: r.explanation,
     first_seen: r.first_seen_at, last_checked: r.last_checked_at, last_verified: r.last_verified_at, updated: r.updated_at,
-    sources: (r.sources as Array<{ source: string; url: string | null; listed: boolean }>).filter((s) => s.source !== "operator" && s.source !== "text-import").map((s) => ({ source: s.source, url: s.source === "web-import" ? null : s.url, listed: s.listed })),
+    sources: (r.sources as Array<{ source: string; url: string | null; listed: boolean }>).filter((s) => s.source !== "operator" && s.source !== "text-import" && !RESTRICTED_PUBLIC_SOURCES.has(s.source)).map((s) => ({ source: s.source, url: s.source === "web-import" ? null : s.url, listed: s.listed })),
     eligibility: eligOf(r.resolved, r.verification as string),
   }));
   const h = await health(pool);
