@@ -145,3 +145,18 @@ no weakening of detection to inflate a score.
   the CLI is recorded **unavailable** ($0 spent). The gateway path is proven with fake adapters over real Postgres
   (`eval/bench/adjudicate.integration.test.ts`, also under the least-privilege runtime role).
 
+
+## 7. Capability history (structural analyzer)
+
+Each entry gives the analyzer version, the commit, what changed, the evidence for it, and its limitations. "Heldout" corpora have
+each been scored many times, so a gain on them is evidence and not a fresh blind result. Only a newly frozen, never-scored corpus
+gives a blind result.
+
+| analyzer | commit | change | evidence | limitations |
+|---|---|---|---|---|
+| structural-solidity/1 | ≤ `939e17c` | baseline structural specialists + execution validator for reentrancy | dev P=1 R=1; heldout P=1 R=1; heldout2 P=0.795 R=0.838; heldout3 P=0.952 R=0.645; heldout4 P=0.952 R=0.526; benchmark-b v3 recall 0 | syntactic patterns only; no meaning-aware reasoning |
+| structural-solidity/1 (unchanged string) | `5d6ccd1` (**first production release**) | cross-file citation root-cause fix (call-chain frames use the caller's file); per-dossier coverage status; malformed-file detection; uncitable findings rejected | all frozen corpora identical; regression test fails 3/3 without the fix | the version string was not bumped, so attribution of this build relies on the recorded build commit |
+| structural-solidity/2 | `53301db` + labelling commit | writes through `storage` locals and `storage` parameters count as state writes (reentrancy) | 10 synthetic tests (4 positive, 6 negative); heldout3 R 0.645→0.677, P 0.952→0.955 (`NativeStakingPool.unstake`, exact line); all other corpora identical; 0 new false positives | not handled: storage references from function returns or ternaries, `using L for T` calls. **The execution check rates the new heldout3 hit "inconclusive"** (it cannot model writes to struct members); inconclusive means undecided, never "absent" |
+
+Rule (unchanged): an inconclusive or missing independent check is never presented as evidence that a vulnerability is absent, and a
+dossier with no leads says so explicitly (enforced in `renderDossierMarkdown` and tested end to end).

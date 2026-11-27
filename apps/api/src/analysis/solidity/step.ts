@@ -6,6 +6,7 @@ import { ACQUIRE_STEP_KEY } from "../../acquisition/step.js";
 import { ANALYZER_VERSION, ANALYZE_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY } from "./keys.js";
 import { buildDossier, buildStructuralMap, loadStoredHypotheses, runChallenge, runStructuralAnalysis, SPECIALIST_ID } from "./pipeline.js";
 import { createHash } from "node:crypto";
+import { readBuildInfo } from "../../engine-status.js";
 
 /**
  * Worker steps that continue a `repository_research` run AFTER acquisition: analyse the sealed snapshot, challenge the leads, build the dossier.
@@ -40,7 +41,7 @@ export async function processAnalyzeStructureStep(ctx: AnalysisStepContext, step
     const sources = (await ctx.pool.query<{ path: string; text: string }>(`SELECT f.path, convert_from(b.content, 'UTF8') AS text FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256 WHERE f.snapshot_id = $1 AND f.path LIKE '%.sol' ORDER BY f.path COLLATE "C"`, [snap.snapshotId])).rows;
     const map = buildStructuralMap(sources); const mapJson = JSON.stringify(map);
     await ctx.worker.complete(step.id, {
-      status: "structure_analyzed", analyzer: ANALYZER_VERSION, specialist: SPECIALIST_ID, snapshot_id: snap.snapshotId, repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256,
+      status: "structure_analyzed", analyzer: ANALYZER_VERSION, analyzer_build: { commit: readBuildInfo().commit, image: readBuildInfo().image }, specialist: SPECIALIST_ID, snapshot_id: snap.snapshotId, repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256,
       contracts: a.contracts, functions: a.functions, hypotheses: a.stored.length, hypothesis_ids: a.stored.map((h) => h.id), problems: a.problems,
       protocol_model_sha256: a.protocolModel.sha256, protocol_model_stored: a.protocolModel.stored, protocol_model_counts: { components: a.protocolModel.components, functions: a.protocolModel.functions, call_edges: a.protocolModel.callEdges, unknowns: a.protocolModel.unknowns },
       structural_map_sha256: createHash("sha256").update(mapJson).digest("hex"), structural_map: mapJson.length <= 400_000 ? map : { truncated: true, reason: "map exceeds 400 kB; see structural_map_sha256 and rebuild from the snapshot" }, ...passive,

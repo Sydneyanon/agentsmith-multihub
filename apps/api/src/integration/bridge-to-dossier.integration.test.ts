@@ -5,6 +5,7 @@ import { createRepositoryResearchRun } from "../acquisition/step.js";
 import { FakeSource } from "../acquisition/testing/fake-source.js";
 import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fixture.js";
 import { buildDossier, renderDossierMarkdown } from "../analysis/solidity/pipeline.js";
+import { ANALYZER_VERSION } from "../analysis/solidity/keys.js";
 import { promoteEligibleProgrammes } from "../bounties/promote.js";
 import { ResearchStore } from "../research-state.js";
 import { runIntakeWorker } from "../worker-runtime.js";
@@ -70,7 +71,14 @@ describe.skipIf(skipIntegration)("bridge -> worker runtime -> dossier (the first
     expect(d!.coverage.solidity_files).toBe(devFiles().length);
     expect(d!.entries.length).toBeGreaterThan(0);
     expect(d!.entries.every((e) => e.evidence.length > 0 && e.evidence.every((x) => x.verified))).toBe(true);
+    const md = renderDossierMarkdown(d!); // an undecided independent check is never presented as absence
+    const undecided = d!.entries.filter((e) => !e.evaluations.length || e.evaluations.some((v) => v.outcome === "inconclusive")).length;
+    expect(undecided).toBeGreaterThan(0);
+    expect(md.split("That is NOT evidence that the issue is absent").length - 1).toBe(undecided);
     expect(renderDossierMarkdown(d!)).toMatch(/\*\*Analysis coverage: COMPLETE\*\*/);
+    // every dossier names the analyzer that produced it; a source checkout has no build-info.json, so the commit is "not recorded", never guessed
+    expect(d!.analyzer).toEqual({ version: ANALYZER_VERSION, build_commit: null, image: null });
+    expect(renderDossierMarkdown(d!)).toContain(`Analyzer: ${ANALYZER_VERSION}; build commit not recorded.`);
     expect((await owner().query(`SELECT count(*)::int AS n FROM model_usage_events`)).rows[0].n).toBe(0);
   });
 
@@ -86,6 +94,7 @@ describe.skipIf(skipIntegration)("bridge -> worker runtime -> dossier (the first
     expect(steps.every((x) => x.status === "succeeded")).toBe(true);
     expect(d!.coverage).toMatchObject({ status: "not_analysable", solidity_files: 0 });
     expect(d!.entries).toEqual([]);
+    expect(renderDossierMarkdown(d!)).toContain("No leads were generated. That is NOT evidence that the code is free of vulnerabilities");
     expect(renderDossierMarkdown(d!)).toMatch(/NOT ANALYSABLE[\s\S]*NOT a complete investigation/);
   });
 

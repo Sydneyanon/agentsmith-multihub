@@ -86,27 +86,119 @@ into a **disposable local database**. **They are not production counts.** Produc
 `community_reported`, and 0 eligible. Production counts will be measured after A4, and they may differ: listings change, and the
 production collector's network differs from this container's.
 
-## 2. Approval request — execute in order, verifying each step before the next
+## 2. Approval request
 
 `IMG=registry.fly.io/agentsmith-hub@sha256:b3a6327ebea6c1d45a92132041fd5d5361cd7ad9e9a7da0c5ca17325f8ee1a27`
 
-| # | approval | exact command | verify | rollback |
-|---|---|---|---|---|
-| **A1** | deploy | `fly deploy --config fly.hub.toml --image $IMG --ha=false` | `/health/ready` 200; `/v1/engine/status` build commit `5d6ccd1`; `schema.missing` = 0012–0014 until A3 | §1.2 A1 |
-| **A2** | deploy | `fly machine update 8747e47a1501d8 --app agentsmith-hub --image $IMG --yes` (schedule unchanged) | next hourly collection recorded | §1.2 A2 |
-| **A3** | production migration | `fly machine run $IMG --app agentsmith-hub --region syd --rm --restart no -e MIGRATE_CONFIRM_REMOTE_HOST=<database host> --entrypoint sh -- -c 'DIRECT_DATABASE_URL="$DATABASE_URL" exec node dist/scripts/migrate.js'` | output is exactly `Applied 0012_…`, `Applied 0013_…`, `Applied 0014_…`; engine status `schema.missing=[]` | §1.2 A3 |
-| **A4** | source activation | `POST /v1/bounties/sources/sherlock/enable` and `…/hackenproof/enable` | next collection: both sources `fetched`; production eligible count > 0 (measured, not assumed) | §1.2 A4 |
-| **A5** | secret (optional, recommended) | `fly secrets set GITHUB_TOKEN=… --stage` (fine-grained, public-repository read only, no scopes) | enrichment `deferred` = 0 | `fly secrets unset GITHUB_TOKEN` |
-| **A6** | production write (mapping rows only) + read-only dry run | `fly machine run $IMG dist/apps/api/src/bounties/enrich-main.js --max 10 --app agentsmith-hub --region syd --rm --restart no`, then `fly machine run $IMG dist/apps/api/src/bounties/promote-main.js --dry-run --structural --max 3 --app agentsmith-hub --region syd --rm --restart no` | per-programme log; mappings with `official_documentation` and a GitHub id; dry run lists the candidates **for you to choose one** | `DELETE FROM bounty_repository_mappings` (new table only) |
-| **A7** | worker user and grants | **you run** `fly mpg users create <cluster> --username agentsmith_worker --role reader`, then `fly secrets set WORKER_DATABASE_URL=… --stage`; I run `apply-runtime-grants.js` with `RUNTIME_ROLE=agentsmith_worker RUNTIME_ROLE_READONLY_MEMBERSHIPS=reader RUNTIME_GRANTS_ALLOW_ABSENT=true`, first with `RUNTIME_GRANTS_DRY_RUN=true`, then for real | dry-run plan shown to you; grants gate passes | `fly mpg users delete agentsmith_worker`; `fly secrets unset WORKER_DATABASE_URL` |
-| **A8** | production write + **worker activation** | `fly machine run $IMG dist/apps/api/src/bounties/promote-main.js --structural --max 1 --app agentsmith-hub --region syd --rm --restart no` (creates exactly one run for the repository you chose), then `fly machine run $IMG dist/apps/api/src/worker-main.js --app agentsmith-hub --region syd --name research-run-1 --vm-size shared-cpu-1x --vm-memory 512 --restart no --env STRUCTURAL_ANALYSIS_ENABLED=true --env HUB_REQUIRE_RESTRICTED_DB_ROLE=true --env WORKER_ONLY_RUN_ID=<run> --env WORKER_EXIT_WHEN_RUN_DONE=true` | four steps succeeded; snapshot sealed at an exact commit; dossier with its coverage status; 0 model-usage events | `fly machine stop research-run-1`; cancel the run; delete its link row |
-| **A9** | deploy + production writes (later) | the schedules printed by `scripts/fleet-plan.ts`: enrich daily `--max 10`, bridge hourly `--structural --max 2`, monitor daily `--structural --max 5`, persistent worker | outcome metrics | `fly machine destroy` each; the collector is unaffected |
+**Every numbered action needs your explicit approval.** Approving one action does not approve the next. I run each action only
+after the previous one has been verified, and I stop and report on any unexpected result. Actions marked **you** need your own Fly
+credentials (creating a database user). I cannot do them.
 
-A9 is requested only **after** A8 has produced a dossier and you have reviewed it. Nothing is submitted anywhere. Immunefi
-stays disabled, and Cantina stays blocked. Research is passive static analysis of public code at a pinned commit. Any lead is a
-hypothesis for your review, never a finding until it has been independently reproduced and you have approved it.
+Costs: no AI is used anywhere on this path ($0 against the $25/month gateway). Fly compute for one-off machines is a few cents each.
+A machine left running (A9 only) is roughly $3–4/month each at shared-cpu-1x/512 MB. Database growth is small (kilobytes to a few
+megabytes for one repository snapshot).
 
-## 3. What A8 can and cannot prove
+### A1 — Deploy the release to the API  · approval: deploy
+- **Command:** `fly deploy --config fly.hub.toml --image $IMG --ha=false`
+- **Consequence:** the API machine late-meadow-8506 restarts on build `5d6ccd1` (seconds of downtime). Until A3, engine status shows
+  0012–0014 as `schema.missing`, which is an attention reason only; the API works without them.
+- **Verify:** `/health/ready` 200; `/v1/engine/status` build commit `5d6ccd1…`.
+- **Reversible:** yes, fully. `fly deploy --config fly.hub.toml --image registry.fly.io/agentsmith-hub@sha256:95c65bb0d39d4af04060d210500cc4312e9e992d12941073fcdad7cf13ebd6c8 --ha=false` (rehearsed, works even after A3).
+
+### A2 — Move the collector to the same image  · approval: deploy
+- **Command:** `fly machine update 8747e47a1501d8 --app agentsmith-hub --image $IMG --yes`
+- **Consequence:** the hourly collector runs the new code; its schedule and sources are unchanged (still community board only).
+- **Verify:** the next hourly run is recorded.
+- **Reversible:** yes. The same command with `@sha256:faef363a35bca3c63a4d7a8f7e685fbd63a20329551dba3118882a975d28d0f9` (rehearsed).
+
+### A3 — Apply migrations 0012–0014 to production  · approval: production migration
+- **Command** (identical to how 0011 was applied; the host is read from the machine's own `DATABASE_URL`, so no credential leaves Fly):
+  `fly machine run $IMG --app agentsmith-hub --region syd --rm --restart no --entrypoint sh -- -c 'host=$(node -e "process.stdout.write(new URL(process.env.DATABASE_URL).hostname)"); DIRECT_DATABASE_URL="$DATABASE_URL" MIGRATE_CONFIRM_REMOTE_HOST="$host" node dist/scripts/migrate.js'`
+- **What it changes:** it creates exactly four new, empty tables and seven indexes. Nothing existing is altered, and no data is migrated.
+  - **0012:** `bounty_research_links`, which links a programme, a repository and a research run (one per programme/repo/ref).
+  - **0013:** `repository_monitors` and `repository_monitor_checks` (tracked repositories and an append-only check log).
+  - **0014:** `bounty_repository_mappings`, which records a programme's repository with its source URL, evidence, verification status and GitHub id.
+  - **Foreign keys:** only into `bounty_programs` and `workflow_runs`, with ON DELETE CASCADE from those parents.
+- **Expected output:** exactly three lines, `Applied 0012_bounty_research_link.sql`, `Applied 0013_repository_monitor.sql` and
+  `Applied 0014_repository_mappings.sql`. Anything else means I stop.
+- **Verify:** engine status `schema.missing = []`.
+- **Reversible:** yes. Preferred: leave the tables and stop the producers. Removal is the data-preserving drop and restore rehearsed in §1.2.
+
+### A4 — Enable Sherlock and HackenProof as sources  · approval: source activation
+- **Commands:** `POST /v1/bounties/sources/sherlock/enable` and `POST /v1/bounties/sources/hackenproof/enable` (operator token).
+- **Consequence:** each hourly collection also reads those platforms' public programme listings. There is no account, no API key and
+  no login, and robots.txt is checked on every fetch. Their programmes become `official_confirmed` and can become eligible.
+  Immunefi stays disabled and Cantina stays blocked.
+- **Verify:** next collection shows both sources `fetched`. I report the **production** eligible count as measured; it is not assumed
+  to be 168.
+- **Reversible:** yes. `POST …/disable`; already-collected programmes remain as history.
+
+### A5 — (optional, recommended) GitHub token  · approval: secret
+- **Command:** `fly secrets set GITHUB_TOKEN=<fine-grained token, public repositories read-only, no permissions> --stage --app agentsmith-hub`
+  (you create the token; I never see it if you run this yourself).
+- **Consequence:** raises GitHub's rate limit from 60 to 5,000 requests/hour for repository verification and acquisition.
+- **Reversible:** yes. `fly secrets unset GITHUB_TOKEN --app agentsmith-hub`.
+
+### A6 — One enrichment pass, then a dry run of the bridge  · approval: production write (mapping rows only)
+- **Commands:**
+  1. `fly machine run $IMG dist/apps/api/src/bounties/enrich-main.js --max 10 --app agentsmith-hub --region syd --rm --restart no`
+  2. `fly machine run $IMG dist/apps/api/src/bounties/promote-main.js --dry-run --structural --max 3 --app agentsmith-hub --region syd --rm --restart no`
+- **Consequence:**
+  - **Pass 1** reads up to 10 eligible programmes' official pages (robots-checked), extracts repository links and verifies each
+    against GitHub. It writes rows to `bounty_repository_mappings` only. An unverifiable repository is recorded as `deferred`, never
+    as verified.
+  - **Pass 2** writes nothing; it lists the candidate repositories.
+- **Then you choose** one repository from the dry-run list for A8.
+- **Reversible:** yes. Mapping rows can be deleted; the table is new.
+
+### A7 — Create the restricted worker database user  · approval: database user + grants
+- **Commands:**
+  1. **you:** `fly mpg users create <cluster id> --username agentsmith_worker --role reader`
+  2. **you:** `fly secrets set WORKER_DATABASE_URL=<that user's connection string> --stage --app agentsmith-hub`
+  3. **me, dry run:** `fly machine run $IMG --app agentsmith-hub --region syd --rm --restart no -e RUNTIME_ROLE=agentsmith_worker -e RUNTIME_ROLE_READONLY_MEMBERSHIPS=reader -e RUNTIME_GRANTS_ALLOW_ABSENT=true -e RUNTIME_GRANTS_DRY_RUN=true --entrypoint sh -- -c 'host=$(node -e "process.stdout.write(new URL(process.env.DATABASE_URL).hostname)"); DIRECT_DATABASE_URL="$DATABASE_URL" MIGRATE_CONFIRM_REMOTE_HOST="$host" node dist/scripts/apply-runtime-grants.js'`.
+     I show you the printed plan.
+  4. **me, for real:** the same command without `RUNTIME_GRANTS_DRY_RUN=true`, only after you've seen the plan.
+- **Consequence:** a database user that can read, and can insert or update only the tables listed in `db/runtime-grants.json`. It
+  cannot own, create, delete, truncate or disable triggers. The API keeps its existing connection unchanged.
+- **Reversible:** yes. `fly mpg users delete …agentsmith_worker`; `fly secrets unset WORKER_DATABASE_URL --app agentsmith-hub`.
+
+### A8 — The first research run  · approval: production write + worker activation
+- **Commands:**
+  1. `fly machine run $IMG dist/apps/api/src/bounties/promote-main.js --structural --max 1 --app agentsmith-hub --region syd --rm --restart no`
+     This creates **exactly one** queued run for the repository you chose; I confirm the run id and repository before step 2.
+  2. `fly machine run $IMG dist/apps/api/src/worker-main.js --app agentsmith-hub --region syd --name research-run-1 --vm-size shared-cpu-1x --vm-memory 512 --restart no --env STRUCTURAL_ANALYSIS_ENABLED=true --env HUB_REQUIRE_RESTRICTED_DB_ROLE=true --env WORKER_ONLY_RUN_ID=<that run id> --env WORKER_EXIT_WHEN_RUN_DONE=true`
+- **Consequence:** one worker, confined as in §1.3, does four things:
+  - acquires the repository at the pinned commit from GitHub;
+  - seals the snapshot;
+  - runs structural analysis and the execution challenge;
+  - builds the dossier.
+  It then exits. Nothing is executed from the repository, nothing is deployed or called on-chain, and nothing is submitted anywhere.
+- **Verify:** four steps `succeeded`; snapshot sealed with its commit and manifest hash; dossier coverage status; 0 model-usage events.
+- **Reversible:** yes. `fly machine stop research-run-1`; cancel the run; delete its link row. The run's records remain as history.
+
+### A9 — Recurring schedules  · approval: requested separately, after you've reviewed the A8 dossier
+The enrich, bridge, monitor and persistent-worker machines printed by `scripts/fleet-plan.ts`. **This is not part of this approval.**
+
+## 3. Labelling the first run: analyzer version used
+
+The first run uses the frozen release image, so its analyzer does **not** include `53301db` (storage-reference writes).
+
+| | |
+|---|---|
+| build commit | `5d6ccd1587ea6e5fb8a7bd683f9ddc174bc8f68c` |
+| image | `sha256:b3a6327ebea6c1d45a92132041fd5d5361cd7ad9e9a7da0c5ca17325f8ee1a27` |
+| analyzer string recorded in the step output | `structural-solidity/1 (specialists 1, execution validators 1)` |
+| hypothesis generator | `solidity-structural-specialists@1` |
+| includes | cross-file citation fix; coverage records; uncitable-finding rejection |
+| excludes | storage-reference writes (`53301db`); explicit analyzer/build line in the dossier; "not evidence of absence" wording |
+
+- **Gap in this build:** it does not write its build commit into the run's records, and `structural-solidity/1` was also used by
+  earlier builds.
+- **How I'll attribute it:** when A8 completes, I record the run id, snapshot id, commit and dossier content hash against build
+  `5d6ccd1` in `docs/research-runs.md`, from the engine status observed at the time.
+- **From the next release on:** each analysis records `analyzer_build` (commit and image), and the dossier names it.
+
+## 4. What A8 can and cannot prove
 
 - **It can prove:** the whole pipeline running unattended in production on a real bounty repository, with an evidence-verified,
   commit-pinned dossier whose coverage is stated honestly.
