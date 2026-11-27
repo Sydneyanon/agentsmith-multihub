@@ -36,7 +36,7 @@ describe("empty backend: nothing is invented", () => {
 
   it("Home shows zero counts and explanatory empty states", async () => {
     const el = renderHome(ctx());
-    await settled(el, /No projects yet/);
+    await settled(el, /No investigations yet/);
     expect(el.textContent).toMatch(/No hypotheses/);
     expect(el.textContent).toMatch(/No activity yet/);
     const values = [...el.querySelectorAll(".stat-value")].map((n) => n.textContent);
@@ -67,7 +67,7 @@ describe("error states", () => {
     await settled(el, /no database configured/i);
     fail = false;
     (el.querySelector(".state-error button") as HTMLButtonElement).click();
-    await settled(el, /No projects yet/);
+    await settled(el, /No investigations yet/);
   });
 });
 

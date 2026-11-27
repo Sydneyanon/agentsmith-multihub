@@ -50,10 +50,26 @@ export function progressBar(done: number, total: number, label: string): HTMLEle
 
 const TONE_VAR: Record<string, string> = { cyan: "var(--cyan)", green: "var(--green)", amber: "var(--amber)", red: "var(--red)", grey: "var(--grey)", violet: "var(--violet)" };
 
-export function stepper(slots: Array<{ key: string; label: string; state: StageState; notBuilt?: string }>): HTMLElement {
+const STAGE_ICON: Record<string, string> = { discovery: "◎", repository: "▦", understanding: "◍", analysis: "◉", challenge: "⚖", review: "☰", verification: "✦" };
+
+export function stepper(slots: Array<{ key: string; label: string; state: StageState; notBuilt?: string; current?: boolean }>): HTMLElement {
   return h("ol", { class: "stepper" }, ...slots.map((slot) => {
-    const text = slot.state === "done" ? "Records exist" : slot.state === "not_built" ? `Not built (${slot.notBuilt})` : "No records yet";
-    return h("li", { class: `step step-${slot.state}` }, h("span", { class: "step-dot", "aria-hidden": "true" }, slot.state === "done" ? "✓" : ""), h("span", { class: "step-label" }, slot.label), h("span", { class: "step-state" }, text));
+    const text = slot.current ? "In progress" : slot.state === "done" ? "Records exist" : slot.state === "not_built" ? `Not built (${slot.notBuilt})` : "No records yet";
+    const glyph = slot.state === "done" ? "✓" : STAGE_ICON[slot.key] ?? "";
+    return h("li", { class: `step step-${slot.state}${slot.current ? " step-current" : ""}` }, h("span", { class: "step-dot", "aria-hidden": "true" }, glyph), h("span", { class: "step-label" }, slot.label), h("span", { class: "step-state" }, text));
+  }));
+}
+
+/** A compact vertical stacked-column chart: one column per stage, stacked by status. Mirrors stackedBars but reads as a pipeline. */
+export function pipelineChart(rows: Array<{ label: string; counts: Record<string, number> }>, statusOrder: string[], toneOf: (status: string) => Tone): HTMLElement {
+  const max = Math.max(1, ...rows.map((r) => Object.values(r.counts).reduce((a, b) => a + b, 0)));
+  return h("div", { class: "pipe-chart" }, ...rows.map((row) => {
+    const total = Object.values(row.counts).reduce((a, b) => a + b, 0);
+    const segs = statusOrder.filter((k) => row.counts[k]).map((k) => h("span", { class: `pcol-seg tone-${toneOf(k)}`, style: `height:${(row.counts[k]! / max) * 100}%`, title: `${k}: ${row.counts[k]}` }));
+    return h("div", { class: "pcol", title: `${row.label}: ${total}` },
+      h("span", { class: "pcol-count" }, total ? String(total) : ""),
+      h("span", { class: "pcol-track", role: "img", "aria-label": `${row.label}: ${total}` }, ...segs),
+      h("span", { class: "pcol-label" }, row.label));
   }));
 }
 
