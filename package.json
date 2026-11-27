@@ -21,7 +21,8 @@
     "staging:configs": "tsx scripts/staging-config.ts",
     "verify": "node scripts/verify.mjs",
     "hub:screenshots": "tsx scripts/hub-screenshots.ts",
-    "hub:layout-check": "tsx scripts/hub-layout-check.ts"
+    "hub:layout-check": "tsx scripts/hub-layout-check.ts",
+    "loop": "tsx scripts/research-loop.ts"
   },
   "dependencies": {
     "fastify": "^5.2.1",

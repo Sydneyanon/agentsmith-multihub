@@ -93,8 +93,7 @@ analyzer cannot see these classes, and the memory records that blind spot explic
 - No frozen benchmark or label is read or changed (the fixture is `eval/dev/contracts`, read-only, as other tests use it).
 
 ## 5. Not done, and why
-- **No operator entry point** (CLI or authenticated route) to invoke the stages; they are library functions exercised by the tests. That
-  is the next task (T-199), so a person can drive one cycle stage by stage.
+- **Operator entry point: done (T-199, 2026-11-27).** `npm run loop -- <command>`; see §7.
 - **No Control Room panel** for "why this target", coverage and outcomes (A28 §5); read-only, after the tables exist (T-200).
 - **Re-acquisition per assignment**: snapshots belong to their run (0007), so each assignment downloads and re-seals the same commit.
   Blobs are content-addressed, so storage is not duplicated, but the download is. A within-database snapshot copy would remove it.
@@ -107,3 +106,28 @@ analyzer cannot see these classes, and the memory records that blind spot explic
 2. **A38 (new):** run one operator-invoked loop cycle on a non-production database against one manually registered public opportunity:
    stages invoked by a person through the T-199 CLI, one worker with both switches on for the duration, no scheduler, no paid models.
 3. **A26** if that worker runs on Fly (production compute) rather than locally.
+
+## 7. Operator CLI (T-199)
+`npm run loop -- help`. One command per stage:
+- **Read-only:** `status`, `next`, `registry`, `show-decision`, `ledger`, `leads`.
+- **Human:** `register`, `verify`, `select`, `adjudicate`.
+- **AgentSmith:** `rank`, `map`, `ingest`.
+- **Execution:** `run-assignment`.
+
+Rules (all tested in `engine-cli.integration.test.ts`):
+- **Dry run by default.** A write command runs the real stage inside a transaction that is always rolled back, and prints the decision,
+  its ranked candidates, score contributions and reasons. Only `--execute` with `--confirm <database name>`, or the name typed at the
+  prompt, commits.
+- **One run only.** `run-assignment` runs the steps of the named run once, in-process, and claims only that run's steps. Acquiring from
+  GitHub needs `--allow-network`. There is no daemon, no poll, no scheduler and no Fly worker.
+- **Disposable databases only.**
+  - The URL comes from `--database-url` or `RESEARCH_LOOP_DATABASE_URL`; `DATABASE_URL` is ignored.
+  - The host must be loopback.
+  - The name must be `agentsmith_test_*` or `agentsmith_scratch_*`.
+  - A production marker in the environment refuses.
+  - The drafts must already be present: the tool never applies a migration.
+  - A remote database, and so A38, is refused.
+  - The password is never printed.
+- **`next`** derives the next action from the recorded state alone, with who acts (AgentSmith, operator or human) and why. The test drives
+  the whole loop by following `next`.
+- Capabilities and their integration: `docs/specialist-capabilities.md`.
