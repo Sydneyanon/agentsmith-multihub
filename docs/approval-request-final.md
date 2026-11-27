@@ -95,7 +95,8 @@ production collector's network differs from this container's.
 
 ## 2. Approval request
 
-`IMG=registry.fly.io/agentsmith-hub@sha256:b3a6327ebea6c1d45a92132041fd5d5361cd7ad9e9a7da0c5ca17325f8ee1a27`
+`IMG=registry.fly.io/agentsmith-hub@sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0`
+(release baseline `d09d0c2` per `deploy/release.json`; it supersedes `5d6ccd1` / `sha256:b3a6327e…`. Run `npx tsx scripts/release-check.ts` before and after each step.)
 
 **Every numbered action needs your explicit approval.** Approving one action does not approve the next. I run each action only
 after the previous one has been verified, and I stop and report on any unexpected result. Actions marked **you** need your own Fly
@@ -188,22 +189,19 @@ The enrich, bridge, monitor and persistent-worker machines printed by `scripts/f
 
 ## 3. Labelling the first run: analyzer version used
 
-The first run uses the frozen release image, so its analyzer does **not** include `53301db` (storage-reference writes).
-
 | | |
 |---|---|
-| build commit | `5d6ccd1587ea6e5fb8a7bd683f9ddc174bc8f68c` |
-| image | `sha256:b3a6327ebea6c1d45a92132041fd5d5361cd7ad9e9a7da0c5ca17325f8ee1a27` |
-| analyzer string recorded in the step output | `structural-solidity/1 (specialists 1, execution validators 1)` |
+| build commit | `d09d0c23c39110df4725a8e049e967c124d43a35` |
+| image | `sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0` (tag `hub-d09d0c23c391`) |
+| analyzer | `structural-solidity/2 (specialists 1 + storage-reference writes, execution validators 1)` |
 | hypothesis generator | `solidity-structural-specialists@1` |
-| includes | cross-file citation fix; coverage records; uncitable-finding rejection |
-| excludes | storage-reference writes (`53301db`); explicit analyzer/build line in the dossier; "not evidence of absence" wording |
+| includes | citation root-cause fix, coverage records, storage-reference writes, GitHub token hardening |
+| excludes | APEX (not implemented), Slither and Foundry (not in the image), the protocol-invariant proposal |
 
-- **Gap in this build:** it does not write its build commit into the run's records, and `structural-solidity/1` was also used by
-  earlier builds.
-- **How I'll attribute it:** when A8 completes, I record the run id, snapshot id, commit and dossier content hash against build
-  `5d6ccd1` in `docs/research-runs.md`, from the engine status observed at the time.
-- **From the next release on:** each analysis records `analyzer_build` (commit and image), and the dossier names it.
+- **How the run records it:** the analysis step records `analyzer` and `analyzer_build` (commit and image tag) from
+  `build-info.json`, and the dossier prints them.
+- **After A8:** I also enter the run in `docs/research-runs.md`.
+- **It is not proof that APEX works.** It is the deterministic structural analyzer only.
 
 ## 4. What A8 can and cannot prove
 

@@ -4,4 +4,4 @@ One row per production research run, with the exact analyzer that produced it, s
 
 | # | date | programme | repository @ commit | run id | snapshot id | dossier content hash | coverage | build commit | image | analyzer | leads | outcome |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | pending A8 | — | — | — | — | — | — | `5d6ccd1` | `sha256:b3a6327e…` | structural-solidity/1 (build 5d6ccd1) | — | — |
+| 1 | pending A8 | — | — | — | — | — | — | `d09d0c2` | `sha256:b52ce901…` | structural-solidity/2 | — | — |
