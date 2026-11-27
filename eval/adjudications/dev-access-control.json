@@ -1,0 +1,101 @@
+{
+ "schema": "agentsmith-adjudication/1",
+ "records": [
+  {
+   "id": "ADJ-DEV-Config-transferOwner",
+   "subject": {
+    "corpus": "eval/dev",
+    "corpusFilesSha256Sum": "e6385009665b450f7a5f00bb32330386410cd187801596a2ac35a0700b87b5c6",
+    "file": "contracts/Admin.sol",
+    "contract": "Config",
+    "function": "transferOwner",
+    "class": "access-control"
+   },
+   "originalLabel": {
+    "file": "contracts/Admin.sol",
+    "contract": "Config",
+    "function": "transferOwner",
+    "class": "access-control",
+    "vulnerable": false,
+    "line": 27,
+    "note": "reverting check after write undoes it"
+   },
+   "disputedBy": {
+    "source": "attended Claude Code specialist 'vulnerability-hunter' (blind run on eval/dev/contracts, 2026-11-27, T-203 experiments)",
+    "verdict": "vulnerable"
+   },
+   "adjudicator": {
+    "kind": "model",
+    "id": "orchestrating Claude Code session",
+    "note": "same model family as the disputing specialist; not independent"
+   },
+   "humanSignOff": "pending",
+   "evidence": [
+    {
+     "kind": "compiler-backed execution",
+     "tool": "forge 1.5.1 (session-only), solc 0.8.28",
+     "test": "eval/adjudications/dev-labelcheck/LabelCheck.t.sol",
+     "testSha256": "cfc274dd35446d374acf7984003bdda4cf4c98d6de7f851b3e5a17c8295287c7",
+     "tests": [
+      "test_transferOwner_anyCallerBecomesOwner (passed)",
+      "test_transferOwner_toSomeoneElseReverts (passed)"
+     ],
+     "summary": "owner = n is written before _checkOwner() compares msg.sender with owner, so a caller passing its own address passes the check and becomes owner; an owner handing ownership to another address reverts. The note 'reverting check after write undoes it' holds only when n != msg.sender."
+    }
+   ],
+   "outcome": "label_overturned (proposed)",
+   "rationale": "Any caller takes ownership of Config by calling transferOwner(msg.sender)."
+  },
+  {
+   "id": "ADJ-DEV-Misc-initOnce",
+   "subject": {
+    "corpus": "eval/dev",
+    "corpusFilesSha256Sum": "e6385009665b450f7a5f00bb32330386410cd187801596a2ac35a0700b87b5c6",
+    "file": "contracts/Misc.sol",
+    "contract": "Misc",
+    "function": "initOnce",
+    "class": "initializer"
+   },
+   "originalLabel": {
+    "file": "contracts/Misc.sol",
+    "contract": "Misc",
+    "function": "initOnce",
+    "class": "initializer",
+    "vulnerable": false,
+    "line": 11,
+    "note": "one-time flag"
+   },
+   "disputedBy": {
+    "source": "attended Claude Code specialist 'vulnerability-hunter' (blind run on eval/dev/contracts, 2026-11-27, T-203 experiments)",
+    "verdict": "vulnerable"
+   },
+   "adjudicator": {
+    "kind": "model",
+    "id": "orchestrating Claude Code session",
+    "note": "same model family as the disputing specialist; not independent"
+   },
+   "humanSignOff": "pending",
+   "evidence": [
+    {
+     "kind": "compiler-backed execution",
+     "tool": "forge 1.5.1 (session-only), solc 0.8.28",
+     "test": "eval/adjudications/dev-labelcheck/LabelCheck.t.sol",
+     "testSha256": "cfc274dd35446d374acf7984003bdda4cf4c98d6de7f851b3e5a17c8295287c7",
+     "tests": [
+      "test_initOnce_firstCallerReplacesConstructorOwner (passed)"
+     ],
+     "summary": "the constructor already sets owner; initOnce's one-time flag does not restrict who calls first, so any first caller replaces the constructor-set owner."
+    }
+   ],
+   "outcome": "label_overturned (proposed)",
+   "rationale": "An unrestricted one-shot initializer on an already-owned contract is an ownership takeover by the first caller (front-runnable after deployment)."
+  }
+ ],
+ "notUpheldDisputes": [
+  {
+   "function": "Misc.eoaGate",
+   "specialistVerdict": "vulnerable (griefing via the shared ready flag)",
+   "assessment": "not upheld: setting ready only blocks initOnce, which is harmless (or protective) given the constructor-set owner; counted as a specialist false positive"
+  }
+ ]
+}

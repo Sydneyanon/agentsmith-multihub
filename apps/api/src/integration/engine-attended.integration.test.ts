@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -17,7 +17,7 @@ vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
  *  Claude Code sub-agents run on it in an attended session on 2026-11-27. The test replays those recorded outputs through the engine. */
 const PROBE = join(__dirname, "..", "..", "..", "..", "eval", "dev", "specialist-probe");
 const recorded = (n: string) => JSON.parse(readFileSync(join(PROBE, "outputs", `${n}.json`), "utf8")) as Record<string, unknown>;
-const OUTPUT_FOR: Record<string, string> = { "claude-scoping": "scope", "claude-accounting": "accounting", "claude-path": "paths", "claude-assumptions": "assumptions", "claude-liveness": "liveness" };
+const OUTPUT_FOR: Record<string, string> = { "claude-scoping": "scope", "claude-accounting": "accounting", "claude-path": "paths", "claude-assumptions": "assumptions", "claude-liveness": "liveness", "claude-hunter": "hunter" };
 const OP = ["--operator", "owner-test"]; const ENV = { AGENTSMITH_ATTENDED_OPERATOR: "owner-test" };
 
 describe("attended specialist capabilities: declarations (no database)", () => {
@@ -33,7 +33,8 @@ describe("attended specialist capabilities: declarations (no database)", () => {
     const all = intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", ENGINE_LOOP_ENABLED: "true" });
     expect(all).not.toContain(ATTENDED_STEP_KEY); expect(all).not.toContain(ATTENDED_CHALLENGE_STEP_KEY);
     expect(producers({}).map((c) => c.id)).toEqual(["solidity-structural-specialists"]); // no operator: no attended specialist is ever assigned
-    expect(producers(ENV).map((c) => c.id)).toEqual(["solidity-structural-specialists", "claude-scoping", "claude-accounting", "claude-path", "claude-assumptions", "claude-liveness"]);
+    expect(producers(ENV).map((c) => c.id)).toEqual(["solidity-structural-specialists", "claude-scoping", "claude-accounting", "claude-path", "claude-assumptions", "claude-liveness", "claude-hunter"]);
+    for (const id of ["claude-reproducer", "claude-prior-art"]) expect(availability(ENV).find((a) => a.capability.id === id)).toMatchObject({ available: false, reason: expect.stringMatching(/prepared/) });
     expect(availability({}).find((a) => a.capability.id === "claude-challenger")!.reason).toMatch(/AGENTSMITH_ATTENDED_OPERATOR/);
   });
 });
@@ -76,7 +77,10 @@ describe.skipIf(skipIntegration)("attended specialists through the research loop
       expect((await cli(["export-snapshot", "--run", run, "--dir", out])).text).toMatch(/would write 6 hash-checked files.*nothing written/);
       expect((await exec(["export-snapshot", "--run", run, "--dir", out])).code).toBe(EXIT.ok);
       expect(readFileSync(join(out, "src", "ShareVault.sol"), "utf8")).toBe(readFileSync(join(PROBE, "src", "ShareVault.sol"), "utf8"));
-      const r = await exec(["import-specialist", "--run", run, "--file", join(PROBE, "outputs", `${OUTPUT_FOR[b.capability.id]}.json`), ...OP, "--tokens", "80000", "--duration-ms", "100000"]);
+      // a specialist with no recorded run on this fixture reports, honestly, that it examined nothing: memory must say "abstained", not "clean"
+      const src = OUTPUT_FOR[b.capability.id] && existsSync(join(PROBE, "outputs", `${OUTPUT_FOR[b.capability.id]}.json`)) ? join(PROBE, "outputs", `${OUTPUT_FOR[b.capability.id]}.json`)
+        : file(`none-${run}.json`, { specialist: b.capability.id, examined: { components: [], classes: [] }, not_examined: [{ what: "every class (" + (b as unknown as { capability: { classes: string[] } }).capability.classes.join(", ") + ")", why: "not run on this fixture in the recorded experiment" }], findings: [] });
+      const r = await exec(["import-specialist", "--run", run, "--file", src, ...OP, "--tokens", "80000", "--duration-ms", "100000"]);
       expect(r.code, r.text).toBe(EXIT.ok);
     }
   };
@@ -106,6 +110,9 @@ describe.skipIf(skipIntegration)("attended specialists through the research loop
     const doctored = { ...bad, findings: bad.findings.map((f, i) => (i === 0 ? { ...f, locations: [{ file: "src/ShareVault.sol", line_start: 900, line_end: 901 }] } : f)) };
     const dry = await cli(["import-specialist", "--run", run, "--file", file("doctored.json", doctored), ...OP]);
     expect(dry.text).toMatch(/rejected \{"unanchored":1/); expect(dry.text).toMatch(/DRY RUN/);
+    // a claim citing one real and one non-existent location is kept, with the fabricated location counted on the record
+    const mixed = { ...bad, findings: [{ ...bad.findings[1]!, locations: [...bad.findings[1]!.locations, { file: "src/ShareVault.sol", line_start: 462, line_end: 494 }] }] };
+    expect((await cli(["import-specialist", "--run", run, "--file", file("mixed.json", mixed), ...OP])).text).toMatch(/"locationsInStoredClaims":1/);
     expect((await q("SELECT 1 FROM hypotheses WHERE generator_kind = 'attended_model'")).length).toBe(0);
     expect((await exec(["import-specialist", "--run", run, "--file", file("noop.json", { specialist: "x", findings: [] })])).code).toBe(EXIT.usage); // no operator
     await attend(run);
@@ -131,6 +138,12 @@ describe.skipIf(skipIntegration)("attended specialists through the research loop
     const reviews = await q<{ reviewer_kind: string; reviewer_id: string; review_mode: string; generator_id: string }>("SELECT r.reviewer_kind, r.reviewer_id, r.review_mode, h.generator_id FROM hypothesis_reviews r JOIN hypotheses h ON h.id = r.hypothesis_id");
     expect(reviews.length).toBeGreaterThan(5);
     for (const r of reviews) { expect(r).toMatchObject({ reviewer_kind: "attended_model", reviewer_id: "claude-challenger", review_mode: "blinded_independent_assessment" }); expect(r.reviewer_id).not.toBe(r.generator_id); }
+    // the hunter had no recorded run here: every class it declares is 'abstained', never 'examined'
+    expect(await q("SELECT DISTINCT result, reason_code FROM research_coverage WHERE method = 'claude-hunter'")).toEqual([{ result: "abstained", reason_code: "not_examined_by_specialist" }]);
+    // track records are recorded in decisions and NOT used in selection (no human outcomes yet)
+    const [tr] = await q<{ v: Array<{ capability: string; usedInSelection: boolean; adjudicated: number; claims: number }> }>("SELECT c.features->'capability_track_records'->'value' v FROM research_decision_candidates c JOIN research_decisions d ON d.id = c.decision_id WHERE c.features ? 'capability_track_records' ORDER BY d.created_at DESC, d.id LIMIT 1");
+    expect(tr!.v.length).toBeGreaterThan(2); for (const r of tr!.v) expect(r.usedInSelection).toBe(false);
+    expect(tr!.v.find((r) => r.capability === "claude-accounting")!.claims).toBeGreaterThan(0);
     // every attended claim was put to the challenger exactly once
     const unchallenged = await q("SELECT h.id FROM hypotheses h WHERE h.generator_kind = 'attended_model' AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.step_key = $1 AND s.input->'claims' @> jsonb_build_array(jsonb_build_object('hypothesisId', h.id::text)))", [ATTENDED_CHALLENGE_STEP_KEY]);
     expect(unchallenged).toEqual([]);

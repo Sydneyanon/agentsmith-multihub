@@ -1,5 +1,12 @@
 # Specialist researchers in AgentSmith: inventory, evidence and integration (T-203, 2026-11-27)
 
+> **Round 2 (verified from `811376f`; full verify re-run: 883 unit passed and 1 skipped, 294 + 294 integration, exit 0).** Five
+> more blind experiments; section 6 has the results. Headline: on the labelled dev corpus, a generalist hunter matched the structural
+> analyzer's recall and found **two label errors**, both confirmed by executed tests. That means P1–P3, which was tuned to those labels,
+> misses two real ownership takeovers. A reproduction specialist demonstrated measured impact for 4 of 4 seeded issues. A prior-art
+> specialist found 10 of 10 duplicates with 1 false duplicate. On real code, the challenger caught a fabricated citation and corrected
+> severities.
+
 **Status:** integration implemented on the branch and tested on throwaway databases. The research test was run in this attended Claude
 Code session against a synthetic fixture and, blind, against one real public codebase whose results are kept only in the private case
 repository. Nothing is deployed, no draft is applied, no worker runs any of this, and no model is called by AgentSmith itself.
@@ -174,3 +181,37 @@ Each declaration records:
 | Unattended model specialists | **not built** | A31 (paid API under the US$25/month gateway), then an unattended runtime that calls the gateway per assignment. A specialist run here cost about 80–170k tokens, so the cap allows only a small number of runs per month |
 
 A Claude Code subscription is not assumed to give unattended runtime access. Nothing in this change calls a model.
+
+## 6. Round 2 experiments (2026-11-27)
+
+| Experiment | Setup (keys fixed before the runs) | Result | Checked by |
+|---|---|---|---|
+| **E1: generalist hunter on the labelled dev corpus** (31 labels: 17 vulnerable, 14 safe; `eval/dev`) | blind; a verdict for every external function | 17/17 vulnerable found; all 5 exploitability notes correct; 3 calls against "safe" labels; 1 extra (`Misc.setImpl`, unlabelled, a real unguarded setter) | per-function scoring script, then the code and executed tests |
+| baseline: P1–P3 structural | same labels | 17/17, 0 against labels (developed against this corpus) | `analyzeSources` |
+| baseline: Slither 0.11.3 | same labels, detector-to-class map | 10/17, 2 false positives | recorded real output |
+| **Label check** on the hunter's 3 disagreements | local Foundry (session-only), unchanged contracts | **2 label errors**: `Config.transferOwner` (write-then-check lets any caller take ownership) and `Misc.initOnce` (first caller replaces the constructor-set owner); both shown by passing tests. **1 false positive**: `Misc.eoaGate` (harmless griefing) | `eval/adjudications/dev-access-control.json` (labels NOT edited; overturn proposed, human sign-off pending) |
+| **E2: reproduction** of 4 seeded probe issues | criteria: tests must assert impact, not a revert | 4/4 demonstrated with measured impact: 500e18 bad debt and 490e18 profit; pool drained to 0; 1000e18 locked after retry; double-counted rewards. Plus a healthy-token control | **I re-ran the 5 tests: all pass**; fixture copy byte-identical; assertions are balance-based (`specialist-probe/reproduction-tests/`) |
+| **E3: prior-art / duplicates**, 16 claims vs a local 12-entry disclosure corpus | key `outputs/round2/prior-art-key.json` | duplicates 10/10 with the right disclosure each time; 1 false duplicate (C13); 5/6 non-duplicates kept; its own summary miscounted (10 vs 11) | scoring script |
+| **E4: challenger on the 3 real-code claims** (private case; details private) | blinded | upheld all 3 with corrections: the known mechanism's reset paths and timescale, matching the verified case records; lowered the severity of the other two; **caught a citation of non-existent lines** | private record 15 |
+| **E5: cross-contract path specialist on real code** (private) | blind | see private record 15 | private |
+
+**What round 2 adds to the evidence**
+- **The strongest result:** E1's two label errors. A specialist found real, executable ownership-takeover bugs that the labelled
+  ground truth, and so the structural analyzer tuned to it, treated as safe. It is still a small development corpus written for
+  testing, and the adjudicator (this session) shares the specialist's model family. The overturn therefore needs your sign-off, and
+  scores stay on the original labels until then.
+- **Reproduction works on synthetic code:** the tests demonstrate impact, not reverts. They are executable evidence only once a pinned
+  evaluator runs them (T-202). Until then they are claims with attached tests.
+- **Fabricated citations are a real failure mode,** seen on real code. Import already refuses unanchorable locations; it now also counts
+  rejected locations on stored claims as a credibility signal.
+- **Prior-art triage is accurate on a local corpus.** It needs registered prior-art records to be useful (T-144 `external_references`);
+  external sources need A40.
+
+**Integration added in round 2**
+- `claude-hunter@1`: an active producer for the structural classes, complementary to P1–P3 by semantics rather than patterns.
+- `claude-reproducer@1` and `claude-prior-art@1` are declared **prepared** (not assignable): the reproducer needs T-202 and A39; prior
+  art needs registered sources (and A40 for external ones).
+- **Track records:** every decision now records each capability's track record from durable memory (claims, independent technical
+  supports, challenger verdicts, human outcomes). The record is **not used in selection** until a capability has at least 5
+  human-adjudicated outcomes and a policy version that uses it is recorded and evaluated (T-192/T-193). Lead volume earns nothing.
+- **Rejected locations:** imports keep a count of rejected locations per stored claim.

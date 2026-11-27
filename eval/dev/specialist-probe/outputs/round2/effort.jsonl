@@ -1,0 +1,4 @@
+{"run":"prior-art","status":"completed","subagent_tokens":76767,"tool_uses":3,"duration_ms":30526}
+{"run":"devhunt","status":"completed","subagent_tokens":78399,"tool_uses":4,"duration_ms":100738}
+{"run":"blindcase-challenger","status":"completed","subagent_tokens":106566,"tool_uses":11,"duration_ms":177329}
+{"run":"reproducer","status":"completed","subagent_tokens":88792,"tool_uses":10,"duration_ms":243583}

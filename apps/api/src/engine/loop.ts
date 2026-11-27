@@ -233,6 +233,29 @@ function chooseCapability(caps: readonly Capability[], x: ComponentFeatures): { 
   return { cap: best, table };
 }
 
+/**
+ * What memory says about each capability's past work (T-203), from durable records only: claims it made, independent technical
+ * supports, challenger verdicts, and HUMAN outcomes by category. Only human outcomes are labels. The record is shown in every decision;
+ * it does not change selection until a capability has MIN_ADJUDICATED human outcomes and a policy version that uses it is recorded and
+ * evaluated (T-192/T-193). Lead volume earns nothing.
+ */
+export const MIN_ADJUDICATED = 5;
+export type TrackRecord = { capability: string; claims: number; technicalSupports: number; challengerVerdicts: Record<string, number>; humanOutcomes: Record<string, number>; adjudicated: number; usedInSelection: false; why: string };
+export async function trackRecords(db: Db): Promise<TrackRecord[]> {
+  const rows = (await db.query<{ cap: string; claims: string; tech: string; rev: Record<string, number> | null; out: Record<string, number> | null }>(
+    `SELECT h.generator_id cap, count(DISTINCT h.id) claims,
+            count(DISTINCT e.id) FILTER (WHERE e.outcome = 'supports' AND e.evaluator_id <> h.generator_id AND e.evaluator_id <> 'no-independent-validator') tech,
+            (SELECT jsonb_object_agg(v, n) FROM (SELECT r.verdict v, count(*) n FROM hypothesis_reviews r JOIN hypotheses x ON x.id = r.hypothesis_id WHERE x.generator_id = h.generator_id AND r.reviewer_kind IN ('model','attended_model') GROUP BY 1) a) rev,
+            (SELECT jsonb_object_agg(c, n) FROM (SELECT o.category c, count(*) n FROM hypothesis_outcomes o JOIN hypotheses x ON x.id = o.hypothesis_id WHERE x.generator_id = h.generator_id GROUP BY 1) b) out
+       FROM hypotheses h LEFT JOIN hypothesis_evaluations e ON e.hypothesis_id = h.id GROUP BY h.generator_id ORDER BY 1`)).rows;
+  return rows.map((r) => {
+    const humanOutcomes = Object.fromEntries(Object.entries(r.out ?? {}).map(([k, v]) => [k, Number(v)]));
+    const adjudicated = Object.values(humanOutcomes).reduce((n, v) => n + v, 0);
+    return { capability: r.cap, claims: Number(r.claims), technicalSupports: Number(r.tech), challengerVerdicts: Object.fromEntries(Object.entries(r.rev ?? {}).map(([k, v]) => [k, Number(v)])), humanOutcomes, adjudicated,
+      usedInSelection: false, why: adjudicated < MIN_ADJUDICATED ? `${adjudicated} human-adjudicated outcome(s), fewer than ${MIN_ADJUDICATED}: not used` : "enough outcomes, but no evaluated policy version uses track records yet (T-192/T-193)" };
+  });
+}
+
 /** The latest imported scoping map for this version: contract -> best attack-surface rank. */
 async function surfaceMap(db: Db, version: readonly string[]): Promise<SurfaceMap | null> {
   const r = (await db.query<{ output: { scope?: { attack_surface?: Array<{ rank: number; target: string }> }; pinned_version?: string } }>(
@@ -259,6 +282,7 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
   const { memory } = await coverageMemory(pool, built.model.components.map((c) => c.contentSha256));
   const caps = producers(env); const avail = availability(env);
   const version0 = await sameVersionSnapshots(pool, snap.snapshotId);
+  const records = await trackRecords(pool);
   const surface = await surfaceMap(pool, version0);
   const features = componentFeatures(built.model, memory, caps, surface);
   // work already assigned and not finished is taken: a (capability, component) pair with an open assignment is not pending again
@@ -318,7 +342,8 @@ export async function mapAndAssign(pool: Pool, runId: string, level: "component"
             capabilities: f(avail.map((v) => ({ id: `${v.capability.id}@${v.capability.version}`, kind: v.capability.kind, runtime: v.capability.profile.runtime, available: v.available, reason: v.reason })), "engine/capabilities.ts + this machine"),
             ledger_vars: f(s.x.ledgerVars, `${src} (P2 state roles)`), list_vars: f(s.x.listVars, src),
             surface_rank: s.x.surfaceRank === null ? unknown("no scoping map ranks this component") : f(s.x.surfaceRank, s.x.surfaceSource ?? "scoping map"),
-            ...(isChosen ? { capability_values: f(choice.table, "value = pending classes x relevance / cost units (engine/loop.ts chooseCapability)") } : {}),
+            ...(isChosen ? { capability_values: f(choice.table, "value = pending classes x relevance / cost units (engine/loop.ts chooseCapability)"),
+              capability_track_records: f(records, "hypotheses, evaluations, reviews and human outcomes by generator (engine/loop.ts trackRecords); shown, not used in selection yet") } : {}),
             not_modelled_classes: f([...NOT_MODELLED_CLASSES], "engine/capabilities.ts: no capability examines them") },
           scoreComponents: { score: s.a.score, contributions: s.a.contributions, flags: s.a.flags, policy: s.a.policyVersion },
           action: isChosen || inBundle ? "investigate" : isPending || inFlight.has(s.a.id) ? "defer" : "complete",

@@ -1,0 +1,4 @@
+{"duplicates":{"C01":"PA-04","C02":"PA-01","C03":"PA-02","C04":"PA-05","C05":"PA-03","C06":"PA-06","C07":"PA-08","C10":"PA-09","C14":"PA-10","C15":"PA-12"},
+ "related_not_duplicate":{"C08":"PA-11","C13":"PA-07"},
+ "novel":["C09","C11","C12","C16"],
+ "notes":"C08 (div by zero after assets drained with shares outstanding) differs in condition from PA-11 (supply zero). C13 (claim all-or-nothing when balance short) shares a consequence with PA-07 but a different cause. C10 also mentions uint112 truncation, which PA-09 does not: duplicate on its main claim."}

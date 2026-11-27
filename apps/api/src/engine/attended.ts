@@ -116,7 +116,7 @@ export async function exportSnapshot(pool: Pool, runId: string, dir: string): Pr
 
 // ---------------------------------------------------------------------------------------------------------------- import
 
-export type ImportReport = { runId: string; capability: string; stored: number; rejected: { unanchored: number; outsideTargets: number; unknownClass: number }; classesExamined: string[] };
+export type ImportReport = { runId: string; capability: string; stored: number; rejected: { unanchored: number; outsideTargets: number; unknownClass: number; locationsInStoredClaims: number }; classesExamined: string[] };
 
 /** Records an attended producer's (or mapper's) result as the completion of its step. */
 export async function importSpecialist(pool: Pool, runId: string, raw: unknown, meta: { operator: string; tokens?: number | null; durationMs?: number | null }): Promise<ImportReport> {
@@ -135,15 +135,15 @@ export async function importSpecialist(pool: Pool, runId: string, raw: unknown, 
   try {
     const paths = new Set((await pool.query<{ path: string }>("SELECT path FROM repo_snapshot_files WHERE snapshot_id = $1", [snap.snapshotId])).rows.map((r) => r.path));
     const contracts = new Set(a.targets.map((t) => t.contract)); const version = pinnedVersion(cap);
-    const leads: LeadRef[] = []; const rejected = { unanchored: 0, outsideTargets: 0, unknownClass: 0 };
+    const leads: Array<LeadRef & { rejectedLocations?: number }> = []; const rejected = { unanchored: 0, outsideTargets: 0, unknownClass: 0, locationsInStoredClaims: 0 };
     for (const f of result.findings) {
       const contract = f.contract.split(/[.,\s]/)[0]!;
       if (!contracts.has(contract)) { rejected.outsideTargets++; continue; }
       if (!TRACKED_CLASSES.includes(f.class) && f.class !== "other") { rejected.unknownClass++; continue; }
-      const spanIds: Array<{ spanId: string; role: "primary" | "supporting" }> = [];
+      const spanIds: Array<{ spanId: string; role: "primary" | "supporting" }> = []; let badLocations = 0;
       for (const loc of f.locations) {
-        if (!paths.has(loc.file) || loc.line_end < loc.line_start || loc.line_end - loc.line_start + 1 > MAX_SPAN_LINES) continue;
-        try { spanIds.push({ spanId: await store.createEvidenceSpan(lease, { snapshotId: snap.snapshotId, path: loc.file, lineStart: loc.line_start, lineEnd: loc.line_end }), role: spanIds.length ? "supporting" : "primary" }); } catch { /* line range outside the file */ }
+        if (!paths.has(loc.file) || loc.line_end < loc.line_start || loc.line_end - loc.line_start + 1 > MAX_SPAN_LINES) { badLocations++; continue; }
+        try { spanIds.push({ spanId: await store.createEvidenceSpan(lease, { snapshotId: snap.snapshotId, path: loc.file, lineStart: loc.line_start, lineEnd: loc.line_end }), role: spanIds.length ? "supporting" : "primary" }); } catch { badLocations++; /* line range outside the file */ }
       }
       if (!spanIds.length) { rejected.unanchored++; continue; } // a claim AgentSmith cannot anchor to the sealed code is not stored
       const fn = (f.functions[0] ?? "").replace(/^.*\./, "").replace(/\(.*$/, "");
@@ -151,12 +151,14 @@ export async function importSpecialist(pool: Pool, runId: string, raw: unknown, 
         snapshotId: snap.snapshotId, family: `${cap.id}-${f.class === "other" ? "other" : f.class}`.slice(0, 100),
         claim: `${f.title} [${f.confidence} confidence; ${contract}${fn ? `.${fn}` : ""}]`.slice(0, 2000),
         rationale: [`Mechanism: ${f.mechanism}`, f.preconditions.length ? `Preconditions: ${f.preconditions.join("; ")}` : "", f.impact ? `Impact: ${f.impact}` : "", f.how_to_validate ? `How to validate: ${f.how_to_validate}` : "",
+          badLocations ? `Rejected locations: ${badLocations} of ${f.locations.length} cited locations do not exist in the sealed snapshot (a credibility signal, kept on the record).` : "",
           `Produced by ${cap.id}@${version} in an attended session run by ${meta.operator}. A model claim: not evidence.`].filter(Boolean).join("\n").slice(0, 7900),
         requiredChecks: ["independent technical evidence (an executed test or validator) by an evaluator other than the producer", "human adjudication"],
         alternativeExplanations: ["model error or over-statement", "behaviour intended or guarded elsewhere"],
         generator: { kind: "attended_model", id: cap.id, version }, spans: spanIds,
       });
-      if (!leads.some((l) => l.hypothesisId === h.id)) leads.push({ hypothesisId: h.id, class: f.class, contract, function: fn, file: f.locations[0]!.file, line: f.locations[0]!.line_start });
+      if (!leads.some((l) => l.hypothesisId === h.id)) leads.push({ hypothesisId: h.id, class: f.class, contract, function: fn, file: f.locations[0]!.file, line: f.locations[0]!.line_start, ...(badLocations ? { rejectedLocations: badLocations } : {}) });
+      if (badLocations) rejected.locationsInStoredClaims += badLocations;
     }
     // examined: what the specialist says it examined AND it is declared for; if it lists none, its declared classes minus what it says it skipped
     const said = result.examined.classes.filter((k) => cap.classes.includes(k));
