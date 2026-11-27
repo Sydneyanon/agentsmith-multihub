@@ -1,8 +1,8 @@
-export type RouteName = "control" | "home" | "projects" | "repository" | "hypotheses" | "evidence" | "activity" | "later";
+export type RouteName = "control" | "home" | "projects" | "repository" | "hypotheses" | "evidence" | "activity" | "bounties" | "later";
 export interface Route { name: RouteName; id?: string; sub?: string; query: Record<string, string>; hash: string }
 
 const NAMES: Record<string, RouteName> = {
-  "": "control", control: "control", home: "home", projects: "projects", repository: "repository", hypotheses: "hypotheses", evidence: "evidence", activity: "activity",
+  "": "control", control: "control", home: "home", projects: "projects", repository: "repository", hypotheses: "hypotheses", evidence: "evidence", activity: "activity", bounties: "bounties",
   reviews: "later", findings: "later", knowledge: "later", system: "later",
 };
 

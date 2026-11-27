@@ -20,9 +20,52 @@
    "SELECT",
    "INSERT"
   ],
+  "bounty_collection_runs": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_duplicate_candidates": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_imports": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_observations": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
   "bounty_opportunities": [
    "SELECT",
    "INSERT",
+   "UPDATE"
+  ],
+  "bounty_program_changes": [
+   "SELECT",
+   "INSERT"
+  ],
+  "bounty_programs": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_scores": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_source_checks": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_sources": [
+   "SELECT",
    "UPDATE"
   ],
   "budget_policies": [
@@ -155,6 +198,7 @@
   "evict_research_blob"
  ],
  "_notes": {
-  "hypotheses UPDATE": "Row-lock only. hypothesis_evidence_guard() runs SELECT ... FOR UPDATE on hypotheses as the invoking role, which needs UPDATE. Any actual UPDATE is rejected by the hypotheses_immutable trigger, which the runtime role cannot disable (it owns nothing and has no TRIGGER privilege)."
+  "hypotheses UPDATE": "Row-lock only. hypothesis_evidence_guard() runs SELECT ... FOR UPDATE on hypotheses as the invoking role, which needs UPDATE. Any actual UPDATE is rejected by the hypotheses_immutable trigger, which the runtime role cannot disable (it owns nothing and has no TRIGGER privilege).",
+  "bounty_* (0011)": "Bounty collection: no DELETE anywhere (delisted listings are marked, merged programmes keep their row); program changes are append-only; sources are seeded by the migration and only their state columns are updated."
  }
 }

@@ -42,6 +42,12 @@ export function registerHubStatic(app: FastifyInstance, options: { assetsDir?: s
     try { await readFile(join(dir, "index.html")); } catch { return reply.code(503).send({ error: "hub_assets_not_built", hint: "run npm run build" }); }
     return send(reply, join(dir, "index.html"), "html");
   });
+  // The public bounty dashboard: a static page that reads only GET /public/bounties.json (same CSP, no token, no write path).
+  app.get("/bounties", async (_request, reply) => reply.redirect("/bounties/", 302));
+  app.get("/bounties/", async (_request, reply) => {
+    try { await readFile(join(dir, "bounties.html")); } catch { return reply.code(503).send({ error: "hub_assets_not_built", hint: "run npm run build" }); }
+    return send(reply, join(dir, "bounties.html"), "html");
+  });
   app.get("/hub/assets/:name", async (request, reply) => {
     const { name } = request.params as { name: string };
     if (!ASSET_NAME.test(name) || name.includes("..")) return reply.code(404).send({ error: "not_found" });

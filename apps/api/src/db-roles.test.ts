@@ -9,11 +9,14 @@ const withPriv = (p: string) => Object.entries(manifest.tables).filter(([, v]) =
 
 describe("runtime grants manifest (reviewable pins)", () => {
   it("lets the runtime UPDATE only the mutable tables (queue/budget state, and the two discovery projections), plus row-lock-only hypotheses", () => {
-    expect(withPriv("UPDATE")).toEqual(["ai_budget_reservations", "bounty_opportunities", "discovery_sources", "hypotheses", "repo_snapshots", "workflow_runs", "workflow_steps"]);
+    // 0011 bounty collection: state columns of its own tables (no DELETE anywhere; bounty_program_changes stays append-only).
+    expect(withPriv("UPDATE")).toEqual(["ai_budget_reservations", "bounty_collection_runs", "bounty_duplicate_candidates", "bounty_imports", "bounty_observations", "bounty_opportunities", "bounty_programs",
+      "bounty_scores", "bounty_source_checks", "bounty_sources", "discovery_sources", "hypotheses", "repo_snapshots", "workflow_runs", "workflow_steps"]);
+    expect(withPriv("DELETE").filter((t) => t.startsWith("bounty_"))).toEqual([]);
   });
   it("lets the runtime INSERT only the tables the application writes", () => {
     expect(withPriv("INSERT")).toEqual([
-      "ai_budget_reservations", "audit_events", "bounty_opportunities", "discovery_observations", "discovery_sources", "evaluation_evidence", "evidence_spans", "hypotheses", "hypothesis_evaluations", "hypothesis_events",
+      "ai_budget_reservations", "audit_events", "bounty_collection_runs", "bounty_duplicate_candidates", "bounty_imports", "bounty_observations", "bounty_opportunities", "bounty_program_changes", "bounty_programs", "bounty_scores", "bounty_source_checks", "discovery_observations", "discovery_sources", "evaluation_evidence", "evidence_spans", "hypotheses", "hypothesis_evaluations", "hypothesis_events",
       "hypothesis_evidence", "hypothesis_reviews", "model_usage_events", "opportunity_events", "repo_snapshot_files", "repo_snapshots", "research_blobs", "source_snapshots",
       "workflow_runs", "workflow_steps",
     ]);

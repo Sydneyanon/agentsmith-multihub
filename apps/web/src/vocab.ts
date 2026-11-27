@@ -78,6 +78,7 @@ export const NAV: Array<{ id: string; label: string; hash: string; later?: strin
   { id: "hypotheses", label: "Hypotheses", hash: "#/hypotheses" },
   { id: "evidence", label: "Evidence", hash: "#/evidence" },
   { id: "activity", label: "Activity", hash: "#/activity" },
+  { id: "bounties", label: "Bounties", hash: "#/bounties" },
   { id: "reviews", label: "Reviews", hash: "#/reviews", later: "Task 5.6" },
   { id: "findings", label: "Findings", hash: "#/findings", later: "later stage" },
   { id: "knowledge", label: "Knowledge", hash: "#/knowledge", later: "later stage" },

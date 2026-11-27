@@ -62,7 +62,7 @@ describe("vocabulary", () => {
     expect(STAGES).toHaveLength(7);
   });
   it("lists only built sections as links in navigation", () => {
-    expect(NAV.filter((n) => !n.later).map((n) => n.id)).toEqual(["control", "home", "projects", "repository", "hypotheses", "evidence", "activity"]);
+    expect(NAV.filter((n) => !n.later).map((n) => n.id)).toEqual(["control", "home", "projects", "repository", "hypotheses", "evidence", "activity", "bounties"]);
     expect(NAV.filter((n) => n.later).every((n) => n.later)).toBe(true);
   });
 });

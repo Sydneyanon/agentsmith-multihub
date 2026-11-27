@@ -11,12 +11,13 @@ import { renderRepository } from "./view-repository.js";
 import { renderHypotheses } from "./view-hypotheses.js";
 import { renderEvidence } from "./view-evidence.js";
 import { renderActivity } from "./view-activity.js";
+import { renderBounties } from "./view-bounties.js";
 import { ENGINE_STATE, renderControl } from "./view-control.js";
 import { REFRESH_MS } from "./live.js";
 import type { EngineStatus } from "./types.js";
 import { word } from "./vocab.js";
 
-const NAV_ICON: Record<string, string> = { control: "◉", home: "◈", projects: "▤", repository: "⌥", hypotheses: "✦", evidence: "▣", activity: "≋", reviews: "◐", findings: "⚑", knowledge: "❖", system: "⚙" };
+const NAV_ICON: Record<string, string> = { control: "◉", home: "◈", projects: "▤", repository: "⌥", hypotheses: "✦", evidence: "▣", activity: "≋", bounties: "◎", reviews: "◐", findings: "⚑", knowledge: "❖", system: "⚙" };
 
 function brand(): HTMLElement {
   return h("div", { class: "brand" }, h("span", { class: "brand-mark", "aria-hidden": "true" }, "A"), h("span", { class: "brand-text" }, h("strong", {}, "AgentSmith"), h("span", {}, "MultiHub")));
@@ -59,6 +60,7 @@ export function renderRoute(ctx: Ctx, route: Route): HTMLElement {
     case "hypotheses": return renderHypotheses(ctx, route.id, route.query);
     case "evidence": return renderEvidence(ctx, route.id, route.query);
     case "activity": return renderActivity(ctx, route.query);
+    case "bounties": return renderBounties(ctx, route.id, route.sub, route.query);
     default: return laterView(route.sub);
   }
 }

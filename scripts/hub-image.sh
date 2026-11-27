@@ -22,6 +22,9 @@ SDE="$(git -C "$ROOT" log -1 --format=%ct HEAD)"   # fixed file times: same comm
 # The last migration APPROVED FOR THIS RELEASE (e.g. 0007). Later migration files, and every draft under db/drafts, are left out of the
 # image, so an unapproved migration can never be applied from it (the runner applies every file it ships). Required: no silent default.
 RELEASE_LAST_MIGRATION="${HUB_RELEASE_LAST_MIGRATION:-}"
+# Later migrations approved individually for this release, by number, comma-separated (e.g. 0011 to ship bounty collection with 0001-0007
+# while 0008 stays out). Each must exist and must not depend on an excluded one; empty by default.
+RELEASE_EXTRA_MIGRATIONS="${HUB_RELEASE_EXTRA_MIGRATIONS:-}"
 
 base_digest() { # digest of the linux/amd64 manifest inside the base image index
   crane manifest "$BASE_REF" | python3 -c '
@@ -41,7 +44,9 @@ build() {
   (cd "$WORK/stage1" && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null)
   [[ "$RELEASE_LAST_MIGRATION" =~ ^[0-9]{4}$ ]] || { echo "set HUB_RELEASE_LAST_MIGRATION to the last migration approved for this release (e.g. 0007)"; exit 1; }
   local excluded=""
-  for f in "$WORK/stage1/db/migrations/"*.sql; do n="$(basename "$f")"; if [ "${n%%_*}" \> "$RELEASE_LAST_MIGRATION" ]; then excluded="$excluded $n"; rm "$f"; fi; done
+  [[ -z "$RELEASE_EXTRA_MIGRATIONS" || "$RELEASE_EXTRA_MIGRATIONS" =~ ^[0-9]{4}(,[0-9]{4})*$ ]] || { echo "HUB_RELEASE_EXTRA_MIGRATIONS must be comma-separated 4-digit numbers"; exit 1; }
+  for x in ${RELEASE_EXTRA_MIGRATIONS//,/ }; do ls "$WORK/stage1/db/migrations/${x}_"*.sql >/dev/null 2>&1 || { echo "extra migration $x not found"; exit 1; }; done
+  for f in "$WORK/stage1/db/migrations/"*.sql; do n="$(basename "$f")"; if [ "${n%%_*}" \> "$RELEASE_LAST_MIGRATION" ] && [[ ",$RELEASE_EXTRA_MIGRATIONS," != *",${n%%_*},"* ]]; then excluded="$excluded $n"; rm "$f"; fi; done
   rm -rf "$WORK/stage1/db/drafts"
   ls "$WORK/stage1/db/migrations/${RELEASE_LAST_MIGRATION}_"*.sql >/dev/null 2>&1 || { echo "migration $RELEASE_LAST_MIGRATION not found"; exit 1; }
   local shipped; shipped="$(cd "$WORK/stage1/db/migrations" && ls *.sql | sed 's/.*/"&"/' | paste -sd, -)"
