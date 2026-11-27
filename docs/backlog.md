@@ -4,14 +4,14 @@ Source of truth for scope is `docs/ROADMAP.md`; this file lists small, independe
 Tasks are design-first where architecture is involved, to prevent drift. Status of all tasks: **not started** (2026-11-26) unless stated.
 
 ## Recommended next implementation task
-**T-201 Per-capability classes and the first external tool.** Reason (2026-11-27): T-199 is done; the loop can now be driven safely, but it has one specialist, and the classes it cannot see are exactly where memory says nobody looked. Earlier recommendations, kept for the record: T-199 operator CLI (done); T-040 unified opportunity model design.
+**T-202 Foundry validation step** (after A39), or, without A39, T-200 (Control Room panels for decisions, coverage and outcomes). Reason (2026-11-27): T-201 is done; the loop now coordinates two producers and the validators; the next gain is an independent execution validator for the classes the validators cannot check. Earlier recommendations, kept for the record: T-201 (done), T-199 (done), T-040.
 Today's table is GitHub-only and keyed `github:owner/repo`; adding Immunefi, Code4rena, Sherlock or pasted URLs on top of it would create exactly the disconnected duplicate pipelines the roadmap forbids. It needs no spending, no environment access and no migration,
 so it can proceed now. In parallel, the single most valuable **owner-side** action is T-010 (live GitHub shape check), because 5.0 and 5.2 are both unverified without it.
 
 ## Tasks
 
 ## ID registry (checked 2026-11-26)
-Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); assigned 2026-11-27: **T-198 to T-201** (research loop follow-ups); see the series at the end. A documentation guard fails if any task ID appears twice.
+Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). Reserved by roadmap decision: **T-052 to T-058** (Adaptive Priority Engine, extending T-050 and T-051 in place), **T-150 to T-162** (APEX), **T-170 to T-179** (multi-domain). Assigned 2026-11-26: **T-180 to T-190** (evaluation and Live Engine Control Room) and **T-191 to T-197** (decision records, policy, ML, Claude runtime, hardening); assigned 2026-11-27: **T-198 to T-202** (research loop follow-ups); see the series at the end. A documentation guard fails if any task ID appears twice.
 ### T-010: Live GitHub response-shape check (discovery)
 | Field | |
 |---|---|
@@ -1104,7 +1104,7 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Security considerations | Read-only, non-secret table; still a least-privilege change. |
 | Approval required | **A30**. |
 
-## Research loop follow-ups (T-198 to T-201; proposed, not authorised; see `docs/research-loop.md`)
+## Research loop follow-ups (T-198 to T-202; proposed, not authorised; see `docs/research-loop.md`)
 
 ### T-198: One opportunity scorer
 | Field | |
@@ -1151,3 +1151,16 @@ Used: T-010 to T-149 as listed below (all assigned; T-137 assigned 2026-11-26). 
 | Required tests | Loop integration test with a second capability (a fake tool in tests). |
 | Security considerations | Tools run offline on the sealed snapshot only; installing them is an environment change. |
 | Approval required | Branch implementation; installing tools in the environment setup is an environment change for the owner. |
+
+**Status 2026-11-27: IMPLEMENTED on the branch** (capability declarations, per-target specialist selection, Slither 0.11.3 producer, Foundry runner prepared). See `docs/specialist-capabilities.md` §4. Permanent tool installation awaits **A39**.
+
+### T-202: Foundry validation step
+| Field | |
+|---|---|
+| Phase | specialists |
+| Dependencies | T-201, A39 |
+| Scope | Wire the prepared `runForgeTest` as `foundry_validate`: a plane-2 evaluation of one lead from one reproducing test written by someone other than the lead's producer (a human now; a model only after A31), run offline on the sealed snapshot. |
+| Acceptance criteria | Pass and fail both recorded as evaluations by `foundry-forge`; never a claim's own proof; failure states explicit; never assigned when not installed. |
+| Required tests | Loop integration test with the stand-in forge. |
+| Security considerations | Executes untrusted test code: offline, private directory, timeout; no RPC or fork without a separate approval. |
+| Approval required | Branch implementation; installation is **A39**; any fork or RPC is separate. |

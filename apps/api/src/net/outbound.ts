@@ -1,5 +1,6 @@
 import { createSafeFetch } from "./safe-fetch.js";
 import { assertTestEnvironment } from "./test-env.js";
+import { assertSideEffectAllowed } from "../engine/effects.js";
 
 /**
  * The only fetch used for requests whose destination derives from untrusted input
@@ -10,8 +11,11 @@ import { assertTestEnvironment } from "./test-env.js";
 const production = createSafeFetch();
 let override: typeof fetch | null = null;
 
-export const outboundFetch: typeof fetch = (input, init) =>
-  (override ?? production)(input as string | URL, init);
+export const outboundFetch: typeof fetch = (input, init) => {
+  // a research-loop dry run may never reach the network (no-op outside a dry run)
+  try { assertSideEffectAllowed("network", `fetch ${new URL(String(input instanceof Request ? input.url : input)).host}`); } catch (e) { return Promise.reject(e); }
+  return (override ?? production)(input as string | URL, init);
+};
 
 export function setOutboundFetchForTests(replacement: typeof fetch | null): void {
   assertTestEnvironment("replacing the outbound fetch");
@@ -24,5 +28,6 @@ export function setOutboundFetchForTests(replacement: typeof fetch | null): void
  */
 export const unguardedFetchForLoopbackFixtures: typeof fetch = (input, init) => {
   assertTestEnvironment("the unguarded loopback-fixture fetch");
+  assertSideEffectAllowed("network", "loopback fixture fetch");
   return fetch(input, init);
 };

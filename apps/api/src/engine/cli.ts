@@ -7,7 +7,8 @@ import { WorkflowWorker } from "../worker.js";
 import { POLICY_SHA256, RESEARCH_POLICY_V0 } from "./decisions.js";
 import { accountFor, ingestInvestigation, mapAndAssign, outcomeLedger, rankOpportunities, recordHumanOutcome, sameVersionSnapshots, selectOpportunity } from "./loop.js";
 import { readRegistry, recordVerification, registerManualOpportunity, type CheckKind } from "./registry.js";
-import { CHALLENGE_TARGET_STEP_KEY, dispatchEngineStep, ENGINE_STEP_KEYS, INVESTIGATE_STEP_KEY } from "./steps.js";
+import { CHALLENGE_TARGET_STEP_KEY, dispatchEngineStep, ENGINE_STEP_KEYS, producerOutput } from "./steps.js";
+import { withDryRun } from "./effects.js";
 
 /**
  * T-199: the operator interface to the research loop. One explicit command per stage; nothing runs by itself.
@@ -26,8 +27,9 @@ export type CliIo = {
   out: (line: string) => void; err: (line: string) => void; env: Record<string, string | undefined>;
   /** interactive confirmation; absent when stdin is not a terminal */
   prompt?: (question: string) => Promise<string>;
-  /** tests inject a local repository source; real use builds GitHubSource only with --allow-network */
-  source?: RepositorySource;
+  /** builds the repository source for acquisition. Called ONLY in an executed run-assignment that passed --allow-network; the default
+   *  builds the real GitHub client. Tests inject a local fixture and count the calls. */
+  sourceFactory?: () => RepositorySource;
 };
 export const EXIT = { ok: 0, usage: 2, refused: 3, failed: 1 } as const;
 
@@ -81,11 +83,17 @@ async function checkDatabase(pool: Pool, t: Target): Promise<void> {
 }
 
 /**
- * Preview: runs the real stage on ONE connection inside an outer transaction that is always rolled back. Each BEGIN/COMMIT/ROLLBACK the
- * stage issues becomes a savepoint, so the stage behaves exactly as it would, and nothing it writes survives.
+ * Preview (dry run). Database: the real stage runs on ONE connection inside an outer transaction that is always rolled back; each
+ * BEGIN/COMMIT/ROLLBACK the stage issues becomes a savepoint, so the stage behaves exactly as it would and nothing it writes survives.
+ * Sequences are not transactional in PostgreSQL, so every sequence the preview advanced is set back afterwards (only if nobody else moved
+ * it meanwhile; otherwise it is reported). Everything else: the stage runs under the dry-run side-effect guard, so any network request,
+ * subprocess or file write it attempts is refused and the preview fails loudly instead of acting.
  */
-export async function preview<T>(pool: Pool, fn: (p: Pool) => Promise<T>): Promise<T> {
+export type PreviewReport = { sequencesRestored: string[]; sequencesNotRestored: string[]; refusedEffects: Array<{ effect: string; what: string }> };
+export async function preview<T>(pool: Pool, fn: (p: Pool) => Promise<T>, report?: (r: PreviewReport) => void): Promise<T> {
   const client = await pool.connect(); const stack: string[] = []; let n = 0;
+  const seqs = async (c: Pick<PoolClient, "query">) => new Map((await c.query<{ name: string; last_value: string | null; start_value: string }>(
+    "SELECT quote_ident(schemaname) || '.' || quote_ident(sequencename) AS name, last_value::text, start_value::text FROM pg_sequences")).rows.map((r) => [r.name, r]));
   const query = (text: unknown, params?: unknown[]) => {
     const sql = typeof text === "string" ? text.trim().toUpperCase() : "";
     if (sql === "BEGIN") { const sp = `cli_preview_${++n}`; stack.push(sp); return client.query(`SAVEPOINT ${sp}`); }
@@ -95,8 +103,26 @@ export async function preview<T>(pool: Pool, fn: (p: Pool) => Promise<T>): Promi
   };
   const wrapped = { query, release: () => undefined } as unknown as PoolClient;
   const fake = { query, connect: async () => wrapped, on: () => fake } as unknown as Pool;
+  const before = await seqs(client);
   await client.query("BEGIN");
-  try { return await fn(fake); } finally { await client.query("ROLLBACK").catch(() => undefined); client.release(); }
+  const guarded = withDryRun(() => fn(fake));
+  const out: PreviewReport = { sequencesRestored: [], sequencesNotRestored: [], refusedEffects: guarded.attempts };
+  try { return await guarded.result; }
+  finally {
+    const reached = await seqs(client).catch(() => new Map());
+    await client.query("ROLLBACK").catch(() => undefined);
+    for (const [name, r] of reached) {
+      const b = before.get(name); if (!b || b.last_value === r.last_value) continue;
+      try {
+        const now = (await client.query<{ v: string | null }>(`SELECT last_value::text v FROM pg_sequences WHERE quote_ident(schemaname) || '.' || quote_ident(sequencename) = $1`, [name])).rows[0]?.v ?? null;
+        if (now !== r.last_value) { out.sequencesNotRestored.push(`${name} (moved by another session)`); continue; }
+        if (b.last_value === null) await client.query("SELECT setval($1::regclass, $2::bigint, false)", [name, b.start_value]);
+        else await client.query("SELECT setval($1::regclass, $2::bigint, true)", [name, b.last_value]);
+        out.sequencesRestored.push(name);
+      } catch { out.sequencesNotRestored.push(`${name} (no privilege to reset)`); }
+    }
+    client.release(); report?.(out);
+  }
 }
 
 async function confirmed(a: Args, t: Target, io: CliIo, what: string): Promise<boolean> {
@@ -200,7 +226,10 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     const execute = (write || EXEC_COMMANDS.has(a.command)) ? await confirmed(a, t, io, `${a.command} will write`) : false;
     if (!json) io.out(`[${t.name}@${t.host}] ${a.command}: ${write || EXEC_COMMANDS.has(a.command) ? (execute ? "EXECUTE (confirmed)" : "DRY RUN (nothing is kept; add --execute --confirm <database name>)") : "read-only"}`);
     const p = pool;
-    const stage = <T>(fn: (db: Pool) => Promise<T>): Promise<T> => (execute ? fn(p) : preview(p, fn));
+    const stage = <T>(fn: (db: Pool) => Promise<T>): Promise<T> => (execute ? fn(p) : preview(p, fn, (r) => {
+      if (json) return;
+      io.out(`dry run: database changes rolled back; sequences reset: ${r.sequencesRestored.length}${r.sequencesNotRestored.length ? `; NOT reset: ${r.sequencesNotRestored.join(", ")}` : ""}; side effects refused: ${r.refusedEffects.length ? r.refusedEffects.map((e) => `${e.effect} (${e.what})`).join(", ") : "none attempted"}`);
+    }));
     const operator = () => { const o = str(a, "operator")!; if (!/^[A-Za-z0-9._@-]{2,100}$/.test(o)) throw new Usage("--operator must be a plain identifier"); return o; };
 
     switch (a.command) {
@@ -209,7 +238,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         const dec = (await p.query<{ level: string; n: string }>("SELECT level, count(*) n FROM research_decisions GROUP BY level ORDER BY level")).rows;
         const runs = (await p.query<{ status: string; n: string }>("SELECT status, count(*) n FROM workflow_runs WHERE workflow_type = 'repository_research' GROUP BY status ORDER BY status")).rows;
         const snaps = (await p.query<{ id: string; repository: string; commit_sha: string }>("SELECT DISTINCT ON (repository, commit_sha, manifest_sha256) id, repository, commit_sha FROM repo_snapshots WHERE sealed_at IS NOT NULL ORDER BY repository, commit_sha, manifest_sha256, created_at")).rows;
-        const ledgers = []; for (const s of snaps) ledgers.push({ snapshot: s.id, repository: s.repository, commit: s.commit_sha, ledger: await outcomeLedger(p, s.id) });
+        const ledgers = []; for (const s of snaps) ledgers.push({ snapshot: s.id, repository: s.repository, commit: s.commit_sha, ledger: await outcomeLedger(p, s.id, io.env) });
         const next = await nextActions(p);
         if (json) emit({ policy: { version: RESEARCH_POLICY_V0.version, sha256: POLICY_SHA256 }, registry: reg.map((e) => ({ id: e.id, key: e.canonicalKey, state: e.state, lastAssessment: e.lastAssessment })), decisions: dec, runs, ledgers, next });
         else {
@@ -238,7 +267,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       }
       case "show-decision": { const r = await renderDecision(json ? { ...io, out: () => undefined } : io, p, str(a, "id")!, verbose); emit(r); return EXIT.ok; }
       case "ledger": {
-        const l = await outcomeLedger(p, str(a, "snapshot")!);
+        const l = await outcomeLedger(p, str(a, "snapshot")!, io.env);
         if (json) emit(l); else io.out(Object.entries(l).map(([k, v]) => `${k}=${v}`).join("  ") + "\n(confirmed..missed are human outcomes only; unadjudicatedLeads are machine evidence, not outcomes)");
         return EXIT.ok;
       }
@@ -248,8 +277,8 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         if (h) ids = [h];
         else {
           const run = str(a, "run")!;
-          const o = (await p.query<{ output: { hypothesis_ids?: string[] } }>("SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = $2 AND status = 'succeeded'", [run, INVESTIGATE_STEP_KEY])).rows[0];
-          ids = o?.output.hypothesis_ids ?? [];
+          const o = await producerOutput(p, run);
+          ids = (o?.status === "succeeded" ? (o.output?.["hypothesis_ids"] as string[] | undefined) : undefined) ?? [];
         }
         const acc = await accountFor(p, ids);
         const detail = (await p.query<{ id: string; claim: string; spans: Array<{ path: string; line_start: number; line_end: number }> | null }>(
@@ -298,12 +327,12 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       }
       case "map": {
         const r = await stage(async (db) => {
-          const res = await mapAndAssign(db, str(a, "run")!, a.flags["follow-up"] === true ? "follow_up" : "component");
+          const res = await mapAndAssign(db, str(a, "run")!, a.flags["follow-up"] === true ? "follow_up" : "component", io.env);
           if (!json) await renderDecision(io, db, res.decisionId, verbose);
           return res;
         });
         if (json) emit({ ...r, executed: execute });
-        else io.out(r.assignment ? `assignment ${r.assignment.runId} -> ${r.assignment.target} (${r.assignment.mode})\nnext: run-assignment --run ${r.assignment.runId}` : r.exhausted ? "snapshot exhausted for the available specialists; next: rank" : "no assignment created");
+        else io.out(r.assignment ? `assignment ${r.assignment.runId}: ${r.assignment.capability} -> ${r.assignment.targets.length} target(s), led by ${r.assignment.target} (${r.assignment.mode})\nnext: run-assignment --run ${r.assignment.runId}` : r.exhausted ? "snapshot exhausted for the available specialists; next: rank" : "no assignment created");
         if (!json && r.reviewRequests.length) io.out(`sent for human review: ${r.reviewRequests.join(", ")}`);
         return EXIT.ok;
       }
@@ -311,7 +340,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         const r = await stage((db) => ingestInvestigation(db, str(a, "run")!));
         if (json) emit({ ...r, executed: execute });
         else {
-          io.out(`${r.alreadyIngested ? "already in memory" : `memory: ${r.coverageRows} coverage rows, ${r.effortRows} effort rows`} (decision ${r.decisionId})`);
+          io.out(`${r.capability}${r.toolFailure ? ` FAILED (${r.toolFailure}): recorded as abstained, not as examined` : ""}: ${r.alreadyIngested ? "already in memory" : `memory: ${r.coverageRows} coverage rows, ${r.effortRows} effort rows`} (decision ${r.decisionId})`);
           for (const l of r.leads) io.out(`  lead ${short(l.hypothesisId)} ${l.family}: machine=${l.machineStatus}; evidence=${l.evidence.map((e) => `${e.evaluatorId}:${e.outcome}`).join(",") || "none"}; human=${l.human.outcome ?? "none"}`);
           io.out(`next: map --run ${r.runId} --follow-up`);
         }
@@ -341,11 +370,12 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         const foreign = steps.filter((s) => !allowed.has(s.step_key));
         if (foreign.length) throw new Refusal(`run ${run} has steps this tool does not execute (${foreign.map((s) => s.step_key).join(", ")}); only acquisition and research-loop assignments`);
         const pending = steps.filter((s) => s.status !== "succeeded");
-        if (!execute) { if (json) emit({ run, wouldExecute: pending, executed: false }); else { io.out(`would execute, in order, once, for run ${run} only:`); for (const s of pending) io.out(`  ${s.sequence}. ${s.step_key} (${s.status})`); if (pending.some((s) => s.step_key === ACQUIRE_STEP_KEY)) io.out("  acquisition reads the repository from GitHub: needs --allow-network (public, read-only)"); } return EXIT.ok; }
-        let source = io.source;
-        if (!source && pending.some((s) => s.step_key === ACQUIRE_STEP_KEY)) {
-          if (a.flags["allow-network"] !== true) throw new Refusal("acquisition needs --allow-network (it reads one public repository from GitHub)");
-          source = new GitHubSource({});
+        if (!execute) { if (json) emit({ run, wouldExecute: pending, executed: false }); else { io.out(`would execute, in order, once, for run ${run} only:`); for (const s of pending) io.out(`  ${s.sequence}. ${s.step_key} (${s.status})`); if (pending.some((s) => s.step_key === ACQUIRE_STEP_KEY)) io.out("  acquisition reads the repository from GitHub: needs --allow-network (public, read-only)"); io.out("dry run: no step was claimed, no tool started, no network used"); } return EXIT.ok; }
+        // acquisition is the only step that uses the network: it always needs --allow-network, and the source is built only after that check
+        let source: RepositorySource | undefined;
+        if (pending.some((s) => s.step_key === ACQUIRE_STEP_KEY)) {
+          if (a.flags["allow-network"] !== true) throw new Refusal("acquisition needs --allow-network (it reads one public repository from GitHub); nothing was executed");
+          source = (io.sourceFactory ?? (() => new GitHubSource({})))();
         }
         const workerId = `loop-cli-${process.pid}`; const worker = new WorkflowWorker(p, workerId, 600, 1);
         const done: Array<{ step: string; status: string }> = [];
@@ -353,7 +383,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
           const s = await worker.claimNext([ACQUIRE_STEP_KEY, ...ENGINE_STEP_KEYS], run); if (!s) break;
           try {
             if (s.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ pool: p, worker, workerId, source: source! }, s);
-            else if (!(await dispatchEngineStep({ pool: p, worker, workerId }, s))) throw new Error(`no handler for ${s.step_key}`);
+            else if (!(await dispatchEngineStep({ pool: p, worker, workerId, env: io.env }, s))) throw new Error(`no handler for ${s.step_key}`);
             done.push({ step: s.step_key, status: "succeeded" });
           } catch (e) {
             await worker.fail(s.id, e instanceof Error ? e.message.slice(0, 500) : "step failed", false).catch(() => undefined);

@@ -17,6 +17,7 @@
     "**/*.test.ts",
     "**/*.spec.ts",
     "apps/api/src/integration/**",
-    "apps/api/src/**/testing/**"
+    "apps/api/src/**/testing/**",
+    "apps/api/src/**/tool-host/**"
   ]
 }

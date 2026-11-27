@@ -1,0 +1,112 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import { outboundFetch } from "../../net/outbound.js";
+import { DryRunViolation, inDryRun, withDryRun } from "../effects.js";
+import { parseForgeJson, runForgeTest } from "./foundry.js";
+import { loadToolHost, materialise, runFixed } from "./run-tool.js";
+import { parseSlitherJson, runSlither } from "./slither.js";
+import { fakeTools, SLITHER_FIXTURE, type FakeMode } from "./testing/fake-tools.js";
+
+const corpus = join(__dirname, "..", "..", "..", "..", "..", "eval", "dev", "contracts");
+const files = readdirSync(corpus).sort().map((n) => ({ path: `contracts/${n}`, content: readFileSync(join(corpus, n)) }));
+const toolDirs = () => readdirSync(tmpdir()).filter((n) => n.startsWith("agentsmith-tool-")).sort();
+const made: Array<() => void> = []; afterAll(() => made.forEach((c) => c()));
+const tools = (m: FakeMode = "ok") => { const t = fakeTools(m); made.push(t.cleanup); return t; };
+
+describe("dry-run side-effect guard", () => {
+  it("refuses network, subprocess and filesystem effects inside a dry run, and nothing outside it", async () => {
+    const before = toolDirs();
+    const net = withDryRun(() => outboundFetch("https://api.github.com/repos/a/b"));
+    await expect(net.result).rejects.toBeInstanceOf(DryRunViolation); expect(net.attempts).toEqual([{ effect: "network", what: "fetch api.github.com" }]);
+    const sub = withDryRun(() => runFixed("/bin/true", [], { cwd: "/", timeoutMs: 1000, home: "/tmp" }));
+    await expect(sub.result).rejects.toThrow(/dry run: refused subprocess/);
+    const fs = withDryRun(async () => materialise(files));
+    await expect(fs.result).rejects.toThrow(/dry run: refused filesystem/);
+    const t = tools();
+    const tool = withDryRun(() => runSlither({ files, slitherBin: t.slither, solcBin: t.solc }));
+    await expect(tool.result).rejects.toBeInstanceOf(DryRunViolation);
+    expect(toolDirs()).toEqual(before); // no working directory was created
+    expect(inDryRun()).toBe(false);
+    expect((await runFixed("/bin/echo", ["x"], { cwd: "/", timeoutMs: 5000, home: "/tmp" })).stdout.trim()).toBe("x"); // outside: works
+  });
+  it("the guard follows async work started inside the dry run", async () => {
+    const r = withDryRun(async () => { await new Promise((res) => setTimeout(res, 5)); return Promise.all([outboundFetch("https://example.org/")]); });
+    await expect(r.result).rejects.toBeInstanceOf(DryRunViolation);
+  });
+});
+
+describe("Slither runner (pinned 0.11.3)", () => {
+  it("parses the recorded real output into structured detections with classes and locations", () => {
+    const p = parseSlitherJson(readFileSync(SLITHER_FIXTURE, "utf8"));
+    if ("code" in p) throw new Error(p.detail);
+    expect(p.detections.length).toBe(47);
+    const re = p.detections.find((d) => d.check === "reentrancy-eth")!;
+    expect(re.bugClass).toBe("reentrancy"); expect(re.elements[0]!.file).toMatch(/^contracts\/.*\.sol$/); expect(re.elements[0]!.lines.length).toBeGreaterThan(0);
+    expect(p.detections.find((d) => d.check === "solc-version")!.bugClass).toBeNull(); // informational: counted, never a lead
+  });
+  it("a successful run keeps the reproducibility record, and repeated runs are byte-identical", async () => {
+    const t = tools();
+    const a = await runSlither({ files, slitherBin: t.slither, solcBin: t.solc }); const b = await runSlither({ files, slitherBin: t.slither, solcBin: t.solc });
+    if (!a.ok || !b.ok) throw new Error("expected success");
+    expect(a).toMatchObject({ version: "0.11.3", solcVersion: "0.8.28", args: [["contracts", "--solc", "<solc>", "--json", "-", "--disable-color"]], exitCodes: [255] });
+    expect(a.rawOutputSha256).toBe(b.rawOutputSha256); expect(a.inputManifestSha256).toBe(b.inputManifestSha256);
+    expect(a.rawOutput).not.toContain(tmpdir()); // no machine-specific path in what is stored
+  });
+  it.each([
+    ["old_version", "version_mismatch"], ["compile_error", "compile_failed"], ["garbage", "output_invalid"], ["crash", "crashed"],
+  ] as const)("failure mode %s is the explicit state %s, never 'no findings'", async (mode, code) => {
+    const t = tools(mode);
+    const r = await runSlither({ files, slitherBin: t.slither, solcBin: t.solc });
+    expect(r.ok).toBe(false); if (!r.ok) expect(r.failure.code).toBe(code);
+  });
+  it("timeout and a missing binary are explicit too, and the working directory is always removed", async () => {
+    const before = toolDirs();
+    const t = tools("hang");
+    const r = await runSlither({ files, slitherBin: t.slither, solcBin: t.solc, timeoutMs: 400 });
+    expect(r.ok === false && r.failure.code).toBe("timeout");
+    const m = await runSlither({ files, slitherBin: "/nonexistent/slither", solcBin: t.solc });
+    expect(m.ok === false && m.failure.code).toBe("tool_unavailable");
+    expect((await runSlither({ files: [], slitherBin: t.slither, solcBin: t.solc })).ok).toBe(false);
+    expect(toolDirs()).toEqual(before);
+  });
+  it("a build without the tool host cannot start a process: the loader says so", async () => {
+    await expect(loadToolHost("./tool-host/missing.js")).rejects.toThrow(/not part of this build/);
+    const cfg = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "..", "..", "tsconfig.build.json"), "utf8")) as { exclude: string[] };
+    expect(cfg.exclude).toContain("apps/api/src/**/tool-host/**");
+  });
+  it("refuses unsafe snapshot paths before writing anything", () => {
+    expect(() => materialise([{ path: "../escape.sol", content: Buffer.from("x") }])).toThrow(/unsafe snapshot path/);
+    expect(() => materialise([{ path: "/etc/x.sol", content: Buffer.from("x") }])).toThrow(/unsafe snapshot path/);
+  });
+});
+
+describe.skipIf(!process.env["AGENTSMITH_SLITHER_BIN"] || !process.env["AGENTSMITH_SOLC_BIN"])("the REAL pinned Slither (runs only where it is installed)", () => {
+  it("matches the recorded output and is reproducible", async () => {
+    const a = await runSlither({ files, slitherBin: process.env["AGENTSMITH_SLITHER_BIN"]!, solcBin: process.env["AGENTSMITH_SOLC_BIN"]! });
+    const b = await runSlither({ files, slitherBin: process.env["AGENTSMITH_SLITHER_BIN"]!, solcBin: process.env["AGENTSMITH_SOLC_BIN"]! });
+    if (!a.ok || !b.ok) throw new Error(JSON.stringify(a));
+    expect(a.rawOutputSha256).toBe(b.rawOutputSha256);
+    const recorded = parseSlitherJson(readFileSync(SLITHER_FIXTURE, "utf8")); if ("code" in recorded) throw new Error("fixture");
+    expect(a.detections.map((d) => d.check).sort()).toEqual(recorded.detections.map((d) => d.check).sort());
+  }, 300_000);
+});
+
+describe("Foundry runner (PREPARED: declared and tested, never assigned)", () => {
+  const test = { path: "test/Repro.t.sol", content: Buffer.from("// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Repro { function test_repro() public {} }\n") };
+  it("reports per-test results with the reproducibility record", async () => {
+    const t = tools();
+    const pass = await runForgeTest({ files, test, forgeBin: t.forge("pass"), solcBin: t.solc });
+    expect(pass).toMatchObject({ ok: true, version: "1.5.1", results: [{ test: "test/Repro.t.sol:Repro::test_repro()", passed: true, reason: null }] });
+    const fail = await runForgeTest({ files, test, forgeBin: t.forge("fail"), solcBin: t.solc });
+    expect(fail).toMatchObject({ ok: true, results: [{ passed: false, reason: "assertion failed" }] });
+  });
+  it("refuses a test outside test/*.t.sol, an unpinned forge, and is refused in a dry run", async () => {
+    const t = tools();
+    expect((await runForgeTest({ files, test: { ...test, path: "src/Evil.sol" }, forgeBin: t.forge("pass"), solcBin: t.solc })).ok).toBe(false);
+    expect(await runForgeTest({ files, test, forgeBin: t.slither, solcBin: t.solc })).toMatchObject({ ok: false, failure: { code: "version_mismatch" } });
+    await expect(withDryRun(() => runForgeTest({ files, test, forgeBin: t.forge("pass"), solcBin: t.solc })).result).rejects.toBeInstanceOf(DryRunViolation);
+    expect(parseForgeJson("nope")).toMatchObject({ code: "output_invalid" });
+  });
+});

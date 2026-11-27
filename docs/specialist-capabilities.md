@@ -1,5 +1,15 @@
 # Specialist capabilities: inventory and how each becomes assignable (2026-11-27)
 
+> **Update 2026-11-27 (T-201, implemented on the branch):**
+> - **Declarations:** capabilities are declared in `apps/api/src/engine/capabilities.ts`. Each one is a step of the one T-149 workflow,
+>   with an identity, a pinned version, a scope and its classes.
+> - **Selection:** the loop chooses, per target, the available producer with the most classes still pending there.
+> - **Slither 0.11.3 is an active producer.** `slither_scan` runs it offline and pinned, keeps a reproducibility record and the raw
+>   output, and fails with explicit codes.
+> - **Foundry 1.5.1 is prepared but not assignable.** The runner is tested with a stand-in binary; nothing is installed.
+>
+> The table below is the inventory as checked before T-201; section 4 records what changed.
+
 Checked in this cloud container on 2026-11-27 with `command -v` and version calls. "Works" means it ran here, not that it was evaluated.
 There is **one** way a capability enters AgentSmith: as a producer or an evaluator inside a research-loop assignment (T-149
 `repository_research`, `docs/research-loop.md`). There is no second orchestrator.
@@ -43,3 +53,34 @@ a list per capability (T-201). The plan is to do that with the first external to
 
   The policy already prefers pending classes. Adding a class-gap weight (classes where we have a capability, the component is
   unexamined, and audits do not cover it) is a policy version change, recorded and evaluated (T-192), not a new engine.
+
+## 4. T-201 as implemented
+- **Selection** (`mapAndAssign`).
+  - The component priority scores pending **(capability, class)** pairs, so complementary machines each examine every component,
+    even a class another machine already covered.
+  - For the chosen target, AgentSmith picks the available producer with the most pending classes there.
+  - A whole-snapshot tool (Slither) takes every component it has not examined in one assignment ("bundled" candidates, same run).
+  - Unavailable capabilities, and the reasons, are written into the decision's features.
+- **Slither** (`engine/tools/slither.ts`, step `slither_scan`).
+  - Version pinned: any other version fails with `version_mismatch`.
+  - solc is passed explicitly, so nothing is downloaded.
+  - Fixed arguments, run per source directory (Slither's solc mode compiles one directory).
+  - Minimal environment: PATH and a private HOME only. Hard timeout. A private working directory, always deleted.
+  - The temporary path is normalised out of the raw output, so runs are byte-identical. The raw output is stored content-addressed.
+  - Each mapped detector result on a target becomes a plane-1 hypothesis (generator `slither`) anchored to a hash-verified evidence
+    span. Informational detectors are counted, not stored as leads.
+  - Failures are explicit: `tool_unavailable`, `version_mismatch`, `compile_failed`, `timeout`, `output_invalid`, `crashed`,
+    `input_invalid`. Memory records them as `abstained` with that code, never as examined, and the same version is not retried.
+  - Projects that need framework remappings (Foundry or Hardhat libraries) currently fail as `compile_failed`. That is a known limit.
+- **Challenge.**
+  - `challenge_target` runs AgentSmith's independent validators on every producer's leads, so Slither's reentrancy and
+    reachability-class leads get plane-2 evaluations by a different evaluator.
+  - Classes with no validator stay "no independent validator" (inconclusive).
+- **Memory.** Coverage rows carry the capability as method and version. Not-modelled classes carry no method (`no-capability`). The
+  ledger's `notModelled` counts what no AVAILABLE capability can examine on this machine.
+- **Proven here:** the real Slither 0.11.3 with solc 0.8.28 ran in a throwaway virtualenv in this container (not a permanent install).
+  It matches the recorded output, is reproducible, and drives the whole loop end to end (`engine-tools-loop` with the real binaries).
+  CI uses the recorded real output through a stand-in, so the suite does not depend on the tool.
+- **Foundry** (`engine/tools/foundry.ts`): `runForgeTest` runs one test (`test/*.t.sol`) offline and pinned, and returns per-test results
+  with hashes. It is declared `prepared` and never assigned. Wiring it as `foundry_validate` (T-202) needs the owner to approve installing
+  Foundry and a test author.

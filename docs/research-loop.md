@@ -115,11 +115,18 @@ analyzer cannot see these classes, and the memory records that blind spot explic
 - **Execution:** `run-assignment`.
 
 Rules (all tested in `engine-cli.integration.test.ts`):
-- **Dry run by default.** A write command runs the real stage inside a transaction that is always rolled back, and prints the decision,
-  its ranked candidates, score contributions and reasons. Only `--execute` with `--confirm <database name>`, or the name typed at the
-  prompt, commits.
-- **One run only.** `run-assignment` runs the steps of the named run once, in-process, and claims only that run's steps. Acquiring from
-  GitHub needs `--allow-network`. There is no daemon, no poll, no scheduler and no Fly worker.
+- **Dry run by default, and genuinely non-persistent** (hardened 2026-11-27).
+  - **Database:** the stage runs in a transaction that is always rolled back.
+  - **Sequences:** they are not transactional, so every sequence the preview advanced is set back (reported if another session moved it).
+  - **Everything else:** the stage runs under a side-effect guard that refuses any network request (the outbound fetch), subprocess or
+    file write (the tool runners) and fails loudly.
+  - **Tested:** the database fingerprint, sequences included, is identical after a dry run of every write command; no tool working
+    directory is created. Mutation checks confirm the tests catch a missing sequence reset and a disabled guard.
+  - The output prints the decision, its ranked candidates, score contributions and reasons. Only `--execute` with
+    `--confirm <database name>`, or the name typed at the prompt, commits.
+- **One run only.** `run-assignment` runs the steps of the named run once, in-process, and claims only that run's steps. Acquisition
+  ALWAYS needs `--allow-network`; without it nothing is claimed and the repository source is never built (tested; the real GitHub path
+  is not exercised by any test). There is no daemon, no poll, no scheduler and no Fly worker.
 - **Disposable databases only.**
   - The URL comes from `--database-url` or `RESEARCH_LOOP_DATABASE_URL`; `DATABASE_URL` is ignored.
   - The host must be loopback.

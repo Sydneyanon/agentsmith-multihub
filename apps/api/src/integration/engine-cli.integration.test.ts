@@ -42,7 +42,8 @@ describe("research-loop CLI target guard (no database needed)", () => {
 describe.skipIf(skipIntegration)("research-loop CLI on a throwaway database", () => {
   let db: TestDatabase; let bare: TestDatabase; let fx: GitFixture; let dir: string;
   let lines: string[] = [];
-  const io = (extra: Partial<CliIo> = {}): CliIo => ({ out: (l) => lines.push(l), err: (l) => lines.push(l), env: {}, source: new FakeSource(fx), ...extra });
+  let sourcesBuilt = 0;
+  const io = (extra: Partial<CliIo> = {}): CliIo => ({ out: (l) => lines.push(l), err: (l) => lines.push(l), env: {}, sourceFactory: () => { sourcesBuilt++; return new FakeSource(fx); }, ...extra });
   const cli = async (args: string[], extra: Partial<CliIo> = {}) => { lines = []; const code = await runCli([...args, "--database-url", db.url], io(extra)); return { code, text: lines.join("\n") }; };
   const exec = (args: string[]) => cli([...args, "--execute", "--confirm", db.name]);
   const json = async (args: string[]) => { const r = await exec([...args, "--json"]); expect(r.code, r.text).toBe(EXIT.ok); return JSON.parse(r.text) as Record<string, unknown>; };
@@ -107,7 +108,16 @@ describe.skipIf(skipIntegration)("research-loop CLI on a throwaway database", ()
     const dry = await cli(["run-assignment", "--run", ids.acq!]);
     expect(dry.text).toMatch(/would execute, in order, once/); expect(dry.text).toMatch(/acquire_repository \(queued\)/);
     expect((await db.ownerPool.query("SELECT status FROM workflow_steps WHERE workflow_run_id = $1", [ids.acq])).rows[0].status).toBe("queued");
-    const r = await exec(["run-assignment", "--run", ids.acq!]);
+    // acquisition always needs --allow-network; without it nothing is claimed and no source is built
+    const built = sourcesBuilt;
+    const refused = await exec(["run-assignment", "--run", ids.acq!]);
+    expect(refused.code).toBe(EXIT.refused); expect(refused.text).toMatch(/needs --allow-network.*nothing was executed/);
+    expect(sourcesBuilt).toBe(built);
+    expect((await db.ownerPool.query("SELECT status, attempt FROM workflow_steps WHERE workflow_run_id = $1", [ids.acq])).rows[0]).toEqual({ status: "queued", attempt: 0 });
+    const dryNet = await cli(["run-assignment", "--run", ids.acq!, "--allow-network"]);
+    expect(dryNet.text).toMatch(/no step was claimed, no tool started, no network used/); expect(sourcesBuilt).toBe(built);
+    const r = await exec(["run-assignment", "--run", ids.acq!, "--allow-network"]);
+    expect(sourcesBuilt).toBe(built + 1);
     expect(r.code, r.text).toBe(EXIT.ok); expect(r.text).toMatch(/acquire_repository: succeeded/); expect(r.text).toMatch(/next: map --run/);
   });
 
@@ -117,11 +127,11 @@ describe.skipIf(skipIntegration)("research-loop CLI on a throwaway database", ()
     expect(await count("research_coverage")).toBe(0);
     const m = await json(["map", "--run", ids.acq!]);
     const inv = (m.assignment as { runId: string }).runId; ids.inv = inv;
-    expect((await exec(["run-assignment", "--run", inv])).code).toBe(EXIT.ok);
+    expect((await exec(["run-assignment", "--run", inv, "--allow-network"])).code).toBe(EXIT.ok);
     const ing = await exec(["ingest", "--run", inv]);
     expect(ing.text).toMatch(/memory: 12 coverage rows, 2 effort rows/); expect(ing.text).toMatch(/next: map --run .* --follow-up/);
     const shown = await cli(["show-decision", "--id", String(m.decisionId), "--verbose"]);
-    expect(shown.text).toMatch(/unexplored .*specialist classes not examined/); expect(shown.text).toMatch(/feature content_sha256: \{"value":"[0-9a-f]{64}","source":"protocol model/);
+    expect(shown.text).toMatch(/unexplored .*\(capability, class\) pairs not examined/); expect(shown.text).toMatch(/feature content_sha256: \{"value":"[0-9a-f]{64}","source":"protocol model/);
     const leads = await cli(["leads", "--run", inv]);
     if ((leads.text.match(/machine=/g) ?? []).length > 0) { expect(leads.text).toMatch(/evidence span: contracts\/.*:\d+-\d+/); expect(leads.text).toMatch(/claim \(deterministic_rule:solidity-structural-specialists\)/); }
     const nx = await cli(["next"]); expect(nx.text).toMatch(new RegExp(`\\[agentsmith\\] map --run ${inv} --follow-up`));
@@ -142,7 +152,7 @@ describe.skipIf(skipIntegration)("research-loop CLI on a throwaway database", ()
       const actions = JSON.parse((await cli(["next", "--json"])).text) as Array<{ command: string; who: string }>;
       const step = actions.find((x) => x.who !== "human" && x.command !== "rank");
       if (!step) { expect(actions.some((x) => x.command === "rank" || x.who === "human")).toBe(true); break; }
-      const r = await exec(step.command.split(" "));
+      const r = await exec([...step.command.split(" "), ...(step.command.startsWith("run-assignment") ? ["--allow-network"] : [])]);
       expect(r.code, `${step.command}\n${r.text}`).toBe(EXIT.ok);
     }
     const status = await cli(["status"]);
@@ -151,6 +161,6 @@ describe.skipIf(skipIntegration)("research-loop CLI on a throwaway database", ()
     const ledger = JSON.parse((await cli(["ledger", "--snapshot", snap, "--json"])).text) as { unexplored: number; notModelled: number; refuted: number };
     expect(ledger.unexplored).toBe(ledger.notModelled); expect(ledger.notModelled).toBeGreaterThan(0);
     const last = (await db.ownerPool.query("SELECT id FROM research_decisions WHERE level = 'follow_up' ORDER BY created_at DESC LIMIT 1")).rows[0].id as string;
-    expect((await cli(["show-decision", "--id", last])).text).toMatch(/No component has a specialist class left/);
+    expect((await cli(["show-decision", "--id", last])).text).toMatch(/No component has a class left that an available capability can examine/);
   });
 });
