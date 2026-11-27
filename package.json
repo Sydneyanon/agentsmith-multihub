@@ -25,7 +25,9 @@
     "hub:screenshots": "tsx scripts/hub-screenshots.ts",
     "hub:layout-check": "tsx scripts/hub-layout-check.ts",
     "loop": "tsx scripts/research-loop.ts",
-    "bounties:immunefi-reconcile": "tsx scripts/immunefi-reconcile.ts"
+    "bounties:immunefi-reconcile": "tsx scripts/immunefi-reconcile.ts",
+    "bounties:promote": "node dist/apps/api/src/bounties/promote-main.js",
+    "bounties:promote:dev": "tsx apps/api/src/bounties/promote-main.ts"
   },
   "dependencies": {
     "fastify": "^5.2.1",

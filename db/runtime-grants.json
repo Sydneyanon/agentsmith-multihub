@@ -54,6 +54,10 @@
    "INSERT",
    "UPDATE"
   ],
+  "bounty_research_links": [
+   "SELECT",
+   "INSERT"
+  ],
   "bounty_scores": [
    "SELECT",
    "INSERT",

@@ -316,7 +316,8 @@ describe.skipIf(skipIntegration)("repository acquisition over real Postgres", ()
     const migrations = readdirSync(join(process.cwd(), "db", "migrations")).filter((f) => f.endsWith(".sql")).sort();
     expect(migrations.slice(0, 7).map((f) => f.slice(0, 4))).toEqual(["0001", "0002", "0003", "0004", "0005", "0006", "0007"]);
     expect(migrations[6]).toBe("0007_research_state.sql");
-    // Added after 5.2: 5.0's discovery (0008) and Workstream A's bounty collection (0011); neither creates an acquisition table.
-    expect(migrations).toEqual([...migrations.slice(0, 7), "0008_discovery.sql", "0011_bounty_intelligence.sql"]);
+    // Added after 5.2: 5.0's discovery (0008), Workstream A's bounty collection (0011) and the bounty->research bridge link (0012);
+    // none creates an acquisition table, and 0008/0012 stay out of the production image until explicitly approved.
+    expect(migrations).toEqual([...migrations.slice(0, 7), "0008_discovery.sql", "0011_bounty_intelligence.sql", "0012_bounty_research_link.sql"]);
   });
 });
