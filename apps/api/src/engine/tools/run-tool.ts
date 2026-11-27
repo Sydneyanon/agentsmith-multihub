@@ -32,18 +32,24 @@ export function materialise(files: ReadonlyArray<{ path: string; content: Buffer
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-/** Relative to this module; a variable so the production compile never follows it (the tool host is excluded from that build). */
-const TOOL_HOST = "./tool-host/exec.js";
-export async function loadToolHost(spec: string = TOOL_HOST): Promise<{ execFixed: (bin: string, args: readonly string[], opts: { cwd: string; timeoutMs: number; home: string; maxBuffer?: number }) => Promise<Exec> }> {
-  try { return await import(new URL(spec, import.meta.url).href); }
-  catch { throw new Error("tool execution is not part of this build (production images cannot start processes; see A39)"); }
+/**
+ * The process-starting host is REGISTERED, never imported from here: only entry points allowed to run tools (the operator CLI script,
+ * tests, and a future approved tool worker, A39) import `tool-host/register.ts`. The production image contains neither the host nor a
+ * dynamic import, so there a tool run fails as tool_unavailable.
+ */
+export type ToolHost = { execFixed: (bin: string, args: readonly string[], opts: { cwd: string; timeoutMs: number; home: string; maxBuffer?: number }) => Promise<Exec> };
+let host: ToolHost | null = null;
+export function registerToolHost(h: ToolHost | null): void { host = h; }
+export function loadToolHost(): ToolHost {
+  if (!host) throw new Error("tool execution is not part of this build (production images cannot start processes; see A39)");
+  return host;
 }
 
 export async function runFixed(bin: string, args: readonly string[], opts: { cwd: string; timeoutMs: number; home: string; maxBuffer?: number }): Promise<Exec> {
   assertSideEffectAllowed("subprocess", bin);
-  let host: Awaited<ReturnType<typeof loadToolHost>>;
-  try { host = await loadToolHost(); } catch (e) { return { exitCode: null, signal: null, stdout: "", stderr: (e as Error).message, timedOut: false, spawnError: "TOOL_HOST_UNAVAILABLE", durationMs: 0 }; }
-  return host.execFixed(bin, args, opts);
+  let h: ToolHost;
+  try { h = loadToolHost(); } catch (e) { return { exitCode: null, signal: null, stdout: "", stderr: (e as Error).message, timedOut: false, spawnError: "TOOL_HOST_UNAVAILABLE", durationMs: 0 }; }
+  return h.execFixed(bin, args, opts);
 }
 
 /** Reads `<bin> --version`; returns the first version-looking token or a failure. */

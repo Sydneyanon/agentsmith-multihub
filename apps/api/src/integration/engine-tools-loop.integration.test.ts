@@ -7,6 +7,7 @@ import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fix
 import { capabilityById } from "../engine/capabilities.js";
 import { EXIT, runCli, type CliIo } from "../engine/cli.js";
 import { fakeTools, type FakeMode } from "../engine/tools/testing/fake-tools.js";
+import "../engine/tools/tool-host/register.js";
 import { applyDrafts } from "./drafts.js";
 import { assertIntegrationConfigured, migratedTestDatabase, skipIntegration, type TestDatabase } from "./harness.js";
 

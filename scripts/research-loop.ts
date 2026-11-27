@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { runCli } from "../apps/api/src/engine/cli.js";
+import "../apps/api/src/engine/tools/tool-host/register.js"; // the operator CLI may run pinned tools (subject to the dry-run guard)
 
 /** T-199 operator CLI. Usage: npm run loop -- <command> [flags]   (see `npm run loop -- help`). Dry run unless --execute --confirm. */
 const prompt = process.stdin.isTTY

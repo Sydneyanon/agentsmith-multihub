@@ -5,7 +5,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import { outboundFetch } from "../../net/outbound.js";
 import { DryRunViolation, inDryRun, withDryRun } from "../effects.js";
 import { parseForgeJson, runForgeTest } from "./foundry.js";
-import { loadToolHost, materialise, runFixed } from "./run-tool.js";
+import { loadToolHost, materialise, registerToolHost, runFixed } from "./run-tool.js";
+import "./tool-host/register.js";
+import { execFixed } from "./tool-host/exec.js";
 import { parseSlitherJson, runSlither } from "./slither.js";
 import { fakeTools, SLITHER_FIXTURE, type FakeMode } from "./testing/fake-tools.js";
 
@@ -72,7 +74,12 @@ describe("Slither runner (pinned 0.11.3)", () => {
     expect(toolDirs()).toEqual(before);
   });
   it("a build without the tool host cannot start a process: the loader says so", async () => {
-    await expect(loadToolHost("./tool-host/missing.js")).rejects.toThrow(/not part of this build/);
+    registerToolHost(null);
+    try {
+      expect(() => loadToolHost()).toThrow(/not part of this build/);
+      expect((await runFixed("/bin/echo", ["x"], { cwd: "/", timeoutMs: 5000, home: "/tmp" })).spawnError).toBe("TOOL_HOST_UNAVAILABLE");
+      const r = await runSlither({ files, slitherBin: "/bin/true", solcBin: "/bin/true" }); expect(r.ok === false && r.failure.code).toBe("tool_unavailable");
+    } finally { registerToolHost({ execFixed }); }
     const cfg = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "..", "..", "tsconfig.build.json"), "utf8")) as { exclude: string[] };
     expect(cfg.exclude).toContain("apps/api/src/**/tool-host/**");
   });
