@@ -2,7 +2,7 @@
 
 **Status:** prepared and verified locally. A42 is **not approved**, so nothing below has been run against production.
 
-**Release candidate:** the commit that adds this runbook. The image is built from that exact commit, and its digest is recorded in section 1.
+**Release candidate:** commit `8368a357e5a6f3b51f071d2d08015a39804646d7`. The image layer built from it has diff_id `2d92fdeb42aa7e130cf55b855ff598a23f432878d3e164c5e2a27e146b370381` (3,402 files, 2.6 MB compressed), and `verify` passes 39/39 on it. The pushed digest is recorded at push time.
 
 ## What A42 changes
 
