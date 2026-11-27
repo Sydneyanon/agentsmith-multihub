@@ -9,6 +9,13 @@ Status: Implemented, Tested, Integrated, **Released** (built, smoke test 39/39, 
 the tested layer). **Not deployed.** Nothing in production has changed.
 Migrations shipped: 0001–0007, 0011, 0012, 0013, 0014 (0008 and all drafts are excluded from the image, so they can't be applied from it).
 
+> **Release candidate choice (added after the GitHub token integration).** A second candidate exists:
+> commit `d09d0c2`, image `registry.fly.io/agentsmith-hub@sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0`
+> (smoke test 41/41, pushed, **not deployed**). On top of `5d6ccd1` it adds the hardened GitHub token handling and the live check
+> (`docs/github-token.md`), the storage-reference reentrancy improvement (analyzer `structural-solidity/2`), and analyzer/build
+> labelling in every dossier. Its migrations are identical: 0001–0007, 0011, 0012–0014. Every command below works with either
+> image: set `IMG` to the one you approve. **Owner decision:** keep the frozen `5d6ccd1`, or approve `d09d0c2`.
+
 ## 1. The three checks you asked for
 
 ### 1.1 Analyzer citation error: root cause found and fixed (commit 5d6ccd1)

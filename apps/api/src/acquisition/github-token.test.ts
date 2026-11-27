@@ -54,6 +54,17 @@ describe("GITHUB_TOKEN configuration (github-auth.ts)", () => {
   });
 });
 
+describe("one reader of the secret", () => {
+  it("no source file other than net/github-auth.ts reads GITHUB_TOKEN from the environment", () => {
+    const root = join(__dirname, "..", "..", "..", "..");
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name)) : /\.(ts|mjs|js)$/.test(e.name) && !e.name.endsWith(".test.ts") ? [join(d, e.name)] : []);
+    const readers = [...walk(join(root, "apps", "api", "src")), ...walk(join(root, "scripts"))]
+      .filter((f) => /env(\.|\[["'])GITHUB_TOKEN/.test(readFileSync(f, "utf8")))
+      .map((f) => f.slice(root.length + 1));
+    expect(readers).toEqual(["apps/api/src/net/github-auth.ts"]);
+  });
+});
+
 describe("9. redaction", () => {
   it("removes token shapes, authorization headers, bearer values and the configured value", () => {
     const e = env(TOKEN);
