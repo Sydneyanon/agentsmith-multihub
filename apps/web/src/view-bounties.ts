@@ -15,7 +15,7 @@ type Source = { source_key: string; display_name: string; kind: string; enabled:
   last_error: string | null; consecutive_failures: number; next_attempt_at: string | null; observations: number; listed: number; programs_shown: number;
   last_check: { outcome: string; started_at: string; listings_extracted: number; programs_added: number; programs_updated: number; observations_unchanged: number; duplicates_matched: number; needs_verification: number; delisted: number; error: string | null; http_status: number | null; pages: number } | null };
 
-const TABS: Array<[string, string]> = [["import", "Add bounty / Import URL"], ["health", "Collection health"], ["coverage", "Research coverage"], ["lifecycle", "Programme lifecycle"], ["duplicates", "Possible duplicates"], ["records", "Records"]];
+const TABS: Array<[string, string]> = [["import", "Add bounty / Import URL"], ["health", "Collection health"], ["coverage", "Research coverage"], ["discovery", "Repository discovery"], ["lifecycle", "Programme lifecycle"], ["duplicates", "Possible duplicates"], ["records", "Records"]];
 
 /** Ordered ladder + side states, with labels and tones. Mirrors apps/api/src/bounties/lifecycle.ts (kept in sync by the counts test). */
 const LIFECYCLE: Array<[string, string, string]> = [
@@ -41,6 +41,7 @@ export function renderBounties(ctx: Ctx, sub: string | undefined, id: string | u
   if (tab === "import") body.append(importTab(ctx));
   else if (tab === "health") body.append(healthTab(ctx));
   else if (tab === "coverage") body.append(coverageTab(ctx));
+  else if (tab === "discovery") body.append(enrichmentTab(ctx));
   else if (tab === "lifecycle") body.append(lifecycleTab(ctx));
   else if (tab === "duplicates") body.append(duplicatesTab(ctx));
   else body.append(id ? recordDetail(ctx, id) : recordsTab(ctx, query));
@@ -113,6 +114,29 @@ function healthTab(ctx: Ctx): HTMLElement {
   return panel("Collection health", [h("p", { class: "muted small" }, "Configured is not fetched; fetched is not saved; saved is not shown. Each column below is counted separately."), box, h("div", { class: "toolbar" }, run), out]);
 }
 
+type Enrichment = { available: boolean; by_status: Record<string, number>; programmes_mapped: number; repositories_verified: number; scope_changed: number; research_ready: number };
+function enrichmentTab(ctx: Ctx): HTMLElement {
+  const box = h("div", {});
+  loadInto(box, () => ctx.api.get<Enrichment>("/v1/bounties/enrichment"), (e) => {
+    if (!e.available) return empty("Repository discovery not yet available", "The enrichment store (migration 0014) is not present in this environment. Metrics appear once it is applied.");
+    const s = e.by_status;
+    return h("div", { class: "stack" },
+      h("div", { class: "stats" },
+        statCard("programmes mapped", e.programmes_mapped, "have a verified repository", "green"),
+        statCard("repositories verified", e.repositories_verified, "distinct, identity-checked", "cyan"),
+        statCard("research-ready mappings", e.research_ready, "confirmed + documentation", "green"),
+        statCard("scope changed", e.scope_changed, "repo dropped from a page", "amber")),
+      panel("Mappings by confidence", [kv([
+        ["Officially confirmed (API scope)", String(s.officially_confirmed ?? 0)],
+        ["Official documentation (programme page)", String(s.official_documentation ?? 0)],
+        ["Inferred / unverified", String(s.inferred_unverified ?? 0)],
+        ["Rejected (auditor / report repo)", String(s.rejected ?? 0)],
+        ["Unavailable (not found / private)", String(s.unavailable ?? 0)]])]),
+      h("p", { class: "muted small" }, "Database-backed. Only officially-confirmed and documentation-derived mappings enter research automatically; inferred, rejected and unavailable ones never do. Per-attempt fetch outcomes (robots / no repo / HTTP errors) are in the enrichment job logs."));
+  });
+  return box;
+}
+
 type Coverage = { programmes: Record<string, number>; repositories: Record<string, number>; rescans: Record<string, number>; failures: Record<string, number>; coverage_pct: Record<string, number | null> };
 function coverageTab(ctx: Ctx): HTMLElement {
   const box = h("div", {});
@@ -122,8 +146,9 @@ function coverageTab(ctx: Ctx): HTMLElement {
       h("div", { class: "stats" },
         statCard("discovered", c.programmes.discovered ?? 0, "programmes collected", "grey"),
         statCard("eligible", c.programmes.eligible ?? 0, `${pc(c.coverage_pct.eligible_of_discovered)} of discovered`, "green"),
+        statCard("awaiting repo discovery", c.programmes.awaiting_repository_discovery ?? 0, "eligible, no repository mapped yet", "violet"),
         statCard("researched", c.programmes.researched ?? 0, `${pc(c.coverage_pct.researched_of_eligible)} of eligible`, "cyan"),
-        statCard("awaiting research", c.programmes.awaiting_research ?? 0, "eligible, not yet analysed", "amber")),
+        statCard("awaiting research", c.programmes.awaiting_research ?? 0, "mapped, not yet analysed", "amber")),
       panel("Repositories", [kv([
         ["Eligible-programme repositories", String(c.repositories.eligible ?? 0)],
         ["Analysed (sealed snapshot)", `${c.repositories.analysed ?? 0} (${pc(c.coverage_pct.repos_analysed_of_eligible)})`],

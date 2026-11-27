@@ -355,3 +355,15 @@ describe("bounty research-coverage tab", () => {
     expect(el.textContent).toMatch(/measured from the database/i);
   });
 });
+
+describe("bounty repository-discovery tab", () => {
+  const EN = { available: true, by_status: { officially_confirmed: 0, official_documentation: 5, inferred_unverified: 2, rejected: 1, unavailable: 1 }, programmes_mapped: 4, repositories_verified: 5, scope_changed: 1, research_ready: 5 };
+  it("shows enrichment mappings by confidence and research-ready count", async () => {
+    const el = renderBounties(fakeCtx((path) => path.endsWith("/enrichment") ? EN : { imports: [] }) as Ctx, "discovery", undefined, {});
+    await settled(el, /programmes mapped/);
+    expect(el.textContent).toMatch(/repositories verified/);
+    expect(el.textContent).toMatch(/Official documentation/);
+    expect(el.textContent).toMatch(/Rejected \(auditor/);
+    expect(el.textContent).toMatch(/never do/i);
+  });
+});

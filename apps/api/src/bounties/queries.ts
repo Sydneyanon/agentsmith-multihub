@@ -30,17 +30,27 @@ export async function coverageMetrics(pool: Pool): Promise<Record<string, unknow
   const progs = await pool.query<{ id: string; resolved: Resolution["resolved"]; verification: string }>(
     "SELECT id, resolved, verification FROM bounty_programs WHERE merged_into IS NULL");
   const sealed = new Set((await pool.query<{ r: string }>("SELECT DISTINCT repository AS r FROM repo_snapshots WHERE sealed_at IS NOT NULL")).rows.map((x) => x.r));
+  // Verified enrichment mappings (officially_confirmed / official_documentation), batch-loaded; a programme's repositories are the
+  // resolved-field repos UNION its verified mappings. Deploy-safe: empty when 0014 is absent.
+  const verifiedMap = new Map<string, string[]>();
+  if (await tableExists(pool, "bounty_repository_mappings")) {
+    for (const row of (await pool.query<{ p: string; r: string }>(
+      "SELECT bounty_program_id AS p, repository AS r FROM bounty_repository_mappings WHERE verification_status IN ('officially_confirmed','official_documentation')")).rows) {
+      (verifiedMap.get(row.p) ?? verifiedMap.set(row.p, []).get(row.p)!).push(row.r);
+    }
+  }
 
-  let discovered = 0, eligible = 0, with_repositories = 0, eligible_researched = 0, eligible_awaiting = 0;
+  let discovered = 0, eligible = 0, with_repositories = 0, eligible_researched = 0, eligible_awaiting = 0, eligible_awaiting_discovery = 0;
   const eligibleRepos = new Set<string>();
   for (const p of progs.rows) {
     discovered += 1;
     const e = classifyEligibility({ resolved: p.resolved ?? {}, verification: p.verification } as Resolution);
-    const repos = resolveProgrammeRepositories(p.resolved).repositories;
+    const repos = [...new Set([...resolveProgrammeRepositories(p.resolved).repositories, ...(verifiedMap.get(p.id) ?? [])])];
     if (repos.length > 0) with_repositories += 1;
     if (e.tier === "eligible") {
       eligible += 1;
       for (const r of repos) eligibleRepos.add(r);
+      if (repos.length === 0) eligible_awaiting_discovery += 1;             // eligible, no repository mapped yet -> needs enrichment
       const anySealed = repos.some((r) => sealed.has(r));
       if (repos.length > 0 && anySealed) eligible_researched += 1; else eligible_awaiting += 1;
     }
@@ -65,12 +75,42 @@ export async function coverageMetrics(pool: Pool): Promise<Record<string, unknow
 
   const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
   return {
-    programmes: { discovered, eligible, with_repositories, researched: eligible_researched, awaiting_research: eligible_awaiting },
+    programmes: { discovered, eligible, with_repositories, awaiting_repository_discovery: eligible_awaiting_discovery, researched: eligible_researched, awaiting_research: eligible_awaiting },
     repositories: { eligible: repositories_eligible, analysed: repositories_analysed, tracked: monitors.tracked, pending_rescan: monitors.pending, unavailable: monitors.unavailable },
     rescans: { queued: byStatus("queued"), running: byStatus("running"), awaiting_approval: byStatus("awaiting_approval"), completed: byStatus("succeeded"), failed: byStatus("failed") },
     failures: { research_runs_failed, monitor_errors_7d: monitorErrors },
     coverage_pct: { eligible_of_discovered: pct(eligible, discovered), researched_of_eligible: pct(eligible_researched, eligible), repos_analysed_of_eligible: pct(repositories_analysed, repositories_eligible) },
     note: "Findings and their review state are in the research overview (/v1/research/overview); confirmed findings remain 0 by design.",
+  };
+}
+
+/**
+ * Enrichment metrics (operator visibility): the state of programme -> repository discovery, measured from bounty_repository_mappings.
+ * Deploy-safe: returns available=false with zeros when 0014 is absent. Mapping statuses are the DB source of truth; per-attempt fetch
+ * outcomes (robots/no-repo/HTTP errors) are in the enrichment job logs, not persisted as metrics.
+ */
+export async function enrichmentMetrics(pool: Pool): Promise<Record<string, unknown>> {
+  if (!(await tableExists(pool, "bounty_repository_mappings"))) {
+    return { available: false, by_status: {}, programmes_mapped: 0, repositories_verified: 0, scope_changed: 0 };
+  }
+  const by = (await pool.query<{ s: string; n: number }>("SELECT verification_status AS s, count(*)::int AS n FROM bounty_repository_mappings GROUP BY 1")).rows;
+  const n = (s: string) => by.find((r) => r.s === s)?.n ?? 0;
+  const programmes_mapped = Number((await pool.query("SELECT count(DISTINCT bounty_program_id)::int AS n FROM bounty_repository_mappings WHERE verification_status IN ('officially_confirmed','official_documentation')")).rows[0]!.n);
+  const repositories_verified = Number((await pool.query("SELECT count(DISTINCT repository)::int AS n FROM bounty_repository_mappings WHERE verification_status IN ('officially_confirmed','official_documentation')")).rows[0]!.n);
+  // Scope change: a documentation-confirmed mapping that was not seen on the latest check of its programme (dropped from the page).
+  const scope_changed = Number((await pool.query(
+    `SELECT count(*)::int AS n FROM bounty_repository_mappings m
+       WHERE m.verification_status = 'official_documentation' AND m.last_seen_at IS NOT NULL
+         AND m.last_seen_at < (SELECT max(last_seen_at) FROM bounty_repository_mappings m2 WHERE m2.bounty_program_id = m.bounty_program_id)`)).rows[0]!.n);
+  return {
+    available: true,
+    by_status: {
+      officially_confirmed: n("officially_confirmed"), official_documentation: n("official_documentation"),
+      inferred_unverified: n("inferred_unverified"), rejected: n("rejected"), unavailable: n("unavailable"),
+    },
+    programmes_mapped, repositories_verified, scope_changed,
+    research_ready: n("officially_confirmed") + n("official_documentation"),
+    note: "Only officially_confirmed / official_documentation mappings may enter research automatically.",
   };
 }
 
