@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 import { classifyEligibility, eligibilitySummary, type Eligibility } from "./eligibility.js";
+import { LIFECYCLE_LADDER, programmeLifecycle, type LifecycleState } from "./lifecycle.js";
+import { resolveProgrammeRepositories } from "./repo-resolve.js";
 import type { Resolution } from "./resolve.js";
 import { SCORING_VERSION } from "./rank.js";
 
@@ -12,6 +14,38 @@ export function eligOf(resolved: unknown, verification: string): Eligibility {
 export async function eligibilityOverview(pool: Pool): Promise<Record<string, number>> {
   const rows = await pool.query<{ resolved: unknown; verification: string }>("SELECT resolved, verification FROM bounty_programs WHERE merged_into IS NULL");
   return eligibilitySummary(rows.rows.map((r) => eligOf(r.resolved, r.verification)));
+}
+
+/**
+ * Programme lifecycle counts for the operator dashboard (task 4/7): how many programmes are at each evidence-based state
+ * (discovered .. eligible_for_research .. scanning .. completed) plus the side states. Deploy-safe: the research-link table (0012)
+ * may not be applied in production, in which case run-overlay states are simply absent and every programme rests on the pre-run ladder.
+ * It never conflates discovery with eligibility — the counts come from the same deterministic classifier + lifecycle used everywhere.
+ */
+export async function lifecycleOverview(pool: Pool): Promise<{ total: number; counts: Record<LifecycleState, number>; ladder: LifecycleState[] }> {
+  const hasLinks = (await pool.query(
+    "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'bounty_research_links'")).rows.length > 0;
+  const runByProgram = new Map<string, string>();
+  if (hasLinks) {
+    const lr = await pool.query<{ bounty_program_id: string; status: string }>(
+      `SELECT l.bounty_program_id, r.status FROM bounty_research_links l JOIN workflow_runs r ON r.id = l.workflow_run_id ORDER BY l.created_at DESC`);
+    for (const row of lr.rows) if (!runByProgram.has(row.bounty_program_id)) runByProgram.set(row.bounty_program_id, row.status);
+  }
+  const { rows } = await pool.query<{ id: string; resolved: Resolution["resolved"]; verification: string; status: string }>(
+    "SELECT id, resolved, verification, status FROM bounty_programs WHERE merged_into IS NULL");
+  const counts = Object.fromEntries((["discovered", "officially_verified", "scope_retrieved", "smart_contract_target_confirmed", "reward_confirmed", "eligible_for_research", "queued_for_scan", "scanning", "scanned", "finding_under_review", "completed", "needs_verification", "out_of_engine_scope", "ineligible", "paused", "unavailable", "source_restricted"] as LifecycleState[]).map((s) => [s, 0])) as Record<LifecycleState, number>;
+  for (const p of rows) {
+    const e = classifyEligibility({ resolved: p.resolved ?? {}, verification: p.verification } as Resolution);
+    const hasReward = (p.resolved?.maxReward?.value ?? null) !== null && (p.resolved?.maxReward?.value ?? undefined) !== undefined;
+    const runStatus = runByProgram.get(p.id);
+    const state = programmeLifecycle({
+      tier: e.tier, engineSuitable: e.engineSuitable, verification: p.verification, status: p.status, hasReward,
+      repositoriesResolved: resolveProgrammeRepositories(p.resolved).repositories.length > 0,
+      run: runStatus ? { status: runStatus } : null,
+    });
+    counts[state] += 1;
+  }
+  return { total: rows.length, counts, ladder: LIFECYCLE_LADDER };
 }
 
 /** Engine-suitable programmes a human could take toward an investigation, ranked. "eligible" = officially confirmed; the rest need verification. */
