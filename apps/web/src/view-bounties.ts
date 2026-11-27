@@ -15,7 +15,7 @@ type Source = { source_key: string; display_name: string; kind: string; enabled:
   last_error: string | null; consecutive_failures: number; next_attempt_at: string | null; observations: number; listed: number; programs_shown: number;
   last_check: { outcome: string; started_at: string; listings_extracted: number; programs_added: number; programs_updated: number; observations_unchanged: number; duplicates_matched: number; needs_verification: number; delisted: number; error: string | null; http_status: number | null; pages: number } | null };
 
-const TABS: Array<[string, string]> = [["import", "Add bounty / Import URL"], ["health", "Collection health"], ["lifecycle", "Programme lifecycle"], ["duplicates", "Possible duplicates"], ["records", "Records"]];
+const TABS: Array<[string, string]> = [["import", "Add bounty / Import URL"], ["health", "Collection health"], ["coverage", "Research coverage"], ["lifecycle", "Programme lifecycle"], ["duplicates", "Possible duplicates"], ["records", "Records"]];
 
 /** Ordered ladder + side states, with labels and tones. Mirrors apps/api/src/bounties/lifecycle.ts (kept in sync by the counts test). */
 const LIFECYCLE: Array<[string, string, string]> = [
@@ -40,6 +40,7 @@ export function renderBounties(ctx: Ctx, sub: string | undefined, id: string | u
     body);
   if (tab === "import") body.append(importTab(ctx));
   else if (tab === "health") body.append(healthTab(ctx));
+  else if (tab === "coverage") body.append(coverageTab(ctx));
   else if (tab === "lifecycle") body.append(lifecycleTab(ctx));
   else if (tab === "duplicates") body.append(duplicatesTab(ctx));
   else body.append(id ? recordDetail(ctx, id) : recordsTab(ctx, query));
@@ -110,6 +111,34 @@ function healthTab(ctx: Ctx): HTMLElement {
   } }, "Collect now");
   load();
   return panel("Collection health", [h("p", { class: "muted small" }, "Configured is not fetched; fetched is not saved; saved is not shown. Each column below is counted separately."), box, h("div", { class: "toolbar" }, run), out]);
+}
+
+type Coverage = { programmes: Record<string, number>; repositories: Record<string, number>; rescans: Record<string, number>; failures: Record<string, number>; coverage_pct: Record<string, number | null> };
+function coverageTab(ctx: Ctx): HTMLElement {
+  const box = h("div", {});
+  loadInto(box, () => ctx.api.get<Coverage>("/v1/bounties/coverage"), (c) => {
+    const pc = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v}%`);
+    return h("div", { class: "stack" },
+      h("div", { class: "stats" },
+        statCard("discovered", c.programmes.discovered ?? 0, "programmes collected", "grey"),
+        statCard("eligible", c.programmes.eligible ?? 0, `${pc(c.coverage_pct.eligible_of_discovered)} of discovered`, "green"),
+        statCard("researched", c.programmes.researched ?? 0, `${pc(c.coverage_pct.researched_of_eligible)} of eligible`, "cyan"),
+        statCard("awaiting research", c.programmes.awaiting_research ?? 0, "eligible, not yet analysed", "amber")),
+      panel("Repositories", [kv([
+        ["Eligible-programme repositories", String(c.repositories.eligible ?? 0)],
+        ["Analysed (sealed snapshot)", `${c.repositories.analysed ?? 0} (${pc(c.coverage_pct.repos_analysed_of_eligible)})`],
+        ["Tracked by the monitor", String(c.repositories.tracked ?? 0)],
+        ["Pending rescan (new commit seen)", String(c.repositories.pending_rescan ?? 0)],
+        ["Unavailable (deleted / inaccessible)", String(c.repositories.unavailable ?? 0)]])]),
+      panel("Incremental rescans", [kv([
+        ["Queued", String(c.rescans.queued ?? 0)], ["Running", String(c.rescans.running ?? 0)],
+        ["Completed", String(c.rescans.completed ?? 0)], ["Failed", String(c.rescans.failed ?? 0)]])]),
+      panel("Failures", [kv([
+        ["Research runs failed", String(c.failures.research_runs_failed ?? 0)],
+        ["Monitor errors (7 days)", String(c.failures.monitor_errors_7d ?? 0)]])]),
+      h("p", { class: "muted small" }, "Every number is measured from the database — not an estimate. “Researched” means a sealed snapshot exists for a programme’s repository; a fetch or a queued run never counts. Findings live in the research overview."));
+  });
+  return box;
 }
 
 function lifecycleTab(ctx: Ctx): HTMLElement {

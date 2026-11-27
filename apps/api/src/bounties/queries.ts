@@ -16,6 +16,64 @@ export async function eligibilityOverview(pool: Pool): Promise<Record<string, nu
   return eligibilitySummary(rows.rows.map((r) => eligOf(r.resolved, r.verification)));
 }
 
+async function tableExists(pool: Pool, name: string): Promise<boolean> {
+  return (await pool.query("SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1", [name])).rows.length > 0;
+}
+
+/**
+ * Database-backed coverage metrics (task 4/Priority-4): the honest answer to "how much are we actually researching, not just collecting".
+ * Every number is measured from the tables — nothing is estimated. Deploy-safe: the bridge (0012) and monitor (0013) tables may be
+ * absent in production, in which case their metrics are zero rather than an error. "Researched" means a sealed snapshot exists for one
+ * of a programme's repositories — a fetch or a queued run never counts.
+ */
+export async function coverageMetrics(pool: Pool): Promise<Record<string, unknown>> {
+  const progs = await pool.query<{ id: string; resolved: Resolution["resolved"]; verification: string }>(
+    "SELECT id, resolved, verification FROM bounty_programs WHERE merged_into IS NULL");
+  const sealed = new Set((await pool.query<{ r: string }>("SELECT DISTINCT repository AS r FROM repo_snapshots WHERE sealed_at IS NOT NULL")).rows.map((x) => x.r));
+
+  let discovered = 0, eligible = 0, with_repositories = 0, eligible_researched = 0, eligible_awaiting = 0;
+  const eligibleRepos = new Set<string>();
+  for (const p of progs.rows) {
+    discovered += 1;
+    const e = classifyEligibility({ resolved: p.resolved ?? {}, verification: p.verification } as Resolution);
+    const repos = resolveProgrammeRepositories(p.resolved).repositories;
+    if (repos.length > 0) with_repositories += 1;
+    if (e.tier === "eligible") {
+      eligible += 1;
+      for (const r of repos) eligibleRepos.add(r);
+      const anySealed = repos.some((r) => sealed.has(r));
+      if (repos.length > 0 && anySealed) eligible_researched += 1; else eligible_awaiting += 1;
+    }
+  }
+  const repositories_eligible = eligibleRepos.size;
+  let repositories_analysed = 0;
+  for (const r of eligibleRepos) if (sealed.has(r)) repositories_analysed += 1;
+
+  // Monitor + rescan metrics (zero if the tables are not present).
+  const monitors = (await tableExists(pool, "repository_monitors"))
+    ? (await pool.query<{ tracked: number; pending: number; unavailable: number }>(
+        `SELECT count(*)::int AS tracked, count(*) FILTER (WHERE last_outcome = 'rescan_queued')::int AS pending, count(*) FILTER (WHERE enabled = false)::int AS unavailable FROM repository_monitors`)).rows[0]!
+    : { tracked: 0, pending: 0, unavailable: 0 };
+  const monitorErrors = (await tableExists(pool, "repository_monitor_checks"))
+    ? Number((await pool.query("SELECT count(*)::int AS n FROM repository_monitor_checks WHERE outcome = 'error' AND checked_at > now() - interval '7 days'")).rows[0]!.n)
+    : 0;
+  // Rescan runs are repository_research runs created by the monitor.
+  const rescans = (await pool.query<{ status: string; n: number }>(
+    `SELECT status, count(*)::int AS n FROM workflow_runs WHERE workflow_type = 'repository_research' AND created_by = 'repo-monitor' GROUP BY status`)).rows;
+  const byStatus = (s: string) => rescans.find((r) => r.status === s)?.n ?? 0;
+  const research_runs_failed = Number((await pool.query("SELECT count(*)::int AS n FROM workflow_runs WHERE workflow_type = 'repository_research' AND status = 'failed'")).rows[0]!.n);
+
+  const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
+  return {
+    programmes: { discovered, eligible, with_repositories, researched: eligible_researched, awaiting_research: eligible_awaiting },
+    repositories: { eligible: repositories_eligible, analysed: repositories_analysed, tracked: monitors.tracked, pending_rescan: monitors.pending, unavailable: monitors.unavailable },
+    rescans: { queued: byStatus("queued"), running: byStatus("running"), awaiting_approval: byStatus("awaiting_approval"), completed: byStatus("succeeded"), failed: byStatus("failed") },
+    failures: { research_runs_failed, monitor_errors_7d: monitorErrors },
+    coverage_pct: { eligible_of_discovered: pct(eligible, discovered), researched_of_eligible: pct(eligible_researched, eligible), repos_analysed_of_eligible: pct(repositories_analysed, repositories_eligible) },
+    note: "Findings and their review state are in the research overview (/v1/research/overview); confirmed findings remain 0 by design.",
+  };
+}
+
 /**
  * Programme lifecycle counts for the operator dashboard (task 4/7): how many programmes are at each evidence-based state
  * (discovered .. eligible_for_research .. scanning .. completed) plus the side states. Deploy-safe: the research-link table (0012)

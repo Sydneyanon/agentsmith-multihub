@@ -343,3 +343,15 @@ describe("bounty lifecycle tab", () => {
     expect(el.textContent).toMatch(/discovery is not eligibility/i);
   });
 });
+
+describe("bounty research-coverage tab", () => {
+  const COV = { programmes: { discovered: 10, eligible: 4, with_repositories: 8, researched: 2, awaiting_research: 2 }, repositories: { eligible: 5, analysed: 2, tracked: 3, pending_rescan: 1, unavailable: 0 }, rescans: { queued: 1, running: 0, completed: 1, failed: 0 }, failures: { research_runs_failed: 0, monitor_errors_7d: 0 }, coverage_pct: { eligible_of_discovered: 40, researched_of_eligible: 50, repos_analysed_of_eligible: 40 } };
+  it("shows database-backed discovered/eligible/researched coverage", async () => {
+    const el = renderBounties(fakeCtx((path) => path.endsWith("/coverage") ? COV : { imports: [] }) as Ctx, "coverage", undefined, {});
+    await settled(el, /discovered/);
+    expect(el.textContent).toMatch(/researched/);
+    expect(el.textContent).toMatch(/50% of eligible/);
+    expect(el.textContent).toMatch(/Pending rescan/);
+    expect(el.textContent).toMatch(/measured from the database/i);
+  });
+});

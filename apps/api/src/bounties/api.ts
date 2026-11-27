@@ -4,7 +4,7 @@ import { z } from "zod";
 import { runCollection } from "./collect.js";
 import { createHttpGet, type HttpGet } from "./http.js";
 import { fetchPolicy, runImport } from "./import.js";
-import { health, lifecycleOverview, listDuplicates, listImports, listPrograms, overview, programDetail, publicFeed, researchCandidates } from "./queries.js";
+import { coverageMetrics, health, lifecycleOverview, listDuplicates, listImports, listPrograms, overview, programDetail, publicFeed, researchCandidates } from "./queries.js";
 import { addCorrection, CORRECTABLE, decideDuplicate, setBountySourceEnabled } from "./store.js";
 import { ADAPTERS } from "./adapters.js";
 import { BountyError } from "./types.js";
@@ -126,6 +126,10 @@ export function registerBountyRoutes(app: FastifyInstance, pool: Pool | undefine
   app.get("/v1/bounties/lifecycle", async (_request, reply) => {
     if (need(reply)) return reply;
     try { return await lifecycleOverview(pool!); } catch (error) { return fail(reply, error); }
+  });
+  app.get("/v1/bounties/coverage", async (_request, reply) => {
+    if (need(reply)) return reply;
+    try { return await coverageMetrics(pool!); } catch (error) { return fail(reply, error); }
   });
   // Act on an owner's source-access decision: one authenticated call, not a manual database edit. Enabling a blocked source is refused.
   app.post("/v1/bounties/sources/:key/:action", async (request, reply) => {
