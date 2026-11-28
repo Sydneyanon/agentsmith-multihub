@@ -523,7 +523,7 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
       expect(out).toContain('"environ_has_token":false'); expect(out).toContain('"token_file_removed":true'); expect(out).not.toContain(secretOf(R10.token));
       for (const pid of pids.reverse()) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
       // a token in the environment refuses the start (exit 64), without echoing it
-      const refused = spawn(`${REPO_ROOT}node_modules/.bin/tsx`, [`${REPO_ROOT}apps/api/src/worker-remote-main.ts`], { cwd: REPO_ROOT, env: { PATH: process.env.PATH ?? "", WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN: R10.token }, stdio: ["ignore", "pipe", "pipe"] });
+      const refused = spawn(`${REPO_ROOT}node_modules/.bin/tsx`, [`${REPO_ROOT}apps/api/src/worker-main.ts`], { cwd: REPO_ROOT, env: { PATH: process.env.PATH ?? "", WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN: R10.token }, stdio: ["ignore", "pipe", "pipe"] });
       let rout = ""; refused.stdout.on("data", (c) => { rout += c; }); refused.stderr.on("data", (c) => { rout += c; });
       expect(await new Promise((r) => refused.on("close", r))).toBe(64);
       expect(rout).toMatch(/WORKER_API_TOKEN is set in the environment/); expect(rout).not.toContain(secretOf(R10.token));
