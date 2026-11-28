@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { ProgramIndex } from "./index.js";
-import { challengeFinding } from "./challenge.js";
+import { challengeFinding, type ChallengeOutcome } from "./challenge.js";
 import { validateReentrancy, type SimOutcome } from "./simulate.js";
 import { analyzeSources, type Finding } from "./specialists.js";
 import { buildProtocolModel, reachableCalls, type ProtocolModel } from "./protocol-model.js";
@@ -109,6 +109,24 @@ export async function externalLeadsAsStored(pool: Pick<Pool, "query">, producer:
 }
 
 export type Validation = { hypothesisId: string; outcome: SimOutcome };
+
+/**
+ * How a validator's verdict is recorded (the evaluation outcome), precisely:
+ *  - `supports`: the validator executed the claimed path in the model and observed the claimed effect (validated, with a trace);
+ *  - `contradicts`: an EXECUTED COUNTEREXAMPLE: a control run shows the model can execute the claimed path, and the claim's own
+ *    adversarial transaction on it reverts at an explicit check that negates the claim's mechanism, with the trace recorded
+ *    (challenge.ts: `refutation: "counterexample"`). It holds in the modelled world only; it is a basis for a human `refuted` outcome,
+ *    never an outcome itself;
+ *  - `weakens`: the validator executed and did not observe the claimed effect, but nothing executed contradicts it (bounded search found
+ *    no exploit, the statement was not reached, nothing observable changed). Every reentrancy refutation is of this kind: "no exploit in N
+ *    bounded scenarios" is the absence of an observation, not a counterexample;
+ *  - `inconclusive`: the validator abstained (something on the path is not modelled, the control run failed, the function is not found).
+ */
+export function challengeOutcome(c: Pick<ChallengeOutcome, "verdict" | "refutation" | "trace">): "supports" | "contradicts" | "weakens" | "inconclusive" {
+  if (c.verdict === "validated") return "supports";
+  if (c.verdict === "refuted") return c.refutation === "counterexample" && c.trace.length > 0 ? "contradicts" : "weakens";
+  return "inconclusive";
+}
 /** the classes `challengeFinding` has a method for (reentrancy has its own validator, below) */
 const CHALLENGED_CLASSES: ReadonlySet<string> = new Set(["access-control", "selfdestruct", "delegatecall", "initializer", "unchecked-call"]);
 
@@ -142,8 +160,8 @@ export async function runChallenge(pool: Pool, store: ResearchStore, lease: Step
           rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by ${h.producer ?? "the specialist"} and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim) });
         continue;
       }
-      const outcome = c.verdict === "validated" ? "supports" : c.verdict === "refuted" ? "weakens" : "inconclusive";
-      const text = `${c.method}: ${c.reason}.${c.trace.length ? " Trace: " + c.trace.join(" | ") : ""}${c.verdict === "refuted" ? " This weakens (does not eliminate) the lead: the model is a bounded abstraction." : ""}`;
+      const outcome = challengeOutcome(c);
+      const text = `${c.method}: ${c.reason}.${c.trace.length ? " Trace: " + c.trace.join(" | ") + "." : ""}${outcome === "contradicts" ? " This CONTRADICTS the lead in the modelled world (an executed counterexample, trace above); it is not a proof for a real deployment, and a refuted outcome still needs a human decision." : outcome === "weakens" ? " This weakens (does not eliminate) the lead: the claimed effect was not observed, but nothing executed contradicts it; the model is a bounded abstraction." : ""}`;
       await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: `execution-challenge-${h.finding.class}`, evaluatorVersion: "1", outcome, rationale: text.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${c.verdict}|${c.reason}`) });
       continue;
     }
