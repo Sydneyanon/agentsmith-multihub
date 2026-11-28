@@ -1122,7 +1122,14 @@ Deep strategy, default options. "Before" is the deep strategy without the rules.
   (frontier dropped), with or without the rule. At 24 000 transitions per search, W02 is found with the rules off and reclassified with
   them on. This is asserted in `fresh-set-2.test.ts`.
   - It does not lower measured recall at the default options, so it is on by default.
-  - The owner may prefer it off. Without it, set 1 has 4 false positives and set 2 has 14.
+  - **Owner decision 2026-11-28: keep it on by default.** Reclassified counterexamples stay in the report under their own
+    classification ("legitimate owner-authorised action"), with the rule and its evidence; they are never discarded silently.
+  - **Known limitation (accepted):** while it is on, APEX cannot report theft of rewards that the owner funded. A reviewer must read
+    the reclassified list to see such a case. Without the rule, set 1 has 4 false positives and set 2 has 14.
+  - **Depth-testing roadmap item D-1:** at higher budgets (24 000 transitions per search and above), measure how often a
+    reclassified owner-funded counterexample is a real theft (W02-like) rather than designed yield; design a discriminator
+    (e.g. gain above the actor's entitled share of the funding, or funding taken from another actor's entitlement) and evaluate it
+    only on a set frozen before the change.
 - **privilegedBreaker trusts the deployer.** A bug inside an owner-only function is reclassified, not reported.
 - **unitRatio refutes a real bug** in which an aggregate drifts only by proportional moves.
 
