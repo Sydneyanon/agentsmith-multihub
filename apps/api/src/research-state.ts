@@ -78,6 +78,14 @@ export class ResearchConflictError extends Error {
   }
 }
 
+/** An evaluation by the hypothesis's own generator: never technical evidence about its own claim. */
+export class IndependenceError extends Error {
+  constructor(readonly hypothesisId: string, readonly evaluatorId: string) {
+    super(`evaluation refused: ${evaluatorId} generated hypothesis ${hypothesisId} and cannot evaluate its own claim`);
+    this.name = "IndependenceError";
+  }
+}
+
 /** JSON with object keys sorted recursively, so two values that are equal compare equal whatever order a store (jsonb) returns the keys in. */
 export function canonicalJson(value: unknown): string {
   const sort = (v: unknown): unknown => Array.isArray(v) ? v.map(sort)
@@ -368,12 +376,18 @@ export class ResearchStore {
     });
   }
 
-  /** A deterministic evaluator's outcome. Abstaining is `inconclusive`, which needs a rationale but no spans. */
+  /**
+   * A deterministic evaluator's outcome. Abstaining is `inconclusive`, which needs a rationale but no spans.
+   * Independence is enforced here, not left to naming conventions: an evaluation whose evaluator is the hypothesis's own generator is
+   * refused (IndependenceError), whatever its outcome. (The R3 draft migration adds the same rule as a database trigger.)
+   */
   recordEvaluation(lease: StepLease, input: {
     hypothesisId: string; evaluatorId: string; evaluatorVersion: string; outcome: EvaluationOutcome;
     rationale: string; spanIds: readonly string[]; inputSha256: string;
   }): Promise<string> {
     return this.leased(lease, async (client, runId) => {
+      const generator = (await client.query<{ generator_id: string }>("SELECT generator_id FROM hypotheses WHERE id = $1", [input.hypothesisId])).rows[0]?.generator_id;
+      if (generator !== undefined && generator === input.evaluatorId) throw new IndependenceError(input.hypothesisId, input.evaluatorId);
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO hypothesis_evaluations (workflow_run_id, hypothesis_id, produced_by_step_id, evaluator_id, evaluator_version, outcome, rationale, input_sha256)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,

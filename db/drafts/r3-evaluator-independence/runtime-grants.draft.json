@@ -1,0 +1,8 @@
+{
+ "_comment": "DRAFT overlay for db/runtime-grants.json (R3), merged by the draft test only, on top of the T-144 overlay. analysis_identities is a seeded reference table (append-only; seeded by the migration, never written by the runtime). The views are read by the runtime and by the T-144 outcome rule, which runs with the inserting role's privileges.",
+ "tables": {
+  "analysis_identities": ["SELECT"],
+  "evaluation_independence": ["SELECT"],
+  "hypothesis_independence": ["SELECT"]
+ }
+}
