@@ -151,7 +151,7 @@ export function controlBody(ctx: Ctx, s: EngineStatus, projects: ProjectSummary[
     ], { class: "area-engine" }),
     panel("Workers", [workers(s)], { class: "area-workers" }),
     panel("Research stages", [stages(s), h("p", { class: "muted small" }, "A hypothesis is a lead to investigate. No confirmed finding is recorded anywhere in this system yet.")], { class: "area-stages" }),
-    panel("Research lanes", [lanes(s, projects)], { class: "area-lanes", actions: [h("a", { class: "link", href: link("projects") }, "All projects")] }),
+    panel("Research lanes", [lanes(s, projects)], { class: "area-lanes", actions: [h("a", { class: "link", href: "#/operations" }, "Operations"), h("a", { class: "link", href: link("projects") }, "All projects")] }),
     panel("Last activity", [lastActivity(s)], { class: "area-last", actions: [h("a", { class: "link", href: link("activity") }, "Activity")] }),
     panel("Discovery", [discoveryPanel(ctx, s)], { class: "area-discovery" }),
     panel("Build and schema", [buildSchema(s)], { class: "area-build" }));
@@ -159,7 +159,7 @@ export function controlBody(ctx: Ctx, s: EngineStatus, projects: ProjectSummary[
 
 export function renderControl(ctx: Ctx): HTMLElement {
   const root = h("div", { class: "view view-control" });
-  root.append(h("div", { class: "view-head" }, h("h1", {}, "Control Room"), h("p", { class: "muted" }, "What the engine is doing now, read from the database on every refresh. Nothing here is sample or simulated data unless the banner says so.")),
+  root.append(h("div", { class: "view-head" }, h("h1", {}, "Control Room"), h("a", { class: "btn ops-link", href: "#/operations" }, "Live operations ▸"), h("p", { class: "muted" }, "What the engine is doing now, read from the database on every refresh. Nothing here is sample or simulated data unless the banner says so.")),
     livePanel(() => Promise.all([ctx.api.get<EngineStatus>("/v1/engine/status"), ctx.api.get<Page<ProjectSummary>>("/v1/research/projects", { limit: 50 })]),
       ([s, p]) => controlBody(ctx, s, p?.items ?? []), { generatedAt: ([s]) => s?.generated_at ?? null }));
   return root;

@@ -11,6 +11,7 @@ import { chromium, type Browser } from "playwright-core";
 import { registerBearerAuth } from "../apps/api/src/auth.js";
 import { registerHubStatic } from "../apps/api/src/hub-static.js";
 import { registerResearchRoutes } from "../apps/api/src/research-api.js";
+import { registerOperationsRoutes } from "../apps/api/src/operations-api.js";
 import { registerDiscoveryRoutes } from "../apps/api/src/discovery/api.js";
 import { expectedMigrations, registerEngineStatusRoutes, workerApplicationName } from "../apps/api/src/engine-status.js";
 import { buildProtocolModel } from "../apps/api/src/analysis/solidity/protocol-model.js";
@@ -39,6 +40,7 @@ export async function startDemo(options: { empty?: boolean } = {}): Promise<Demo
     registerBearerAuth(app, token);
     registerResearchRoutes(app, db.pool);
     registerDiscoveryRoutes(app, db.pool);
+    registerOperationsRoutes(app, db.pool, { workerApiEnabled: false, githubVerifierConfigured: null });
     // the demo database is labelled SYNTHETIC by the server, so every Control Room screen carries the banner
     registerEngineStatusRoutes(app, db.pool, { build: { commit: null, image: null, built_at: null, source: "none" }, dataKind: options.empty ? "test" : "synthetic", expectedMigrations: expectedMigrations() });
     registerHubStatic(app, { assetsDir: resolve("dist/web") });
@@ -122,7 +124,7 @@ export async function startDemo(options: { empty?: boolean } = {}): Promise<Demo
       ["control", "#/control"], ["home", "#/home"], ["projects", "#/projects"], ["project", `#/projects/${ids.project}`],
       ["repository-list", "#/repository"], ["repository", `#/repository/${snapshotId}?path=${encodeURIComponent("contracts/Vault.sol")}`],
       ["hypotheses", "#/hypotheses"], ["hypothesis", `#/hypotheses/${h1}`], ["evidence-list", "#/evidence"], ["evidence", `#/evidence/${fn}`],
-      ["activity", "#/activity"], ["later", "#/reviews"],
+      ["activity", "#/activity"], ["operations", `#/operations?run=${ctx.runId}`], ["later", "#/reviews"],
     ];
     return { base, token, ids, routes, close: async () => { await worker.end(); await app.close(); await db.drop(); } };
   } catch (error) {

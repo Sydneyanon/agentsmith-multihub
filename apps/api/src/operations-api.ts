@@ -120,7 +120,7 @@ function stepState(steps: StepActivity[]): { state: Panel["state"]; basis: strin
   if (!steps.length) return { state: "not_in_run", basis: "no such step was created for this run (workflow_steps)" };
   const s = steps[0]!;
   if (s.status === "running") return s.lease_live ? { state: "running", basis: `step running with a live lease held by ${s.lease_owner} until ${s.lease_expires_at}` } : { state: "stalled", basis: `step marked running but its lease expired at ${s.lease_expires_at}: no worker is renewing it` };
-  if (s.status === "succeeded") return { state: "succeeded", basis: `step succeeded at ${s.completed_at} (processed; not "understood")` };
+  if (s.status === "succeeded") return { state: "succeeded", basis: `step succeeded at ${s.completed_at} (processed)` };
   if (s.status === "failed") return { state: "failed", basis: `step failed at ${s.completed_at} after attempt ${s.attempt}` };
   if (s.status === "queued") return { state: s.attempt > 0 ? "queued" : "not_started", basis: s.attempt > 0 ? `re-queued after attempt ${s.attempt}` : "queued; no worker has claimed it" };
   return { state: "recorded", basis: `step status ${s.status}` };

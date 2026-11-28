@@ -13,12 +13,13 @@ import { renderEvidence } from "./view-evidence.js";
 import { renderActivity } from "./view-activity.js";
 import { renderBounties } from "./view-bounties.js";
 import { ENGINE_STATE, renderControl } from "./view-control.js";
+import { renderOperations } from "./view-operations.js";
 import { REFRESH_MS } from "./live.js";
 import type { EngineStatus } from "./types.js";
 import { word } from "./vocab.js";
 import { startMatrixRain } from "./matrix-rain.js";
 
-const NAV_ICON: Record<string, string> = { control: "◉", home: "◈", projects: "▤", repository: "⌥", hypotheses: "✦", evidence: "▣", activity: "≋", bounties: "◎", reviews: "◐", findings: "⚑", knowledge: "❖", system: "⚙" };
+const NAV_ICON: Record<string, string> = { control: "◉", operations: "▥", home: "◈", projects: "▤", repository: "⌥", hypotheses: "✦", evidence: "▣", activity: "≋", bounties: "◎", reviews: "◐", findings: "⚑", knowledge: "❖", system: "⚙" };
 
 function brand(): HTMLElement {
   return h("div", { class: "brand" }, h("span", { class: "brand-mark", "aria-hidden": "true" }, "A"), h("span", { class: "brand-text" }, h("strong", {}, "AgentSmith"), h("span", {}, "MultiHub")));
@@ -38,7 +39,8 @@ export function unlockScreen(onUnlock: (token: string) => void, note?: string): 
 }
 
 function shell(route: Route, content: HTMLElement, lock: () => void, healthChip: HTMLElement): HTMLElement {
-  const activeId = route.name === "later" ? route.sub : route.name;
+  // Operations is a view of the Control Room (linked from it), so the Control Room stays highlighted
+  const activeId = route.name === "later" ? route.sub : route.name === "operations" ? "control" : route.name;
   const item = (n: (typeof NAV)[number], compact: boolean) => n.later
     ? h("span", { class: "nav-item nav-later", title: `Built in ${n.later}` }, h("span", { class: "nav-icon", "aria-hidden": "true" }, NAV_ICON[n.id]), h("span", {}, n.label), compact ? null : h("small", {}, n.later))
     : h("a", { class: `nav-item${activeId === n.id ? " is-active" : ""}`, href: n.hash, "aria-current": activeId === n.id ? "page" : null }, h("span", { class: "nav-icon", "aria-hidden": "true" }, NAV_ICON[n.id]), h("span", {}, compact ? (n.short ?? n.label) : n.label));
@@ -59,6 +61,7 @@ function laterView(sub: string | undefined): HTMLElement {
 export function renderRoute(ctx: Ctx, route: Route): HTMLElement {
   switch (route.name) {
     case "control": return renderControl(ctx);
+    case "operations": return renderOperations(ctx, route.query);
     case "home": return renderHome(ctx);
     case "projects": return renderProjects(ctx, route.id, route.query);
     case "repository": return renderRepository(ctx, route.id, route.query);
@@ -101,7 +104,7 @@ export function boot(root: HTMLElement): void {
     void healthChip(api).then((chipEl) => {
       clear(root);
       root.append(shell(route, renderRoute(ctx, route), () => { clearToken(); unlockNote = undefined; draw(); }, chipEl));
-      document.title = `${NAV.find((n) => n.id === (route.name === "later" ? route.sub : route.name))?.label ?? "Hub"} · AgentSmith MultiHub`;
+      document.title = `${route.name === "operations" ? "Operations" : NAV.find((n) => n.id === (route.name === "later" ? route.sub : route.name))?.label ?? "Hub"} · AgentSmith MultiHub`;
       window.scrollTo(0, 0);
     });
   }
