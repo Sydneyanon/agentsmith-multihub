@@ -33,8 +33,11 @@ import { expireLease, migratedTestDatabase, REPO_ROOT, skipIntegration, type Tes
  * database credential. The API is a real Fastify app on the OWNER connection, with the worker routes on a second, private listener
  * exactly as server.ts wires it (privateListenerPort), and the public listener next to it.
  *
- * [PREVENTED] asserts the refusal; [VULNERABLE] / [PARTIAL] assert the OBSERVED successful attack. The design is not changed here.
- * The same scenario ids are implemented against design B' in the B' worktree.
+ * [PREVENTED] asserts the refusal; [VULNERABLE] / [PARTIAL] assert the OBSERVED successful attack. The same scenario ids are implemented
+ * against design B' in the B' worktree. RE-RUN after the fixes D1-D7 (docs/security/worker-architecture-decision.md): every scenario
+ * keeps its id; those the fixes close now assert PREVENTED ("[PREVENTED by Dn]") with the original attack re-run, the rest keep asserting
+ * the observed behaviour ([PARTIAL], [VULNERABLE]). The API here also has its OWN read-only GitHub source (a loopback fake, `gh`), as
+ * server.ts gives it in production.
  */
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 180_000 });
 const GH_TOKEN = "github_pat_" + "11ABCDEFG0" + "y".repeat(72); // the API's own read-only GitHub credential (shape only; loopback fake)
@@ -790,7 +793,9 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
       await tiny.close();
     });
 
-    it("API resource exhaustion from one token [PREVENTED by D5, measured]: a 400-request burst is served at most 3 at a time; operator latency stays bounded", async () => {
+    // NOTE: this measurement passes on the code before D5 as well (the burst never exhausted the pool there either); it is NOT the test
+    // that proves D5 (that is "racing duplicates exhaust the owner pool"). The request rate stays an in-memory, per-process bucket.
+    it("API resource exhaustion from one token [PARTIAL availability, measured]: a 400-request burst is served at most 3 at a time (D5) and operator latency stays bounded; the rate limit is per process, in memory", async () => {
       const E = await researchRun("adv-dos"); await drive(E);
       const an = await claim(E); const snap = await snapOf(E.runId);
       const probe = async () => { const t = Date.now(); const r = await fetch(`http://127.0.0.1:${api.pub}/v1/workflows`, { headers: { authorization: `Bearer ${OPERATOR}` } }); await r.text(); return { ms: Date.now() - t, status: r.status }; };
