@@ -6,7 +6,7 @@ import { validateReentrancy, type SimOutcome } from "./simulate.js";
 import { analyzeSources, type Finding } from "./specialists.js";
 import { buildProtocolModel, reachableCalls, type ProtocolModel } from "./protocol-model.js";
 import type { AuthorityFacts } from "./authority.js";
-import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
+import { canonicalJson, sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
 import { slitherScanOfSnapshot } from "./slither-record.js";
 import { SLITHER_VERSION as SLITHER_PINNED } from "./keys.js";
 
@@ -18,7 +18,25 @@ import { SLITHER_VERSION as SLITHER_PINNED } from "./keys.js";
 export const SPECIALIST_ID = "solidity-structural-specialists"; export const SPECIALIST_VERSION = "1";
 export const VALIDATOR_ID = "reentrancy-execution-validator"; export const VALIDATOR_VERSION = "1";
 
-export type StoredHypothesis = { id: string; finding: Finding; spanIds: string[]; /** set for an external producer's lead (e.g. "slither@0.11.3"); absent for the specialists' own */ producer?: string };
+export type StoredHypothesis = {
+  id: string; finding: Finding; spanIds: string[]; /** set for an external producer's lead (e.g. "slither@0.11.3"); absent for the specialists' own */ producer?: string;
+  /** the content-addressed canonical finding payload the analysis step stored for this hypothesis (the specialists' own leads only) */
+  payloadSha256?: string;
+  /** set when a stored hypothesis cannot be turned back into a challengeable finding: it is recorded as inconclusive with this reason, never skipped */
+  unresolved?: string;
+};
+
+/**
+ * The canonical finding payload (schema `agentsmith-finding/1`): exactly the fields the evaluators need, stored by the analysis step as a
+ * content-addressed blob beside each hypothesis and referenced from its step output (`finding_payloads`: hypothesis id -> blob hash). The
+ * challenge stage reads the hypotheses it challenges, and their findings, from these records; it never re-runs the analyzer or matches by
+ * claim text.
+ */
+export const FINDING_PAYLOAD_SCHEMA = "agentsmith-finding/1";
+export type FindingPayload = { schema: typeof FINDING_PAYLOAD_SCHEMA; hypothesis_id: string; snapshot_id: string; generator: string; class: Finding["class"]; contract: string; function: string; file: string; line: number; detail: Finding["detail"] };
+export function findingPayload(hypothesisId: string, snapshotId: string, f: Finding): FindingPayload {
+  return { schema: FINDING_PAYLOAD_SCHEMA, hypothesis_id: hypothesisId, snapshot_id: snapshotId, generator: `${SPECIALIST_ID}@${SPECIALIST_VERSION}`, class: f.class, contract: f.contract, function: f.function, file: f.file, line: f.line, detail: f.detail };
+}
 /** research_blobs holds at most 1 MiB per blob; a larger model is not stored (and the step says so) rather than truncated. */
 const MODEL_BLOB_LIMIT = 1_048_576;
 export type StoredProtocolModel = { sha256: string; stored: boolean; components: number; functions: number; callEdges: number; unknowns: number };
@@ -68,7 +86,8 @@ export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, le
       snapshotId, family: `solidity-${f.class}`, claim: f.claim, rationale: f.rationale + (f.assumptions.length ? ` Assumptions: ${f.assumptions.join("; ")}.` : ""),
       requiredChecks: f.requiredChecks, alternativeExplanations: f.alternatives, generator: { kind: "deterministic_rule", id: SPECIALIST_ID, version: SPECIALIST_VERSION }, spans,
     });
-    stored.push({ id: made.id, finding: f, spanIds: spans.map((s) => s.spanId) });
+    const payload = await store.putBlob(lease, Buffer.from(canonicalJson(findingPayload(made.id, snapshotId, f)), "utf8"));
+    stored.push({ id: made.id, finding: f, spanIds: spans.map((s) => s.spanId), payloadSha256: payload.sha256 });
   }
   const fns = [...index.contracts.values()].reduce((n, c) => n + c.functions.length, 0);
   return { stored, problems, contracts: index.contracts.size, functions: fns, protocolModel };
@@ -98,6 +117,22 @@ export async function runChallenge(pool: Pool, store: ResearchStore, lease: Step
   const index = new ProgramIndex(await readSnapshotSources(pool, snapshotId)); const out: Validation[] = [];
   for (const h of stored) {
     const primary = h.spanIds[0]!;
+    const evaluatorOf = (cls: string) => cls === "reentrancy" ? VALIDATOR_ID : CHALLENGED_CLASSES.has(cls) ? `execution-challenge-${cls}` : "no-independent-validator";
+    // a stored hypothesis that cannot be read back as a finding is recorded as inconclusive WITH the reason, never skipped
+    if (h.unresolved) {
+      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: evaluatorOf(h.finding.class), evaluatorVersion: h.finding.class === "reentrancy" ? VALIDATOR_VERSION : "1", outcome: "inconclusive",
+        rationale: `Not challenged: ${h.unresolved}.`.slice(0, 7900), spanIds: [], inputSha256: sha256Hex(`${h.id}|unresolved|${h.unresolved}`) });
+      continue;
+    }
+    // the stored hypothesis names a function that the index re-parsed from the sealed snapshot does not contain: recorded, never skipped
+    const missing = CHALLENGED_CLASSES.has(h.finding.class) || h.finding.class === "reentrancy" ? !index.findFunctions(h.finding.contract, h.finding.function)[0] : false;
+    if (missing) {
+      const why = `the stored hypothesis names ${h.finding.contract}.${h.finding.function}, which is not a function of the index re-parsed from the sealed snapshot`;
+      if (h.finding.class === "reentrancy") out.push({ hypothesisId: h.id, outcome: { verdict: "inconclusive", reason: why, trace: [], scenarios: 0, detail: {} } });
+      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: evaluatorOf(h.finding.class), evaluatorVersion: h.finding.class === "reentrancy" ? VALIDATOR_VERSION : "1", outcome: "inconclusive",
+        rationale: `The validator abstained: ${why}; the lead is not challenged.`, spanIds: [], inputSha256: sha256Hex(`${h.finding.claim}|inconclusive|${why}`) });
+      continue;
+    }
     if (h.finding.class !== "reentrancy") {
       // a class with no challenger (e.g. an external producer's missing-zero-check) is "no independent validator", even when its
       // function cannot be found; for the specialists' own classes this is exactly the previous behaviour
@@ -350,14 +385,33 @@ export function buildStructuralMap(sources: ReadonlyArray<{ path: string; text: 
   return { contracts, problems: ix.problems, protocol_model_schema: model.schema };
 }
 
-/** Rebuild the stored hypotheses of a snapshot (ids and primary spans) by matching the deterministic findings to the database records. */
-export async function loadStoredHypotheses(pool: Pool, snapshotId: string): Promise<StoredHypothesis[]> {
-  const sources = await readSnapshotSources(pool, snapshotId); const { findings } = analyzeSources(sources); const out: StoredHypothesis[] = [];
-  for (const f of findings) {
-    const h = (await pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE snapshot_id = $1 AND claim = $2 AND generator_id = $3", [snapshotId, f.claim, SPECIALIST_ID])).rows[0];
-    if (!h) continue;
-    const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [h.id])).rows;
-    out.push({ id: h.id, finding: f, spanIds: spans.map((x) => x.span_id) });
+/**
+ * The specialists' hypotheses a challenge stage must challenge, rebuilt ONLY from stored records: the ids the producing step recorded
+ * (`hypothesis_ids`), each hypothesis row and its evidence links, and the canonical finding payload the step output references
+ * (`finding_payloads`, re-hashed on read). The analyzer is never re-run and nothing is matched by claim text. An id that is not a
+ * specialist hypothesis of this snapshot is an integrity error (the step fails). A hypothesis whose payload is missing or does not describe
+ * it is returned with `unresolved` set, so the challenge records it as inconclusive with the reason instead of skipping it.
+ */
+export async function storedHypothesesFromRecords(pool: Pick<Pool, "query">, snapshotId: string, ids: readonly string[], payloads: Readonly<Record<string, unknown>> | null | undefined): Promise<StoredHypothesis[]> {
+  const out: StoredHypothesis[] = [];
+  for (const id of ids) {
+    const h = (await pool.query<{ snapshot_id: string; family: string; claim: string; generator_id: string }>("SELECT snapshot_id, family, claim, generator_id FROM hypotheses WHERE id = $1", [id])).rows[0];
+    if (!h || h.snapshot_id !== snapshotId || h.generator_id !== SPECIALIST_ID) throw new Error(`the producing step lists hypothesis ${id}, which is not a ${SPECIALIST_ID} hypothesis of snapshot ${snapshotId}; refusing to challenge`);
+    const spanIds = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [id])).rows.map((x) => x.span_id);
+    const cls = h.family.replace(/^solidity-/, "") as Finding["class"];
+    const bare = { class: cls, contract: "", function: "", file: "", line: 0, claim: h.claim, rationale: "", requiredChecks: [], alternatives: [], spans: [], chain: [], assumptions: [], confidence: "low", detail: {} } as Finding;
+    const unresolved = (why: string, sha?: string): void => { out.push({ id, finding: bare, spanIds, ...(sha ? { payloadSha256: sha } : {}), unresolved: why }); };
+    const sha = payloads?.[id];
+    if (typeof sha !== "string") { unresolved("no canonical finding payload is recorded for this hypothesis by the producing step, so its contract, function and location cannot be read from stored records"); continue; }
+    const blob = (await pool.query<{ content: Buffer }>("SELECT content FROM research_blobs WHERE content_sha256 = $1", [sha])).rows[0];
+    if (!blob) { unresolved(`the recorded finding payload ${sha} is not stored`, sha); continue; }
+    if (sha256Hex(blob.content) !== sha) throw new Error(`the stored finding payload of hypothesis ${id} does not match its recorded hash`);
+    let p: Partial<FindingPayload>;
+    try { p = JSON.parse(blob.content.toString("utf8")) as Partial<FindingPayload>; } catch { unresolved("the recorded finding payload is not valid JSON", sha); continue; }
+    if (p.schema !== FINDING_PAYLOAD_SCHEMA || p.hypothesis_id !== id || p.snapshot_id !== snapshotId || p.class !== cls || typeof p.contract !== "string" || typeof p.function !== "string" || typeof p.file !== "string" || typeof p.line !== "number") {
+      unresolved(`the recorded finding payload does not describe this hypothesis (schema ${String(p.schema)}, hypothesis ${String(p.hypothesis_id)}, class ${String(p.class)})`, sha); continue;
+    }
+    out.push({ id, finding: { ...bare, contract: p.contract, function: p.function, file: p.file, line: p.line, detail: p.detail ?? {} }, spanIds, payloadSha256: sha });
   }
   return out;
 }

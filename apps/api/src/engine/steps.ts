@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ACQUIRE_STEP_KEY, REPOSITORY_RESEARCH_WORKFLOW } from "../acquisition/step.js";
 import { parseRepositoryName } from "../acquisition/github-source.js";
 import { buildProtocolModel, coverageComponents } from "../analysis/solidity/protocol-model.js";
-import { externalLeadsAsStored, loadStoredHypotheses, readSnapshotSources, runChallenge, runStructuralAnalysis, SPECIALIST_ID, SPECIALIST_VERSION, type StoredHypothesis } from "../analysis/solidity/pipeline.js";
+import { externalLeadsAsStored, readSnapshotSources, runChallenge, runStructuralAnalysis, SPECIALIST_ID, SPECIALIST_VERSION, storedHypothesesFromRecords, type StoredHypothesis } from "../analysis/solidity/pipeline.js";
 import { sealedSnapshot, withHeartbeat, type AnalysisStepContext } from "../analysis/solidity/step.js";
 import { ResearchStore } from "../research-state.js";
 import type { ClaimedStep } from "../worker.js";
@@ -83,7 +83,7 @@ export async function processInvestigateTargetStep(ctx: EngineStepContext, step:
     const leads: LeadRef[] = r.stored.map((h) => ({ hypothesisId: h.id, class: h.finding.class, contract: h.finding.contract, function: h.finding.function, file: h.finding.file, line: h.finding.line }));
     await ctx.worker.complete(step.id, {
       status: "target_investigated", capability: a.capability, specialist: SPECIALIST_ID, specialist_version: SPECIALIST_VERSION, decision_id: a.decisionId, snapshot_id: snap.snapshotId, decided_on_snapshot_id: a.decidedOnSnapshotId, manifest_sha256: snap.manifestSha256, commit_sha: snap.commitSha,
-      targets: a.targets, classes_examined: [...capabilityById(SPECIALIST_ID).classes], hypothesis_ids: leads.map((l) => l.hypothesisId), leads, leads_by_class: byClass,
+      targets: a.targets, classes_examined: [...capabilityById(SPECIALIST_ID).classes], hypothesis_ids: leads.map((l) => l.hypothesisId), finding_payloads: Object.fromEntries(r.stored.map((h) => [h.id, h.payloadSha256])), leads, leads_by_class: byClass,
       protocol_model_sha256: r.protocolModel.sha256, problems: r.problems.slice(0, 50), wall_ms: Date.now() - started, ...passive,
     });
   });
@@ -138,8 +138,8 @@ export async function processChallengeTargetStep(ctx: EngineStepContext, step: C
   await withHeartbeat(ctx, step, async () => {
     let mine: StoredHypothesis[];
     if (prod.stepKey === INVESTIGATE_STEP_KEY) {
-      const ids = new Set(out.leads!.map((l) => l.hypothesisId));
-      mine = (await loadStoredHypotheses(ctx.pool, snap.snapshotId)).filter((h) => ids.has(h.id));
+      // exactly the producer's stored hypotheses, by id, with their findings from the stored payloads (the analyzer is not re-run)
+      mine = await storedHypothesesFromRecords(ctx.pool, snap.snapshotId, out.leads!.map((l) => l.hypothesisId), (out as { finding_payloads?: Record<string, unknown> }).finding_payloads);
     } else {
       // an external producer's leads: the evaluators need only the class, the contract, the function and the location
       mine = await externalLeadsAsStored(ctx.pool, out.capability?.id ? `${out.capability.id}@${out.capability.version ?? "?"}` : prod.stepKey, out.leads!);
