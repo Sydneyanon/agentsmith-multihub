@@ -67,7 +67,7 @@ operationally verified on the research path**. The path has run locally on a rea
 | P14 | Protocol-invariant detector | `docs/proposals/protocol-invariant-ae048ad.patch` (`challengeInvariant`) | PARTIAL: not merged; null result | Y Y Y · · · · |
 | R1 | Isolated tools image | §8 | PROPOSED | Y · · · · · · |
 | R2 | Tool broker (snapshot in, result out, no database for the tool) | §8 | PROPOSED | Y · · · · · · |
-| R3 | Enforced evaluator independence (trigger + capability family and substrate) | §6.2 | PROPOSED | Y · · · · · · |
+| R3 | Enforced evaluator independence (trigger + capability family and substrate) | §6.2, §13; code: `research-state.ts: recordEvaluation` (refusal), `analysis-identity.ts`; `db/drafts/r3-evaluator-independence` | PARTIAL: code refusal and family labels on the research path; database trigger and cross-family `confirmed` rule are a draft (2026-11-28) | Y p Y p · · · (code refusal integrated; the draft is not applied) |
 | R4 | `hypothesis_contributions` (origin and contribution chain) | §4; shape first named in `docs/research-memory-design.md` §2, deferred to T-151 | PROPOSED | Y · · · · · · |
 | R5 | Protocol model `protocol-model/4` sections (assets, integrations, assertions, transitions) | §4, §7 | PROPOSED | Y · · · · · · |
 | R6 | Deterministic test-template author | §9 | PROPOSED | Y · · · · · · |
@@ -88,7 +88,7 @@ operationally verified on the research path**. The path has run locally on a rea
 | N6 | Learned policies ML-1 to ML-3 | none (`docs/autonomous-architecture.md` §4) | NOT IMPLEMENTED | · · · · · · · |
 | N7 | Separate role or function for human decisions (T-061) | none (`docs/research-memory-design.md` §3, S1) | NOT IMPLEMENTED | · · · · · · · |
 
-**Counts:** EXISTING 10, PARTIAL 14, PROPOSED 26 (R1–R14 and A1–A12), NOT IMPLEMENTED 7.
+**Counts:** EXISTING 10, PARTIAL 15 (R3 moved from PROPOSED on 2026-11-28), PROPOSED 25 (R1, R2, R4–R14 and A1–A12), NOT IMPLEMENTED 7.
 
 **One discrepancy to resolve.** `engine/capabilities.ts` declares `foundry-forge` with `status: "active"`, while
 `docs/specialist-capabilities.md` calls it "prepared". In practice it is unassignable everywhere: `availability` requires
@@ -202,8 +202,8 @@ flowchart LR
 | 4. Spans | `ResearchStore.createEvidenceSpan` | `evidence_spans` | `research_span_check`: hash-verified against the blob; ≤ 400 lines |
 | 5. Hypothesis | `runStructuralAnalysis` → `ResearchStore.createHypothesis` | `hypotheses` (`generator_kind = deterministic_rule`, `generator_id = solidity-structural-specialists`, version `1`), `hypothesis_evidence`, `hypothesis_events(registered)` | DB: `hypotheses_guard` (sealed snapshot), deferred `hypotheses_require_primary_evidence`, span and hypothesis on the same snapshot (`hypothesis_evidence_guard`), append-only |
 | 6. Step record | `processAnalyzeStructureStep` | step output: `analyzer`, `analyzer_build`, `protocol_model_sha256`, `hypothesis_ids`, `problems` | attribution of the exact build |
-| 7. Reload | `processChallengeLeadsStep` → `loadStoredHypotheses` | none | re-runs `analyzeSources` and matches stored rows by claim text and `generator_id` |
-| 8. Challenge | `runChallenge` → `validateReentrancy` (`simulate.ts`) | `hypothesis_evaluations` (`evaluator_id = reentrancy-execution-validator`), `evaluation_evidence`, `hypothesis_events(evaluation_recorded)` | mapping: validated → `supports`; refuted → `weakens` (never `contradicts`); abstained → `inconclusive` with no spans; DB: only `inconclusive` may cite nothing (`evaluations_require_evidence`) |
+| 7. Reload | `processChallengeLeadsStep` → `storedHypothesesFromRecords` | none | **(updated 2026-11-28)** reads exactly the `hypothesis_ids` of the analysis step output and each hypothesis's canonical finding payload (`agentsmith-finding/1` blob, `finding_payloads` in the same output, re-hashed on read); the analyzer is not re-run. A missing or mismatching payload, or a function absent from the re-parsed index, is recorded as `inconclusive` with the reason; an id that is not a specialist hypothesis of the snapshot fails the step. Before: re-ran `analyzeSources` and matched by claim text, silently skipping misses |
+| 8. Challenge | `runChallenge` → `validateReentrancy` (`simulate.ts`) | `hypothesis_evaluations` (`evaluator_id = reentrancy-execution-validator`), `evaluation_evidence`, `hypothesis_events(evaluation_recorded)` | mapping (`challengeOutcome`, updated 2026-11-28): validated → `supports`; an executed counterexample (`refutation: "counterexample"`, with trace) → `contradicts`; any other refutation, including every reentrancy "no exploit in N bounded scenarios" → `weakens`; abstained → `inconclusive` with no spans; DB: only `inconclusive` may cite nothing (`evaluations_require_evidence`); code: `recordEvaluation` refuses evaluator = generator |
 | 9. Status | `VIEW hypothesis_status` via `ResearchStore.getStatus` | none (derived) | a `supports` evaluation alone leaves status `unreviewed` with `static_outcome = supports`; `weakens` gives `weakened_by_static_check`; only reviews move it further |
 | 10. Dossier | `buildDossier` → `renderDossierMarkdown` | step output `content_sha256` | every span re-resolved and re-verified, fail closed; status from the view; inconclusive is never shown as absence |
 
@@ -211,11 +211,12 @@ Other classes follow the same path with `challengeFinding` and evaluator `execut
 without a method get `no-independent-validator` / `inconclusive` (`runChallenge`). Slither leads (P1) enter at step 5 with generator
 `slither` and are challenged by the same evaluators (`externalLeadsAsStored`, `processChallengeLeadsStep`).
 
-Two consequences of the code as written:
-- The pipeline never produces `contradicts`. Under the 0009 rule (`hypothesis_outcome_rules`), `refuted` then needs a human `rejects`
-  review. That is deliberate (the interpreter is a bounded model) and should stay.
-- Step 7 couples the challenge stage to the analyzer being byte-identical between steps. A changed analyzer between steps silently
-  finds fewer stored rows. §11 increment 2 proposes reading `hypothesis_ids` from the analysis step output instead.
+Two consequences of the code as written at `8cdd382` (both addressed on 2026-11-28, §13):
+- The pipeline never produced `contradicts`, so under the 0009 rule (`hypothesis_outcome_rules`) `refuted` always needed a human
+  `rejects` review. Now an executed counterexample is recorded as `contradicts` (definition in `pipeline.ts: challengeOutcome` and the
+  `challenge.ts` header); a `refuted` outcome still needs a human decision, which may cite it.
+- Step 7 coupled the challenge stage to the analyzer being byte-identical between steps. It now reads `hypothesis_ids` and stored
+  finding payloads (§11 increment 2, done).
 
 ### 3.2 Where independence is enforced, and where it is a convention
 
@@ -225,9 +226,9 @@ Two consequences of the code as written:
 | A blinded review is not by the generator | DB: `hypothesis_reviews_guard` (same `kind` and `id` refused) | same-model reviewers with different ids (`claude-challenger` vs `claude-hunter`) pass; `ATTENDED_SPECIALISTS` lists "same-model bias" as a failure mode |
 | A blinded review saw no generator identity or rationale | DB: CHECK on `reviewer_saw` for `blinded_independent_assessment` | the attended prompt content itself (`attended.ts: brief`) |
 | Only a human adjudicates | DB: `disclosed_adjudication` requires `reviewer_kind = human` (0007); `withdrawn` events are human only | the human row is only as trustworthy as the runtime role (S1; N7 not built) |
-| Evaluator ≠ generator | **Draft only:** 0009 `hypothesis_outcome_rules` for `confirmed`; code: `reproduction.ts: appendReproductionIn` refuses a test author who produced a claim; `loop.ts: trackRecords` and `claimsNeedingReproduction` filter `evaluator_id <> generator_id` | **in `runChallenge` it is a convention**: the evaluator ids are hard-coded strings that differ from `SPECIALIST_ID`; nothing in 0007 refuses an evaluation whose `evaluator_id` equals the hypothesis's `generator_id` |
+| Evaluator ≠ generator | **Code (2026-11-28):** `ResearchStore.recordEvaluation` refuses an evaluation whose evaluator is the hypothesis's generator (`IndependenceError`). **Draft:** 0009 `hypothesis_outcome_rules` for `confirmed`; R3 draft (`db/drafts/r3-evaluator-independence`) adds the same refusal as a trigger and tightens `confirmed` to a cross-family `supports`; code: `reproduction.ts: appendReproductionIn` refuses a test author who produced a claim; `loop.ts: trackRecords` and `claimsNeedingReproduction` filter `evaluator_id <> generator_id` | nothing in applied 0007 refuses it for a write that bypasses the store (the R3 trigger would) |
 | Status comes from the database | DB: `VIEW hypothesis_status`; dossier reads it (`buildDossier`) | — |
-| Method independence vs substrate independence | — | the execution validators use the same `ProgramIndex` and parser as the specialists (`challenge.ts` imports `ProgramIndex`; `simulate.ts` imports `Tracer`, `stateVariableRoles`). The method differs (execution vs pattern); a parser misreading is shared by both. Not recorded anywhere |
+| Method independence vs substrate independence | **Recorded (2026-11-28):** `analysis-identity.ts: ANALYSIS_IDENTITIES` (family + method per generator and evaluator; mirrored by the R3 draft's `analysis_identities`); the dossier labels every evaluation same-family, cross-family or unknown-family | the execution validators use the same `ProgramIndex` and parser as the specialists (`challenge.ts` imports `ProgramIndex`; `simulate.ts` imports `Tracer`, `stateVariableRoles`). The method differs (execution vs pattern); a parser misreading is shared by both, so their agreement is same-family corroboration |
 
 ### 3.3 Proposed: APEX hypotheses that no tool suggested, and how they are validated
 
@@ -533,7 +534,7 @@ benchmark-b's execution-verified pairs (`eval/benchmark-b/verify-behaviour.mjs`,
 | # | increment | depends on | connects to shared state by | demonstrates |
 |---|---|---|---|---|
 | 1 | Capability registry fields (R9) and the `foundry-forge` status correction, as declarations and unit tests only | none | none (declarations); later read by R3 and R10 | every registry row in §5 is backed by a cited source; no behaviour change |
-| 2 | Challenge stage reads `hypothesis_ids` from the analysis step output instead of re-deriving (`loadStoredHypotheses`) | none | reads `workflow_steps.output` and `hypotheses` | challenge no longer depends on a byte-identical analyzer between steps; frozen corpora unchanged |
+| 2 | **Done 2026-11-28 (§13.1).** Challenge stage reads `hypothesis_ids` and stored finding payloads from the analysis step output instead of re-deriving (`loadStoredHypotheses` removed) | none | reads `workflow_steps.output` and `hypotheses` | challenge no longer depends on a byte-identical analyzer between steps; frozen corpora unchanged |
 | 3 | Isolated tools image and broker (R1, R2) with Slither, solc, forge; image smoke test with the real binaries | A39 approval | the worker writes tool results through the existing `ResearchStore`; the tool has no credential | `slither_scan` completes in the image with output identical to the recorded CI output; the outbound-connection test fails as intended |
 | 4 | `reproduce_leads` stage with the template author (R6, R7) on controlled contracts | 3 | `hypothesis_evaluations` by `foundry-forge` (0007 only); hashes in step output | M1: ≥ 18/19 agreement with EVM ground truth, 0 wrong `supports`, two-run determinism |
 | 5 | Draft migration for R3 (independence trigger, capability identity) and R4 (`hypothesis_contributions`), in `db/drafts/`, with restricted-role tests | 1 | new append-only rows; trigger on 0007 table | an evaluation by its own generator is refused; same-family blinded review refused |
@@ -566,3 +567,47 @@ Postgres). The dependency is therefore stated by property, and the owner should 
    prove.
 5. Approve commissioning R12 from an independent author, with class descriptions kept out of the repository until scoring.
 6. Map options B′ and D to the properties in §11 and decide.
+
+---
+
+## 13. Foundations fixed on 2026-11-28, and shared memory (design note)
+
+### 13.1 What changed in code (summary)
+- **Hypothesis identity (A).** The analysis step stores one canonical finding payload per hypothesis (`agentsmith-finding/1`: class,
+  contract, function, file, line, detail; content-addressed blob) and lists it in its output (`finding_payloads`). `challenge_leads` and
+  the engine's `challenge_target` challenge exactly the recorded `hypothesis_ids` with those payloads (`storedHypothesesFromRecords`).
+  Dossiers of every frozen fixture corpus are byte-identical (content hash) before and after this change.
+- **Independence (B).** `recordEvaluation` refuses evaluator = generator. Generators and evaluators carry an analysis family and a
+  method (`analysis-identity.ts`): `agentsmith-solidity-parser` (specialists: `structural-pattern-rules`; validators:
+  `bounded-execution`), `slither-ir`, `evm-execution` (Foundry), `claude-model`. The R3 draft (`db/drafts/r3-evaluator-independence`)
+  enforces the refusal in the database and makes `confirmed` require a cross-family `supports`. `hypothesis_status` is unchanged.
+- **Refutation (C).** `contradicts` = an executed counterexample in the modelled world (control run succeeds; the claim's adversarial
+  transaction reverts at an explicit check that negates its mechanism; trace recorded). `weakens` = the effect was not observed but
+  nothing executed negates it (all reentrancy refutations). `inconclusive` = the model cannot run the claimed path, including a failed
+  control run (three unchecked-call leads in heldout/heldout4 that reverted at an access check for the attacker moved from `weakens` to
+  `inconclusive`; all three are labelled vulnerable).
+- **Dossier (D).** Each entry separates origin, supporting evidence, contradicting evidence, validators with family, reproduction,
+  assessment and uncertainty; agreement is same- or cross-family corroboration, never proof; a contradicted lead is shown as REFUTED.
+
+### 13.2 Shared memory: how the research record links, without a new subsystem (design only, no code)
+Every item of experience is already a row or a blob in the one database; memory is the set of links between them, by id or content
+hash, append-only. Nothing below adds a table; the only gaps are named at the end.
+
+| what is remembered | where it is recorded | what links it |
+|---|---|---|
+| **Action** (a producer run, a tool run, a challenge, a reproduction) | a `workflow_steps` row of `repository_research`: input = what was asked, output = what happened (`hypothesis_ids`, `finding_payloads`, tool version and hashes, abstention code) | 0010: the `research_decisions` row and the selected `research_decision_candidates` row whose `resulting_run_id` / `resulting_step_id` name the step (trigger: decided before the work existed); 0009: `research_effort(step_id, decision_id)` |
+| **Non-action** (considered, deliberately not done) | 0010 `research_decision_candidates` with `selected = false` and `action` in `defer` / `skip_*`, with `reason` and sourced `features` | the same decision row as the alternative that was chosen; 0009 `research_coverage` rows `out_of_scope` / `not_modelled` with `reason_code` for what no capability could examine |
+| **Experiment** (a test of one hypothesis by one method) | the step input (hypothesis id, method, and, once §4's `agentsmith-experiment/1` exists, the expected result written before the run) | its result is a `hypothesis_evaluations` row (outcome, rationale with trace, `evaluation_evidence`, 0009 `artifact_sha256`) produced by that step (`produced_by_step_id`) |
+| **Failed approach** | a tool abstention: step output `abstained` + 0009 coverage `abstained` with `reason_code`; a validator that could not decide: an `inconclusive` evaluation with its reason (now including unreadable payloads and functions absent from the index); a refuted lead: a `contradicts` evaluation, then a human 0009 `hypothesis_outcomes` row `refuted` citing it in `basis_evaluation_ids`; a miss: a human hypothesis + `missed_in_runs` | coverage is keyed by `component_sha256` + method + `method_version`, so the same failed method is not retried on the same code (§6.1); APEX A12 follow-up decisions cite the failure row in a feature `source` |
+| **Reproduction** | a `foundry-forge` evaluation (family `evm-execution`), test file and raw output as blobs, bundle via `artifact_sha256` | the hypothesis id; R3 `evaluation_independence.relation` says whether it is cross-family for that hypothesis's generator (it is for the specialists, Slither and Claude) |
+| **Lesson** (a reusable conclusion) | a 0001 `knowledge_items` row (`item_type = 'lesson'`, `body`, `confidence`), corrected by a new row with `supersedes_id` | `source_uri` names the records it rests on (`agentsmith:hypothesis_outcomes/<id>`, `agentsmith:research_coverage/<id>`, `agentsmith:research_decisions/<id>`), `source_hash` = sha256 of their canonical JSON at writing time (re-checked on read, like the protocol model); `knowledge_links` relate lessons (`refines`, `contradicts`, `generalises`) |
+
+Rules this keeps: (1) a lesson that may influence selection cites at least one **human** outcome, and only `confirmed` outcomes are
+positive labels (`splitForLearning`); (2) same-family agreement is never a lesson's evidence of truth, only of where to look; (3) evaluation
+corpora never enter production memory (§10); (4) every link is an id or a hash, so a reader can re-verify what a lesson rests on.
+
+Gaps, stated, not solved here: `knowledge_items` and `knowledge_links` are not append-only and the runtime role may only read them
+(`db/runtime-grants.json`), so lessons are written through a human/operator path until a draft adds `research_reject_mutation()`
+triggers and a decision on who writes them; `source_uri` is free text, so a lesson's citations are checked by convention until that
+draft adds a typed reference; the experiment specification blob (§4) does not exist yet, so an experiment's expected result is not
+recorded before it runs.
