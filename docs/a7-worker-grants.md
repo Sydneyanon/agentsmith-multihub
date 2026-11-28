@@ -225,3 +225,40 @@ single transaction, then rolls everything back: nothing changes, and it prints o
 
 **Recommendation: A.** It keeps the protections that matter (no DELETE, TRUNCATE, ownership or schema changes) and only accepts
 the defaults Fly forces. It needs one more rolled-back diagnostic (GRANT and ALTER FUNCTION only), and then a reviewed release.
+
+## 11. GRANT diagnostic (owner-approved, 2026-11-28; one transaction, rolled back)
+- **Connection:** `schema_admin`, PostgreSQL 16.16.
+- **Fingerprint:** before and after `f9bfedd33c0b0e3faa2db7af8f817023`, 279 items, **identical**. It covers relation, function,
+  schema and database ACLs, function configuration, the SECURITY DEFINER flag, owners, the worker's memberships and its effective
+  privileges.
+
+| test | result |
+|---|---|
+| 54 intended GRANTs (schema usage, 48 table grants, sequences, 6 EXECUTE) | **54 of 54 refused**, 42501 "MPG system roles cannot be modified" |
+| `ALTER FUNCTION … SET search_path = public, pg_temp`, 25 application functions | 25 of 25 accepted (rolled back) |
+| the proposed grants applied together | refused at the first statement, so there is no "after" privilege set to report |
+
+**Option A is not possible.** Fly refuses GRANT and REVOKE alike.
+
+### What Fly's roles and defaults actually are (read-only inspection)
+- **Roles:**
+  - `reader` = `pg_read_all_data`;
+  - `writer` = `pg_read_all_data` + `pg_write_all_data`, which is INSERT, UPDATE and **DELETE** on every table;
+  - `schema_admin` (the API's role, owner of 52 relations) = both, plus CREATE on the schema.
+  - None has superuser, CREATEROLE, CREATEDB or BYPASSRLS.
+- **The worker now:** member of `reader` only; SELECT on 48 tables; no write; no TEMP; no CREATE; CONNECT.
+- **PUBLIC:**
+  - **no TEMP** on the database (Fly already revoked it);
+  - schema: USAGE only;
+  - no privileges on any application relation, except Fly's `pg_stat_monitor` (SELECT);
+  - EXECUTE on 70 of 76 functions, by default.
+- **Functions:**
+  - all application functions, including the six and `evict_research_blob`, are SECURITY INVOKER with no configuration. They run
+    with the caller's privileges, so EXECUTE grants nothing beyond what the caller already has.
+  - The only SECURITY DEFINER functions are Fly's `pgaudit_ddl_command_end()` and `pgaudit_sql_drop()`. They are event-trigger
+    functions owned by `postgres`, with a pinned `search_path`, and cannot be called directly.
+
+### Why Fly's `writer` role alone is not acceptable (stop condition 8)
+It would add DELETE on every table, and INSERT and UPDATE beyond the worker's responsibilities: for example `ai_model_prices`,
+`budget_policies`, `approvals` and `hunt_gate_definitions`, which means budget and approval tampering. The append-only triggers
+protect some research tables, but not those.
