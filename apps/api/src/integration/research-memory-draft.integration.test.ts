@@ -124,7 +124,17 @@ describe.skipIf(skipIntegration)("DRAFT T-144 research-memory migration on throw
     });
     it("refuses confirmed when the only supporting evaluation comes from the generator itself", async () => {
       const s = await fx.sealedSnapshot(); const sp = await fx.span(s, 5); const h = await fx.hypothesis(s, [sp]);
-      const self = await fx.evaluate(s, h, "supports", [sp], "rule-reentrancy"); // same id as the generator (RULE)
+      // same id as the generator (RULE). ResearchStore.recordEvaluation now refuses this itself (IndependenceError), so the row is written
+      // past the store, as the owner, to probe the database rule on its own
+      await expect(fx.evaluate(s, h, "supports", [sp], "rule-reentrancy")).rejects.toThrow(/cannot evaluate its own claim/);
+      const c = await db.ownerPool.connect(); let self: string;
+      try {
+        await c.query("BEGIN");
+        const hr = (await c.query("SELECT workflow_run_id, produced_by_step_id FROM hypotheses WHERE id = $1", [h])).rows[0];
+        self = (await c.query("INSERT INTO hypothesis_evaluations (workflow_run_id, hypothesis_id, produced_by_step_id, evaluator_id, evaluator_version, outcome, rationale, input_sha256) VALUES ($1,$2,$3,'rule-reentrancy','1','supports','self',$4) RETURNING id", [hr.workflow_run_id, h, hr.produced_by_step_id, "d".repeat(64)])).rows[0].id;
+        await c.query("INSERT INTO evaluation_evidence (evaluation_id, span_id, workflow_run_id, produced_by_step_id) VALUES ($1,$2,$3,$4)", [self, sp, hr.workflow_run_id, hr.produced_by_step_id]);
+        await c.query("COMMIT");
+      } finally { c.release(); }
       const r = await fx.review(h, "owner", "supports", "disclosed_adjudication");
       await expect(outcome(rt.pool, h, "confirmed", [self], r)).rejects.toThrow(/independent of the generator/);
     });
