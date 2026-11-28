@@ -585,8 +585,8 @@ Full suite: `npm run typecheck` exit 0; `npm test`: 68 files, 1047 passed, 1 ski
   the balance before a payable call.
 - Only the actor named `"attacker"` has its ether receipts counted. The actor-value family can therefore observe one actor per run.
 - No time, tokens, structs or arrays; anything outside the contract abstains (shown by the coverage test).
-- The loop cap and narrow-type approximations are **not yet detected**. The prototype does not suppress sequences that hit them, which
-  is why increment 1 comes first.
+- The loop cap and narrow-type approximations were **not detected** by this first prototype. They are now detected and their
+  counterexamples suppressed (§10.4, item 10.1).
 - **Path growth is real.** Depth 4 on six functions is already about 16 000 transitions. Budgets and region selection are needed
   before any real repository.
 - The independence marker compared only against the structural specialists. Slither was not run.
@@ -633,3 +633,213 @@ abstention or suppression, never a hypothesis.
 - **Self-authored tests demonstrate mechanism only,** never intelligence or real-world value.
 - **The blind evaluation** uses corpus 5 only after the owner approves A22 and A23. APEX is registered for it only after it passes
   its gates on the controlled corpus.
+
+### 10.4 Status of the §10 items (2026-11-28, PROTOTYPE only)
+
+The work below is in `apps/api/src/apex/testing/`. It is still a prototype:
+- off by default, because nothing calls it;
+- imported by nothing outside its own tests;
+- excluded from production builds;
+- not scored on any corpus.
+
+Every result comes from self-authored contracts. It shows the mechanism works. It is **not** evidence of detection quality.
+`simulate.ts` is unchanged, and its existing suites pass unchanged.
+
+| item | status | one-line honest summary |
+|---|---|---|
+| 10.1 semantic-fidelity gate | **implemented, tested (46 tests)** | It abstains on every injected unsupported feature, with file:line. It suppresses every injected approximation. No case produced a hypothesis. It withholds true bugs, and counts each one. |
+| 10.2.1 coverage | **implemented, tested (5 tests)** | It measures states, transitions, guards, statements and unexplored regions. On 3 tiny contracts, the explorer reached 38–64% of the concrete states that exhaustive enumeration reached. |
+| 10.2.2 invariant quality | **implemented, tested (7 tests)** | On the controls, the false-invariant rate fell from 5/10 to 1/5. One true invariant and two true bugs were rejected. These are the rules' measured cost. |
+| 10.2.3 actors and permissions | **design note only** (below) | Not implemented. Actors are still the fixed `owner0`, `alice` and `attacker`. |
+| 10.2.4 minimisation | **implemented, tested (5 tests)** | Delta-debugging re-checks the same candidate, the same final function, the same reason and no approximation. It keeps the original and the minimised sequence. |
+| 10.2.5 independent replay | **not started** | Out of scope for this increment. APEX still validates nothing. |
+
+**Files:**
+- `fidelity.ts`: the instrumented interpreter.
+- `coverage.ts` and `exhaustive.ts`: coverage measurement and the exhaustive comparison.
+- `controls.ts`: the correct-but-asymmetric controls and the false-invariant measure.
+- `state-explorer-prototype.ts`: the engine, quality rules, minimisation and gate.
+- Tests: `fidelity-gate.test.ts`, `coverage.test.ts`, `invariant-quality.test.ts`, `minimise.test.ts`, and the original
+  `state-explorer-prototype.test.ts`.
+
+The original 9 tests pass without changes to their expectations. There are now 72 APEX tests.
+`npm run typecheck` exits 0. `npm test` ran 75 files: 1125 passed, 1 skipped.
+
+#### 10.1 How the gate works, and what it cannot see
+`FidelityInterp` subclasses `Interp`. Each override either records something and then delegates, or replays the original line
+word for word to observe an outcome the original hides. The replayed cases are the loop, `if`, and `x.balance`.
+
+It records these as **approximations**:
+- the 8-iteration loop cap is reached while the loop condition still holds;
+- any read, write, local, parameter or return of a type narrower than 256 bits, or of a signed type;
+- a cast other than `uint256(...)`, `address(...)` or `payable(...)`;
+- an evaluated string literal;
+- `tx.origin`;
+- the balance of any address other than `this`.
+
+It records these as **unsupported**, so the transaction does not complete:
+- `block.*`, `now`, `gasleft`;
+- hashing and `abi.*`;
+- `try`;
+- inline assembly;
+- `delegatecall`, `staticcall`, `callcode` (proxy);
+- interface casts, calls into contracts, `new`;
+- a low-level call, `send` or `transfer` to a non-actor;
+- reading or writing any state array, struct, enum or contract-typed variable;
+- the interpreter's step limit.
+
+The original interpreter models some of these silently but wrongly: it indexes arrays as mappings, assumes `delegatecall`
+succeeds, and treats any address as an externally owned account. The subclass turns these into abstentions.
+
+How each outcome is handled:
+- **Abstention.** Recorded as `abstained(<feature>@<file:line>)` in `gate.abstentions` and in the coverage. Only the transactions
+  that met the feature are lost. A function that met it in one state can still complete in another.
+- **Suppression.** If any transaction on a counterexample's path, deployment included, touched an approximation, the counterexample
+  is suppressed. It is counted per kind in `gate.suppressed` and never becomes a violation or hypothesis.
+- **Support.** Honest support from approximated transitions does not count towards establishing a candidate.
+- **Withheld.** A candidate is listed in `gate.withheld` when the gate, not the protocol, kept it from a hypothesis.
+- **Hypotheses.** A hypothesis carries `fidelity: { fullyModelled: true, approximationsOnPath: 0 }`.
+
+**What the tests injected:**
+- 13 unsupported-feature cases. Each went into both vulnerable contracts: `Token.burn` (an honest conservation break) and
+  `Vault.withdrawFor` (an adversarial actor-value break).
+- 7 approximation cases, also into both.
+- Further cases: an approximation in a prerequisite step, and one in deployment; an unsupported feature in deployment; an
+  unsupported feature off the counterexample's path, which correctly still yields the hypothesis; and a branch-local approximation,
+  where only the owner's path is suppressed and the clean path by another actor is reported.
+
+**True bugs withheld by the gate (all by construction, all counted):**
+- 16 approximation cases withheld a real bug:
+  - 7 as `only-suppressed-counterexamples` (Token);
+  - 7 as `support-only-through-approximations` (Vault: `withdrawFor` is both the only honest support and the breaking step);
+  - 1 for a prerequisite approximation;
+  - 1 for a deployment approximation.
+- 26 unsupported-feature cases abstained on the region containing a real bug.
+
+The gate trades recall for fidelity, as required.
+
+**Limits of the gate:**
+- **Narrow types are flagged on any touch, not on any effect.** A `uint8` counter suppresses even when no truncation could occur.
+  This is conservative, so it over-suppresses.
+- **Actors are assumed to be externally owned accounts with no code.** The explorer runs with callbacks off, so re-entry from an
+  actor is not explored. This is a modelling assumption the gate does not flag.
+- **Feature detection is dynamic.** A feature on a branch never executed is neither seen nor reported. Coverage lists that branch
+  as unexplored.
+- **"other" is a catch-all.** An unrecognised `Unsupported` reason is classed as `other`. It still abstains.
+
+#### 10.2.1 Coverage, and the gap to exhaustive enumeration
+Each search reports:
+- distinct concrete states and abstract states (every number reduced to its sign);
+- distinct abstract transitions per function;
+- every guard (`require`/`assert`/`if`), as both-sides, only-passed, only-failed or never-reached;
+- statements never reached;
+- functions never completed;
+- abstentions;
+- an `unexplored` list naming every one of these, plus budget exhaustion and the depth bound.
+
+`compareWithExhaustive` compares two searches:
+- **The explorer's**: depth 3; one amount (1e18); its own address when honest; `true` for every bool.
+- **Exhaustive**: amounts {0, 1e18, 2e18}; values {0, 1e18}; both bools; any actor for any address; run to a fixpoint.
+
+Measured results:
+
+| contract (self-authored) | concrete states explorer / exhaustive | abstract | transitions | guard sides missed | functions never completed by the explorer |
+|---|---|---|---|---|---|
+| `Cycle` (closing step needs 4 transactions) | 4 / 8 (50%) | 2 / 4 | 2 / 6 | 2 of 4 | `reset` |
+| `Caps` (amount-dependent guards) | 18 / 28 (64%) | 9 / 9 | 33 / 43 | 1 of 4 (`a > 0` never fails) | none |
+| `Keys` (boolean parameters) | 5 / 13 (38%) | 5 / 13 | 9 / 42 | 0 of 4 | none |
+
+The explorer never reached a state the exhaustive search did not (`explorerOnly = 0`).
+
+What the gaps show:
+- **Guard-side coverage overstates.** `Keys` exercised every guard side yet reached only 5 of 13 states.
+- **The sign abstraction hides amount gaps.** In `Caps` the abstract states match, 9 of 9, while concrete states do not.
+
+**Limits of coverage:**
+- **Statements are keyed by `file:line`.** Several statements on one line merge, and so do several guards on one line. Write
+  guards on separate lines to measure them separately.
+- **Written-zero scalars are distinct states.** A scalar written back to its default still counts as a different concrete state
+  from an unwritten one. Mapping entries are normalised.
+- **Exhaustive enumeration is feasible only for toy contracts.** On real code, coverage can only be reported, not compared.
+
+#### 10.2.2 Invariant quality, and the false-invariant rate
+A candidate is **established** only if it passes three rules:
+1. **Minimum support.** It needs at least `minSupport` (default 2) fully modelled honest transitions that moved both sides and
+   preserved it.
+2. **Depth extension.** Extending the honest search to depth + 1 must add no new honestly breaking function. If the extension
+   exhausts its budget, the candidate is rejected.
+3. **Randomised honest sequences.** 200 sequences of length depth + 3, from a seeded mulberry32 generator, using other amounts
+   and values, both bools, and the actor's own address. They must add no new honestly breaking function. The seed and the
+   falsifying sequence are recorded, so the result is reproducible.
+
+An honest violation by a function that already broke the candidate in the breadth-first phase is still reported as a finding.
+That keeps honestly triggerable bugs, such as `burn` in case A.
+
+The rate was measured on 6 self-authored correct-but-asymmetric controls (`controls.ts`). Every generated candidate is labelled
+true or false by reading the design.
+
+|   | accepted false / all accepted | false candidates accepted | hypotheses on correct code |
+|---|---|---|---|
+| bare sensitivity rule (`quality: false`) | 5 / 10 (50%) | 5 of 12 | 2 (`Seeded.claim`, `Bonus.distribute`) |
+| with the three rules | **1 / 5 (20%)** | 1 of 12 | 1 (`Bonus.distribute`) |
+
+**Measured costs:**
+- **One true invariant was rejected.** `Seeded:one-way:seeded` is exercised by exactly one honest transition, so the minimum-support
+  rule rejects it.
+- **Two true bugs were rejected.** Both are asserted as tests:
+  - `DeepToken`: `burn` needs a 4th transaction, so depth extension calls it a depth artefact. At depth 4 the bug is reported.
+  - `BigBurn`: the bug only appears with amounts of 2e18 or more. The randomised rule rejects it.
+
+**What remains:**
+- **Designed asymmetry inside the explored depth looks like a bug.** `Bonus` pays a reserve-funded bonus outside `totalDeposits`,
+  reachable within depth 3. It is indistinguishable from a bug and is still reported. Nothing in the inferred-invariant method can
+  separate "designed asymmetry" from "bug" without intent, such as documentation or a specification.
+- **The controls are not independent.** The same author wrote the controls and the rules, several controls to exercise one rule
+  each. The before/after numbers show the rules do what they were built to do. They are **not** an estimate on any other code.
+- **Support is not distinctness.** Support counts transitions, not distinct transitions, so unrelated state inflates it.
+
+#### 10.2.4 Minimisation
+`minimiseCounterexample` works in two passes:
+1. ddmin over complements of the steps;
+2. shrinking each argument (amounts to 1, addresses to the caller) and each `msg.value` (to 1).
+
+A change is kept only if the replay meets all of these:
+- every step completes;
+- no approximation appears anywhere on the path, deployment included;
+- the first violation of the **same** candidate happens at the **last** step;
+- that last step is in the **same** function, for the **same** reason. The reason is the direction of the mismatch for
+  conservation, and a fixed reason for each of the other kinds.
+
+Every violation carries `minimisation.original` and `minimisation.minimised`.
+
+Tests show it refuses two removals:
+- one that would route the final step through a narrowing cast;
+- one that makes the same invariant break for the opposite reason (`totalSupply < sum` instead of `>`).
+
+Breadth-first counterexamples are already shortest in steps, so on them it usually only shrinks arguments.
+
+#### 10.2.3 Actors and permissions: design note (not implemented)
+1. **Derive actors from `authorityFacts` (P3).** Do not assume them.
+   - **Single-address roles.** For each `RoleFact` with holder `single-address` whose writer is the constructor (recorded caller),
+     the deployer is that role's holder.
+   - **Tables.** For `membership-table` and `role-table`, holders are those the explored sequences grant through a modelled writer.
+   - **Everyone else.** Any other actor is unprivileged.
+2. **Grade each role from its `transfer` field.**
+   - **Obtainable:** `open-writer`, `mixed`, or an unlocked `initialiser-only`.
+   - **Unobtainable:** `fixed-after-deployment`, `by-holder`, `by-other-role`, unless a chain of obtainable roles reaches it.
+3. **Label each step of a counterexample.** A step is *privileged* if its function has a caller-side authorising `Check`, and the
+   performing actor holds the role that check reads.
+4. **Find the attacker steps.** These are the non-honest steps: a cross-actor address argument, or any step by an actor
+   designated as the attacker.
+5. **Suppress privilege-dependent violations.** Suppress a violation (`suppressed(privilege:<role>)`) when an attacker step needs
+   a privilege that is unobtainable. Re-check by replaying with the privileged steps reassigned to an unprivileged actor. If the
+   violation persists, it does not need the privilege and is kept.
+6. **Cite the evidence.** Each suppression and each actor cites the `RoleFact.evidence` and `Check.at` locations.
+
+It is not implemented for two reasons:
+- **There is no attacker designation.** The explorer has no notion of which actor in a sequence is the attacker. Every actor may
+  deviate in the adversarial phase.
+- **Writer-chain analysis is needed.** Making privilege suppression sound needs writer-chain reachability analysis. That is not
+  "simple".
+
+Today the only privilege rule is in the `one-way` family: a reversal by the deployer is administrative, not a violation.
