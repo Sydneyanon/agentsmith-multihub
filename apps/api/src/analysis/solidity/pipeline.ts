@@ -8,6 +8,7 @@ import { buildProtocolModel, reachableCalls, type ProtocolModel } from "./protoc
 import type { AuthorityFacts } from "./authority.js";
 import { canonicalJson, sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
 import { slitherScanOfSnapshot } from "./slither-record.js";
+import { analysisIdentity, evaluationRelation, type EvaluationRelation } from "../../analysis-identity.js";
 import { SLITHER_VERSION as SLITHER_PINNED } from "./keys.js";
 
 /**
@@ -179,7 +180,26 @@ export type DossierEntry = {
   hypothesis_id: string; class: string; function: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown;
   generator: string; evidence: Array<{ path: string; lines: string; role: string; text: string; verified: boolean }>;
   evaluations: Array<{ evaluator: string; outcome: string; rationale: string }>; status: string | null; static_outcome: string | null; human_review: string;
+  /** D: the claim as generated, with who generated it and from which analysis family */
+  origin: { generator: string; generator_kind: string; analysis_family: string | null; method: string | null };
+  /** D: each validator's identity, family and relation to the generator, with its latest outcome (one row per evaluator) */
+  validators: DossierValidator[];
+  /** D: latest `supports` evaluations, each labelled with its family relation (agreement is corroboration, never proof) */
+  supporting_evidence: DossierEvidence[];
+  /** D: latest `contradicts` and `weakens` evaluations, with the executed counterexample or the reason */
+  contradicting_evidence: DossierEvidence[];
+  /** D: agreement counted by family relation; shown as corroboration only */
+  corroboration: { same_family: number; cross_family: number; unknown_family: number; note: string };
+  /** D: an executed reproduction (a compiled test run, e.g. foundry-forge), or "none" */
+  reproduction: "none" | Array<{ evaluator: string; outcome: string; rationale: string }>;
+  /** D: the final assessment, derived from the database status and the evaluations; never "confirmed" without a human outcome */
+  assessment: { verdict: DossierVerdict; text: string };
+  /** D: what this entry's conclusion rests on and cannot show */
+  uncertainty: string[];
 };
+export type DossierVerdict = "withdrawn" | "reviewed" | "refuted" | "weakened" | "supported_cross_family" | "corroborated_same_family" | "supported_unknown_family" | "open";
+export type DossierValidator = { evaluator: string; version: string; analysis_family: string | null; method: string | null; relation: EvaluationRelation; outcome: string };
+export type DossierEvidence = { evaluator: string; analysis_family: string | null; relation: EvaluationRelation; outcome: string; rationale: string; cited: Array<{ path: string; lines: string }> };
 export type ArchitectureSection =
   | { available: false; reason: string }
   | { available: true; model_sha256: string; builder: string; components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; state_roles: Array<{ variable: string; status: string; roles: string[] }>; authority: AuthoritySummary | null; entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; resolved_callee: string | null; at: string }>; unresolved_calls: Array<{ name: string; at: string }> }> }>; unknowns: Array<{ at: string; what: string }> };
@@ -300,29 +320,94 @@ async function addSlitherCoverage(pool: Pool, snapshotId: string, coverage: Anal
   }
 }
 
+const REVIEW_STATUSES = new Set(["reviews_disagree", "supported_by_review", "rejected_by_review", "needs_more_evidence", "review_inconclusive"]);
+/**
+ * D: the evidence-integrity part of a dossier entry, from the stored evaluations only (latest per evaluator, as the status view does).
+ * Origin, supporting and contradicting evidence, each validator's identity and analysis family, the reproduction, the assessment and the
+ * uncertainty are kept apart. Agreement is reported as corroboration from the same or another family, never as proof; nothing here says
+ * "confirmed" (that needs a human outcome, which the dossier does not record).
+ */
+export function evidenceIntegrity(gen: { kind: string; id: string; version: string },
+  evals: ReadonlyArray<{ id: string; evaluator_id: string; evaluator_version: string; outcome: string; rationale: string }>,
+  cited: ReadonlyMap<string, Array<{ path: string; lines: string }>>, status: string | null, rationale: string, reviewCount: number,
+): Pick<DossierEntry, "origin" | "validators" | "supporting_evidence" | "contradicting_evidence" | "corroboration" | "reproduction" | "assessment" | "uncertainty"> {
+  const gi = analysisIdentity(gen.id);
+  const latest = new Map<string, (typeof evals)[number]>(); for (const e of evals) latest.set(e.evaluator_id, e); // ordered by evaluator, then time
+  const rows = [...latest.values()];
+  const fam = (id: string) => analysisIdentity(id);
+  const item = (e: (typeof evals)[number]): DossierEvidence => ({ evaluator: `${e.evaluator_id}@${e.evaluator_version}`, analysis_family: fam(e.evaluator_id)?.analysisFamily ?? null, relation: evaluationRelation(gen, e.evaluator_id), outcome: e.outcome, rationale: e.rationale, cited: cited.get(e.id) ?? [] });
+  const validators: DossierValidator[] = rows.map((e) => ({ evaluator: `${e.evaluator_id}@${e.evaluator_version}`, version: e.evaluator_version, analysis_family: fam(e.evaluator_id)?.analysisFamily ?? null, method: fam(e.evaluator_id)?.method ?? null, relation: evaluationRelation(gen, e.evaluator_id), outcome: e.outcome }));
+  const supporting = rows.filter((e) => e.outcome === "supports").map(item);
+  const contradicting = rows.filter((e) => e.outcome === "contradicts" || e.outcome === "weakens").map(item);
+  const count = (r: EvaluationRelation) => supporting.filter((s) => s.relation === r).length;
+  const corroboration = { same_family: count("same-family"), cross_family: count("cross-family"), unknown_family: count("unknown-family"),
+    note: "Agreement between a producer and a validator is corroboration (same family: the same substrate, errors correlate; another family: an independent substrate), never proof." };
+  const repro = rows.filter((e) => fam(e.evaluator_id)?.analysisFamily === "evm-execution");
+  const has = (o: string) => rows.some((e) => e.outcome === o);
+  let verdict: DossierVerdict; let text: string;
+  if (status === "withdrawn") { verdict = "withdrawn"; text = "Withdrawn by a human; kept for the record."; }
+  else if (status && REVIEW_STATUSES.has(status)) { verdict = "reviewed"; text = `Status from recorded reviews: ${status}. Technical evidence is listed separately; no outcome (confirmed or refuted) is recorded in this dossier.`; }
+  else if (has("contradicts")) { verdict = "refuted"; text = "REFUTED in the modelled world: a validator executed a counterexample (see contradicting evidence). This is not a proof for a real deployment; a recorded refuted outcome still needs a human decision."; }
+  else if (has("weakens")) { verdict = "weakened"; text = "Weakened: a validator executed the claimed path and did not observe the claimed effect, but nothing executed contradicts it. The lead stays open."; }
+  else if (corroboration.cross_family > 0) { verdict = "supported_cross_family"; text = "Supported by evidence from a different analysis family than the generator. NOT confirmed: confirmation needs a human adjudication."; }
+  else if (corroboration.same_family > 0) { verdict = "corroborated_same_family"; text = "Corroborated within the generator's own analysis family only (same substrate, different method). This is NOT independent confirmation."; }
+  else if (corroboration.unknown_family > 0) { verdict = "supported_unknown_family"; text = "Supported by an evaluator whose analysis family is not recorded; it does not count as independent."; }
+  else { verdict = "open"; text = "Open: no validator decided this lead. That is NOT evidence that the issue is absent."; }
+  const uncertainty: string[] = [];
+  if (rows.some((e) => fam(e.evaluator_id)?.method === "bounded-execution")) uncertainty.push("The execution validators run a bounded model of one contract (privileged addresses are a third party, sampled arguments, no external code); their results hold in that modelled world only.");
+  if (supporting.some((s) => s.relation === "same-family") || contradicting.some((s) => s.relation === "same-family")) uncertainty.push(`The validator shares the generator's analysis family (${gi?.analysisFamily ?? "?"}): a misreading by that substrate would affect both.`);
+  for (const e of rows.filter((x) => x.outcome === "inconclusive")) uncertainty.push(`${e.evaluator_id} abstained: ${e.rationale.slice(0, 300)} The lead stays open; this is NOT evidence that the issue is absent.`);
+  if (!rows.length) uncertainty.push("No evaluation is recorded; the lead is unchallenged.");
+  if (!repro.length) uncertainty.push("No executed reproduction (compiled test on the EVM) is recorded.");
+  if (/Assumptions: /.test(rationale)) uncertainty.push(`The generator recorded assumptions: ${rationale.slice(rationale.indexOf("Assumptions: ") + 13, rationale.indexOf("Assumptions: ") + 413)}`);
+  if (!reviewCount) uncertainty.push("No review is recorded.");
+  return {
+    origin: { generator: `${gen.id}@${gen.version}`, generator_kind: gen.kind, analysis_family: gi?.role === "generator" ? gi.analysisFamily : gen.kind === "human" ? "human" : null, method: gi?.role === "generator" ? gi.method : null },
+    validators, supporting_evidence: supporting, contradicting_evidence: contradicting, corroboration,
+    reproduction: repro.length ? repro.map((e) => ({ evaluator: `${e.evaluator_id}@${e.evaluator_version}`, outcome: e.outcome, rationale: e.rationale })) : "none",
+    assessment: { verdict, text }, uncertainty,
+  };
+}
+
 /** Builds the dossier ONLY from stored records; spans are re-resolved and re-verified; fails closed if any cited span cannot be verified. */
 export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId: string): Promise<Dossier> {
   const snap = (await pool.query("SELECT id, repository, commit_sha, file_count, manifest_sha256 FROM repo_snapshots WHERE id = $1", [snapshotId])).rows[0];
   const verified = (await store.verifySnapshot(snapshotId)) as { ok?: boolean };
-  const hs = (await pool.query<{ id: string; family: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown; generator_id: string; generator_version: string }>(
-    "SELECT id, family, claim, rationale, required_checks, alternative_explanations, generator_id, generator_version FROM hypotheses WHERE snapshot_id = $1 ORDER BY claim COLLATE \"C\"", [snapshotId])).rows;
+  const hs = (await pool.query<{ id: string; family: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown; generator_kind: string; generator_id: string; generator_version: string }>(
+    "SELECT id, family, claim, rationale, required_checks, alternative_explanations, generator_kind, generator_id, generator_version FROM hypotheses WHERE snapshot_id = $1 ORDER BY claim COLLATE \"C\"", [snapshotId])).rows;
   const entries: DossierEntry[] = [];
   for (const h of hs) {
     const ev = (await pool.query<{ span_id: string; role: string }>("SELECT span_id, role FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY role, span_id", [h.id])).rows;
     const evidence: DossierEntry["evidence"] = [];
     for (const e of ev) {
-      const r = await store.resolveSpan(e.span_id); const verifiedHash = await store.verifySpan(e.span_id).then(() => true).catch(() => false);
+      const r = await store.resolveSpan(e.span_id); const verifiedHash = await store.verifySpan(e.span_id).then((v) => v === "ok").catch(() => false);
       if (!r.ok || !verifiedHash) throw new Error(`dossier refused: a cited span of hypothesis ${h.id} cannot be verified`);
       evidence.push({ path: r.path, lines: `${r.lineStart}-${r.lineEnd}`, role: e.role, text: r.text.trim(), verified: true });
     }
     evidence.sort((a, b) => a.path.localeCompare(b.path) || a.lines.localeCompare(b.lines));
-    const evals = (await pool.query<{ evaluator_id: string; outcome: string; rationale: string }>("SELECT evaluator_id, outcome, rationale FROM hypothesis_evaluations WHERE hypothesis_id = $1 ORDER BY evaluator_id, created_at", [h.id])).rows;
+    const evals = (await pool.query<{ id: string; evaluator_id: string; evaluator_version: string; outcome: string; rationale: string }>("SELECT id, evaluator_id, evaluator_version, outcome, rationale FROM hypothesis_evaluations WHERE hypothesis_id = $1 ORDER BY evaluator_id, created_at", [h.id])).rows;
+    // what each evaluation cites, re-resolved and re-verified like the hypothesis's own evidence (fail closed)
+    const cited = new Map<string, Array<{ path: string; lines: string }>>();
+    for (const e of evals) {
+      const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM evaluation_evidence WHERE evaluation_id = $1 ORDER BY span_id", [e.id])).rows;
+      const out: Array<{ path: string; lines: string }> = [];
+      for (const s of spans) {
+        const r = await store.resolveSpan(s.span_id); const ok = await store.verifySpan(s.span_id).then((v) => v === "ok").catch(() => false);
+        if (!r.ok || !ok) throw new Error(`dossier refused: a span cited by an evaluation of hypothesis ${h.id} cannot be verified`);
+        out.push({ path: r.path, lines: `${r.lineStart}-${r.lineEnd}` });
+      }
+      cited.set(e.id, out);
+    }
+    const reviews = (await pool.query<{ reviewer_kind: string; reviewer_id: string; review_mode: string; verdict: string }>("SELECT reviewer_kind, reviewer_id, review_mode, verdict FROM hypothesis_reviews WHERE hypothesis_id = $1 ORDER BY created_at, id", [h.id])).rows;
     const st = (await store.getStatus(h.id)) as Record<string, unknown> | null;
     const cls = h.family.replace(/^solidity-/, "");
     const fn = h.generator_id === "slither" ? /^Slither \S+ \([^)]*\) in ([\w$]+(?:\.[\w$]+)?):/.exec(h.claim)?.[1] ?? "" : /^(\w+\.\w+)/.exec(h.claim)?.[1] ?? "";
+    const status = (st?.status as string) ?? null;
     entries.push({ hypothesis_id: h.id, class: cls, function: fn, claim: h.claim, rationale: h.rationale, required_checks: h.required_checks, alternative_explanations: h.alternative_explanations,
       generator: `${h.generator_id}@${h.generator_version}`, evidence, evaluations: evals.map((e) => ({ evaluator: e.evaluator_id, outcome: e.outcome, rationale: e.rationale })),
-      status: (st?.status as string) ?? null, static_outcome: (st?.static_outcome as string) ?? null, human_review: "none recorded" });
+      status, static_outcome: (st?.static_outcome as string) ?? null,
+      human_review: reviews.filter((r) => r.reviewer_kind === "human").map((r) => `${r.review_mode} by ${r.reviewer_id}: ${r.verdict}`).join("; ") || "none recorded",
+      ...evidenceIntegrity({ kind: h.generator_kind, id: h.generator_id, version: h.generator_version }, evals, cited, status, h.rationale, reviews.length) });
   }
   const summary: Record<string, number> = {};
   for (const e of entries) summary[e.status ?? "unknown"] = (summary[e.status ?? "unknown"] ?? 0) + 1;
@@ -349,15 +434,24 @@ export function renderDossierMarkdown(d: Dossier): string {
       + (d.coverage.external_tools?.length ? d.coverage.external_tools.map((t) => t.status === "completed"
         ? `External tool: **${t.generator}** completed (solc ${t.solc_version}): ${t.leads} leads, ${t.informational_detections} informational detections counted, not stored.`
         : `External tool: **slither ${t.pinned_version} ABSTAINED** (${t.code}): ${t.detail}`).join("\n") + "\n" : ""),
-    `Status counts (derived by the database view): ${Object.entries(d.summary).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}.\n`, "## Leads\n"];
+    `Status counts (derived by the database view): ${Object.entries(d.summary).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}.\n`,
+    `Assessments: ${Object.entries(d.entries.reduce<Record<string, number>>((a, e) => ({ ...a, [e.assessment.verdict]: (a[e.assessment.verdict] ?? 0) + 1 }), {})).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}. Refuted leads are listed with their counterexample, never dropped; nothing is confirmed without a human outcome.\n`, "## Leads\n"];
   if (!d.entries.length) o.push("_No leads were generated. That is NOT evidence that the code is free of vulnerabilities: it means only that this analyzer's patterns did not match (see coverage and limitations)._\n");
+  const VERDICT: Record<DossierVerdict, string> = { withdrawn: "WITHDRAWN", reviewed: "REVIEWED", refuted: "REFUTED (executed counterexample)", weakened: "WEAKENED", supported_cross_family: "SUPPORTED by another analysis family (not confirmed)", corroborated_same_family: "CORROBORATED within the same analysis family (not independent)", supported_unknown_family: "SUPPORTED by an evaluator of unknown family (not independent)", open: "OPEN (undecided)" };
+  const rel = (r: EvaluationRelation) => r === "cross-family" ? "another analysis family than the generator" : r === "same-family" ? "the SAME analysis family as the generator" : r === "abstention" ? "abstention" : "unknown analysis family";
+  const ev = (x: DossierEvidence) => `- ${x.evaluator} (${x.analysis_family ?? "family not recorded"}; ${rel(x.relation)}): **${x.outcome}**${x.cited.length ? ` citing ${x.cited.map((c) => `\`${c.path}:${c.lines}\``).join(", ")}` : ""}. ${x.rationale.slice(0, 900)}`;
   d.entries.forEach((e, i) => {
-    o.push(`### ${i + 1}. ${e.function} - ${e.class} (status: ${e.status})\n**Claim.** ${e.claim}\n`);
+    o.push(`### ${i + 1}. ${e.function} - ${e.class}: ${VERDICT[e.assessment.verdict]} (status: ${e.status})\n**Claim.** ${e.claim}\n`);
+    o.push(`**Hypothesis.** **Generated by** ${e.origin.generator} (${e.origin.generator_kind}; analysis family ${e.origin.analysis_family ?? "not recorded"}${e.origin.method ? `, method ${e.origin.method}` : ""}). Cited code:`);
     for (const x of e.evidence) o.push(`- evidence (${x.role}) \`${x.path}:${x.lines}\`: \`${x.text.slice(0, 140)}\``);
-    o.push(`\n**Challenge.**` + (e.evaluations.length ? "\n" + e.evaluations.map((v) => `- ${v.evaluator}: **${v.outcome}**. ${v.rationale.slice(0, 600)}`).join("\n") : " none recorded"));
-    if (!e.evaluations.length || e.evaluations.some((v) => v.outcome === "inconclusive"))
-      o.push("_The independent check could not decide this lead. That is NOT evidence that the issue is absent: the lead stays open for review._");
-    o.push(`\n**Required checks.** ${(e.required_checks as string[]).join("; ")}\n**Alternative explanations.** ${(e.alternative_explanations as string[]).join("; ")}\n**Generated by** ${e.generator}. Human review: ${e.human_review}.\n`);
+    o.push(`\n**Supporting evidence.**` + (e.supporting_evidence.length ? "\n" + e.supporting_evidence.map(ev).join("\n") : " none"));
+    o.push(`\n**Contradicting evidence.**` + (e.contradicting_evidence.length ? "\n" + e.contradicting_evidence.map(ev).join("\n") : " none"));
+    o.push(`\n**Validators.**` + (e.validators.length ? "\n" + e.validators.map((v) => `- ${v.evaluator}: analysis family ${v.analysis_family ?? "not recorded"}${v.method ? `, method ${v.method}` : ""}; ${rel(v.relation)}; latest outcome **${v.outcome}**`).join("\n") : " none recorded"));
+    o.push(`\n**Corroboration.** ${e.corroboration.cross_family} from another family, ${e.corroboration.same_family} from the same family${e.corroboration.unknown_family ? `, ${e.corroboration.unknown_family} from an unknown family` : ""}. ${e.corroboration.note}`);
+    o.push(`\n**Reproduction.** ${e.reproduction === "none" ? "none" : e.reproduction.map((r) => `${r.evaluator}: **${r.outcome}**. ${r.rationale.slice(0, 400)}`).join("; ")}`);
+    o.push(`\n**Assessment.** ${e.assessment.text}`);
+    o.push(`\n**Uncertainty and limitations.**\n` + e.uncertainty.map((u) => `- ${u}`).join("\n"));
+    o.push(`\n**Required checks.** ${(e.required_checks as string[]).join("; ")}\n**Alternative explanations.** ${(e.alternative_explanations as string[]).join("; ")}\nHuman review: ${e.human_review}.\n`);
   });
   o.push("## Architecture (protocol model P1-P3)\n");
   if (!d.architecture.available) o.push(`Not available: ${d.architecture.reason}.\n`);
