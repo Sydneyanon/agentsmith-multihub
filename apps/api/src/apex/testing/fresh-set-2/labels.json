@@ -1,0 +1,120 @@
+{
+  "name": "apex-fresh-set-2",
+  "frozen": "2026-11-28, committed before any false-positive rule was implemented (docs/architecture/apex-first-capability.md §11.2). Set 1's remaining false positives were known; the rule ideas below were known to the author in outline.",
+  "status": "SELF-AUTHORED development data. Written by the same author who will write the false-positive rules, after classifying set 1's nine remaining false positives and with the candidate rules in mind. Several vulnerable cases are deliberately built to probe a rule's failure mode (marked `probes`). It measures the mechanism on contracts written before the rules; it is not a benchmark, not a frozen eval corpus, and not evidence of detection quality on real code.",
+  "wellFormedness": "Before freezing, each contract was only parsed and deployed. The candidate ids each contract can generate were listed from the deployed engine's static candidate set (Engine.checks and the precommitted partition shapes), without running any search, so that every id is labelled before any verdict exists. No search was run, and no verdict, violation or hypothesis was looked at.",
+  "scoring": {
+    "run": "exploreStateInvariants(sources, contract, options) with each version's default options unless stated; the options used are recorded with every measurement.",
+    "detection": "A vulnerable case is DETECTED when at least one reported violation (equivalently, hypothesis) has breakingFunction in accept.breakers AND the family of its candidate id (the text before the first ':') in accept.families.",
+    "wrongClaim": "Any other violation on a vulnerable case is a WRONG CLAIM and counts as a false positive.",
+    "secureTwin": "Every violation on a secure twin is a false positive.",
+    "control": "Every violation on a control is a false positive.",
+    "reclassified": "A counterexample that the explorer reclassifies (for example as privileged behaviour or as a designed cycle) and does NOT report as a violation or hypothesis counts neither as a detection nor as a false positive. Reclassified counterexamples are listed with every measurement.",
+    "falseInvariantRate": "On the controls only: falseAccepted / (falseAccepted + trueAccepted), over candidates whose id is labelled in controls[].truth. Unlabelled candidate ids are listed and excluded. Labels are not changed after the freeze; a label added later goes in a separate file marked post-freeze.",
+    "cost": "Total interpreter transitions per run are reported for every measurement."
+  },
+  "candidateIdGrammar": {
+    "conservation:A=sum(L)": "scalar A equals the sum of ledger L",
+    "solvency:balance>=sum(L)": "ether held covers ledger L",
+    "actor-value:attacker-net<=0": "the observed actor never receives more ether than it sent",
+    "one-way:V": "V never returns toward its deployed value except by the deployer",
+    "backing:balance>=A": "ether held covers scalar A (not generated today; labelled so it cannot be fitted later)",
+    "partition:A+B=sum(L)": "two scalars, in alphabetical order, together equal the sum of ledger L",
+    "partition:A=sum(L)+sum(M)": "scalar A equals the sum of two ledgers, in alphabetical order"
+  },
+  "vulnerable": [
+    { "id": "W01", "contract": "StartVault", "file": "v01-start-vault.sol", "twin": "s01-start-vault.sol", "category": "accounting drift behind a privileged switch",
+      "needs": "the owner's start() on the path (privileged, no ether); then exit: 3 transactions for the accounting break, 5 for a theft of another depositor's ether",
+      "bug": "exit pays the caller's balance and reduces totalDeposits but never zeroes the balance, so it can be exited again with other depositors' ether",
+      "probes": "a privileged step on the attack path that funds nothing: a rule must not treat 'a privileged step is on the path' as 'privileged behaviour'",
+      "accept": { "breakers": ["exit"], "families": ["conservation", "partition", "actor-value", "solvency"] } },
+    { "id": "W02", "contract": "BonusPool", "file": "v02-bonus-pool.sol", "twin": "s02-bonus-pool.sol", "category": "reward drain",
+      "needs": "the owner funds the pool (privileged, with ether); a depositor claims the bonus more than once; 4+ transactions",
+      "bug": "claim checks the claimed flag but never sets it, so one depositor can drain the bonus pool funded for every depositor",
+      "probes": "the attacker's gain is bounded by ether the owner paid in through a privileged function, exactly as for a designed bonus; no inferred family separates one claim from many, so the twin's designed bonus is expected to look the same. Included to measure the recall cost of a privileged-funding rule.",
+      "accept": { "breakers": ["claim", "withdraw"], "families": ["actor-value", "solvency"] } },
+    { "id": "W03", "contract": "Treasury", "file": "v03-treasury.sol", "twin": "s03-treasury.sol", "category": "accounting drift next to privileged credits",
+      "needs": "2 transactions: deposit, withdrawAll",
+      "bug": "withdrawAll pays out and zeroes the balance but never adds to totalWithdrawn (withdraw does)",
+      "probes": "totalDeposited = sum(balances) + totalWithdrawn holds except across the owner's credit() and the buggy withdrawAll: a refinement that excuses privileged transitions must still not excuse the unprivileged one",
+      "accept": { "breakers": ["withdrawAll"], "families": ["conservation", "partition"] } },
+    { "id": "W04", "contract": "Epochs", "file": "v04-epochs.sol", "twin": "s04-epochs.sol", "category": "state machine: premature reset",
+      "needs": "2 transactions: step, abort",
+      "bug": "anyone may abort an unfinished epoch, resetting the stage (the design reserves abort for the owner); finish is the designed reset at the end of an epoch",
+      "probes": "a reset that also advances a counter, as a designed cycle does, but from the middle of the cycle",
+      "accept": { "breakers": ["abort"], "families": ["one-way"] } },
+    { "id": "W05", "contract": "Ballot", "file": "v05-ballot.sol", "twin": "s05-ballot.sol", "category": "state machine: stale reset",
+      "needs": "4 transactions: vote, vote, pass, newRound (a 5th, pass, shows the impact)",
+      "bug": "newRound reopens voting without clearing the tally, so the next round passes with no votes",
+      "probes": "a reset at the end of the cycle that does NOT restore the round's initial state; the one-way family flags the reset itself, in the twin too",
+      "accept": { "breakers": ["newRound"], "families": ["one-way"] } },
+    { "id": "W06", "contract": "PricedVault", "file": "v06-priced-vault.sol", "twin": "s06-priced-vault.sol", "category": "share accounting under a share price above 1",
+      "needs": "3 transactions: deposit, the owner's harvest (privileged, with ether), redeem",
+      "bug": "redeem reduces totalShares by the asset amount instead of the share amount",
+      "probes": "share-vs-asset relations and privileged yield next to a same-unit conservation bug: rules that drop totalAssets=sum(shares) or owner-funded yield must keep totalShares=sum(shares)",
+      "accept": { "breakers": ["redeem"], "families": ["conservation", "partition"] } },
+    { "id": "W07", "contract": "RebasePool", "file": "v07-rebase-pool.sol", "twin": "s07-rebase-pool.sol", "category": "accounting drift on full exit",
+      "needs": "2 transactions: stake, unstake of the whole stake (a state-derived amount)",
+      "bug": "the full-exit branch zeroes the stake but never reduces totalStaked",
+      "probes": "the same candidate is also broken, by design, by the owner's privileged rebase: a rule that reclassifies privileged breakers must still report the unprivileged one",
+      "accept": { "breakers": ["unstake"], "families": ["conservation", "partition"] } }
+  ],
+  "secureNote": "Each twin differs from its vulnerable case only in the fix. Every violation on a twin is a false positive. Twins S02 (designed bonus), S05 (designed reset), S06 (owner-funded yield) and S07 (owner-funded rebase) are correct but asymmetric by design.",
+  "controls": [
+    { "contract": "Allowances", "file": "c01-allowances.sol", "fpKind": "privileged action", "design": "the owner funds a budget and allots it to any address; recipients collect what they are owed",
+      "truth": {
+        "conservation:budget=sum(owed)": { "invariant": false, "why": "allot moves value from budget to owed; fund raises budget alone; collect lowers owed alone" },
+        "solvency:balance>=sum(owed)": { "invariant": true, "why": "balance = budget + sum(owed)" },
+        "actor-value:attacker-net<=0": { "invariant": false, "why": "the owner may allot to any address, which collects ether it never sent: designed and privileged" },
+        "partition:budget+totalCollected=sum(owed)": { "invariant": false, "why": "not a relation of the design" },
+        "backing:balance>=budget": { "invariant": true, "why": "balance = budget + sum(owed)" },
+        "backing:balance>=totalCollected": { "invariant": false, "why": "collected ether has left the contract" }
+      } },
+    { "contract": "Harvester", "file": "c02-harvester.sol", "fpKind": "designed yield (privileged)", "design": "a unit vault; the owner adds yield once units exist; joins and exits round down",
+      "truth": {
+        "conservation:managed=sum(units)": { "invariant": false, "why": "managed exceeds units once yield is added (different units)" },
+        "conservation:totalUnits=sum(units)": { "invariant": true, "why": "units move together with totalUnits" },
+        "solvency:balance>=sum(units)": { "invariant": true, "why": "balance = managed >= totalUnits (the price never falls below 1)" },
+        "actor-value:attacker-net<=0": { "invariant": false, "why": "holders earn the owner's yield by design" },
+        "partition:managed+totalUnits=sum(units)": { "invariant": false, "why": "not a relation of the design" },
+        "backing:balance>=managed": { "invariant": true, "why": "balance equals managed" },
+        "backing:balance>=totalUnits": { "invariant": true, "why": "the price never falls below 1" }
+      } },
+    { "contract": "Cycle3", "file": "c03-cycle.sol", "fpKind": "cyclic reset with a counter", "design": "anyone advances the phase to 2 and may then wrap it to 0, clearing the marks and counting the cycle",
+      "truth": {
+        "one-way:phase": { "invariant": false, "why": "the phase wraps to 0 by design, by anyone, at the end of a cycle" },
+        "one-way:cycles": { "invariant": true, "why": "cycles only increases" },
+        "one-way:marks": { "invariant": false, "why": "marks are cleared on wrap by design" }
+      } },
+    { "contract": "Lap", "file": "c04-lap.sol", "fpKind": "cyclic reset without a counter", "design": "anyone ticks the lap to 3 and may then clear it, restoring the deployed state exactly",
+      "truth": {
+        "one-way:lap": { "invariant": false, "why": "the lap is cleared to 0 by design, by anyone, at the end of a lap" }
+      } },
+    { "contract": "DonationShares", "file": "c05-donation-shares.sol", "fpKind": "share-vs-asset units (unprivileged inflow)", "design": "a share vault seeded with at least 1 ether; anyone may donate to the holders, at most doubling the share price per donation; rounding favours the vault",
+      "truth": {
+        "conservation:totalAssets=sum(shares)": { "invariant": false, "why": "assets exceed shares once anything is donated (different units)" },
+        "conservation:totalShares=sum(shares)": { "invariant": true, "why": "shares move together with totalShares" },
+        "solvency:balance>=sum(shares)": { "invariant": true, "why": "balance = totalAssets >= totalShares (the price never falls below 1)" },
+        "actor-value:attacker-net<=0": { "invariant": false, "why": "holders receive donations and rounding remainders by design" },
+        "partition:totalAssets+totalShares=sum(shares)": { "invariant": false, "why": "not a relation of the design" },
+        "backing:balance>=totalAssets": { "invariant": true, "why": "balance equals totalAssets" },
+        "backing:balance>=totalShares": { "invariant": true, "why": "the price never falls below 1" }
+      } },
+    { "contract": "Membership", "file": "c06-membership.sol", "fpKind": "cumulative counters next to a privileged grant", "design": "members join and leave (cumulative totalJoined and totalLeft); the owner grants a fixed bonus from a funded pool to any address",
+      "truth": {
+        "conservation:bonusPool=sum(credit)": { "invariant": false, "why": "different quantities" },
+        "conservation:totalJoined=sum(credit)": { "invariant": false, "why": "bonuses and leaves change credit without totalJoined" },
+        "conservation:totalLeft=sum(credit)": { "invariant": false, "why": "different quantities" },
+        "solvency:balance>=sum(credit)": { "invariant": true, "why": "balance = bonusPool + sum(credit)" },
+        "actor-value:attacker-net<=0": { "invariant": false, "why": "the owner may grant a bonus to any address, which then leaves with ether it never sent: designed and privileged" },
+        "partition:bonusPool+totalJoined=sum(credit)": { "invariant": false, "why": "not a relation of the design" },
+        "partition:bonusPool+totalLeft=sum(credit)": { "invariant": false, "why": "not a relation of the design" },
+        "partition:totalJoined+totalLeft=sum(credit)": { "invariant": false, "why": "not a relation of the design" },
+        "backing:balance>=bonusPool": { "invariant": true, "why": "balance = bonusPool + sum(credit)" },
+        "backing:balance>=totalJoined": { "invariant": false, "why": "leaves lower the balance but not totalJoined" },
+        "backing:balance>=totalLeft": { "invariant": false, "why": "left ether has left the contract" }
+      } }
+  ],
+  "tiny": [],
+  "relationToSet1": "The controls are of the five kinds behind set 1's remaining false positives: privileged action (Rebate), designed yield (YieldShares, S08), cyclic reset (Seasons), share-vs-asset units (totalAssets=sum(shares) on V03, V08, S08, YieldShares), and cumulative counters (Rebate's totalDeposited)."
+}

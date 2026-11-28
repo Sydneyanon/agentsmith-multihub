@@ -1,0 +1,270 @@
+{
+ "label": "fresh set 1 after the false-positive rules of §11.2 (measured after set 2 drove them; set 1's false positives motivated them): deep strategy, default options",
+ "options": {},
+ "totals": {
+  "detected": 10,
+  "vulnerable": 10,
+  "recall": 1,
+  "falseNegatives": [],
+  "falsePositives": 1,
+  "wrongClaims": 0,
+  "twinFalsePositives": 0,
+  "controlFalsePositives": 1,
+  "falseAccepted": 3,
+  "trueAccepted": 11,
+  "falseInvariantRate": 0.21428571428571427,
+  "falseAcceptedIds": [
+   "Rebate:actor-value:attacker-net<=0",
+   "Seasons:one-way:season",
+   "YieldShares:actor-value:attacker-net<=0"
+  ],
+  "trueRejected": [],
+  "unlabelled": [],
+  "transitions": 275995
+ },
+ "reclassified": [
+  "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+  "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+  "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+  "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+ ],
+ "cost": {
+  "requested": 317860,
+  "interpreted": 64368
+ },
+ "vulnerable": [
+  {
+   "id": "V01",
+   "contract": "ExitQueue",
+   "detected": true,
+   "violations": [
+    "conservation:totalDeposits=sum(balances) by exit"
+   ],
+   "wrongClaims": [],
+   "transitions": 11988,
+   "abstained": null
+  },
+  {
+   "id": "V02",
+   "contract": "FeeRound",
+   "detected": true,
+   "violations": [
+    "conservation:totalSupply=sum(balanceOf) by transfer"
+   ],
+   "wrongClaims": [],
+   "transitions": 11802,
+   "abstained": null
+  },
+  {
+   "id": "V03",
+   "contract": "InflationVault",
+   "detected": true,
+   "violations": [
+    "actor-value:attacker-net<=0 by withdraw"
+   ],
+   "wrongClaims": [],
+   "transitions": 11949,
+   "abstained": null
+  },
+  {
+   "id": "V04",
+   "contract": "Auction",
+   "detected": true,
+   "violations": [
+    "solvency:balance>=sum(pendingReturns) by withdrawRefund",
+    "actor-value:attacker-net<=0 by withdrawRefund"
+   ],
+   "wrongClaims": [],
+   "transitions": 11993,
+   "abstained": null
+  },
+  {
+   "id": "V05",
+   "contract": "Proposal",
+   "detected": true,
+   "violations": [
+    "one-way:phase by reopen"
+   ],
+   "wrongClaims": [],
+   "transitions": 420,
+   "abstained": null
+  },
+  {
+   "id": "V06",
+   "contract": "PartialExit",
+   "detected": true,
+   "violations": [
+    "conservation:totalDeposits=sum(balances) by withdraw"
+   ],
+   "wrongClaims": [],
+   "transitions": 11948,
+   "abstained": null
+  },
+  {
+   "id": "V07",
+   "contract": "Strategy",
+   "detected": true,
+   "violations": [
+    "partition:idle+invested=sum(balances) by withdraw"
+   ],
+   "wrongClaims": [],
+   "transitions": 11968,
+   "abstained": null
+  },
+  {
+   "id": "V08",
+   "contract": "YieldVault",
+   "detected": true,
+   "violations": [
+    "conservation:totalShares=sum(shares) by redeem"
+   ],
+   "wrongClaims": [],
+   "transitions": 11955,
+   "abstained": null
+  },
+  {
+   "id": "V09",
+   "contract": "Cooldown",
+   "detected": true,
+   "violations": [
+    "conservation:totalCooling=sum(cooling) by cancel"
+   ],
+   "wrongClaims": [],
+   "transitions": 11992,
+   "abstained": null
+  },
+  {
+   "id": "V10",
+   "contract": "TieredVault",
+   "detected": true,
+   "violations": [
+    "conservation:totalBalances=sum(balances) by deposit"
+   ],
+   "wrongClaims": [],
+   "transitions": 11951,
+   "abstained": null
+  }
+ ],
+ "twins": [
+  {
+   "id": "V01",
+   "contract": "ExitQueue",
+   "falsePositives": [],
+   "transitions": 11997
+  },
+  {
+   "id": "V02",
+   "contract": "FeeRound",
+   "falsePositives": [],
+   "transitions": 11828
+  },
+  {
+   "id": "V03",
+   "contract": "InflationVault",
+   "falsePositives": [],
+   "transitions": 11952
+  },
+  {
+   "id": "V04",
+   "contract": "Auction",
+   "falsePositives": [],
+   "transitions": 11982
+  },
+  {
+   "id": "V05",
+   "contract": "Proposal",
+   "falsePositives": [],
+   "transitions": 420
+  },
+  {
+   "id": "V06",
+   "contract": "PartialExit",
+   "falsePositives": [],
+   "transitions": 11955
+  },
+  {
+   "id": "V07",
+   "contract": "Strategy",
+   "falsePositives": [],
+   "transitions": 11942
+  },
+  {
+   "id": "V08",
+   "contract": "YieldVault",
+   "falsePositives": [],
+   "transitions": 11985
+  },
+  {
+   "id": "V09",
+   "contract": "Cooldown",
+   "falsePositives": [],
+   "transitions": 11990
+  },
+  {
+   "id": "V10",
+   "contract": "TieredVault",
+   "falsePositives": [],
+   "transitions": 11959
+  }
+ ],
+ "controls": [
+  {
+   "contract": "Faucet",
+   "falsePositives": [],
+   "accepted": [
+    "conservation:totalDripped=sum(dripped)"
+   ],
+   "transitions": 11961
+  },
+  {
+   "contract": "Rebate",
+   "falsePositives": [],
+   "accepted": [
+    "solvency:balance>=sum(balances)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 11966
+  },
+  {
+   "contract": "Seasons",
+   "falsePositives": [
+    "one-way:season by rollover"
+   ],
+   "accepted": [
+    "one-way:season",
+    "one-way:year"
+   ],
+   "transitions": 324
+  },
+  {
+   "contract": "Locker",
+   "falsePositives": [],
+   "accepted": [
+    "solvency:balance>=sum(available)",
+    "actor-value:attacker-net<=0",
+    "partition:totalHeld=sum(available)+sum(locked)"
+   ],
+   "transitions": 11889
+  },
+  {
+   "contract": "UnitVault",
+   "falsePositives": [],
+   "accepted": [
+    "conservation:totalCredited=sum(balances)",
+    "solvency:balance>=sum(balances)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 11939
+  },
+  {
+   "contract": "YieldShares",
+   "falsePositives": [],
+   "accepted": [
+    "conservation:totalShares=sum(shares)",
+    "solvency:balance>=sum(shares)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 11940
+  }
+ ]
+}

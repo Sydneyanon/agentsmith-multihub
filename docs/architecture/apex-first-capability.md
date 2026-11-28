@@ -1018,6 +1018,184 @@ measurement. The 46 gate tests and the 5 minimisation tests are unchanged.
 
 `npm run typecheck` exits 0. `npm test` ran 77 files: 1137 passed, 1 skipped.
 
+### 11.2 Status (2026-11-28): cost, and the remaining false positives (PROTOTYPE only)
+
+Still a prototype: off by default (nothing calls it), imported by nothing outside its own tests, excluded from builds. `simulate.ts` and
+`eval/` are unchanged. **Both fresh sets are self-authored** by the author of the changes. They show the mechanism. They are not an
+estimate of detection quality on any other code.
+
+**Order, as checked with `git log`.** Fresh set 2 was frozen in `1c88343` (contracts, labels, scoring, sha256 manifest). The deep strategy
+was recorded on it in `d1eedf0`. Both precede every rule commit (`3ad6ae9`, `90b5f05`). No file under `fresh-set-2/` changed after
+`1c88343`. The labels say the rule ideas were known in outline at the freeze. The rules were then written and tuned **with set 2's results
+visible**: from that point, set 2 is development data for the rules, not a held-out test. `residualBreaker` in particular was added after
+seeing W03 missed.
+
+#### Cost (goal A)
+The findings are identical to before, field for field, on 54 full reports: both fresh sets, the original controls, the tiny exhaustive
+comparison and the controls' false-invariant measure, for both strategies, with the memo on and off. This is asserted by `memo.test.ts`
+and by the recorded totals that predate the memo.
+- `7ca68b1`: an exact-world transaction memo; no stack capture for the interpreter's control-flow exceptions; memoised state keys and
+  ledger sums.
+- `bcf2ea4`: the memo is keyed by the move and by the content of only the storage slots the transaction read, plus the ether held when it
+  was read. The replay applies the writes in first-write order and the balance and receipt deltas, then re-applies the guard and statement
+  side effects.
+
+Measured one process per row (wall in ms; transitions requested / actually interpreted; maximum RSS):
+
+| run | before (`d32f960`) | after (`90b5f05`, default rules) |
+|---|---|---|
+| set 1, baseline | 885 ms; 45 982 / 45 982; 96 MB | 445 ms; 45 982 / 9 138; 108 MB |
+| set 1, deep | 8 762 ms; 317 885 / 317 885; 167 MB | 4 530 ms; 317 860 / 64 368; 249 MB |
+| set 2, baseline | 687 ms; 30 999 / 30 999; 85 MB | 442 ms; 30 999 / 5 397; 99 MB |
+| set 2, deep | 5 188 ms; 200 675 / 200 675; 162 MB | 2 585 ms; 200 624 / 32 231; 184 MB |
+| original controls, baseline | 192 ms; 7 335 / 7 335; 73 MB | 174 ms; 7 335 / 2 308; 86 MB |
+| original controls, deep | 2 093 ms; 56 042 / 56 042; 168 MB | 1 317 ms; 56 042 / 11 502; 197 MB |
+
+- **Search transitions are unchanged**: 275 995 on set 1 and 168 207 on set 2, against the baseline's 6 630 and 5 640. They are part of
+  the reported coverage, so they cannot change without changing a finding.
+- **The interpreter does about 80% less work.** On set 1, it interprets 64 368 transactions, against the baseline's 45 982 before the
+  memo.
+- **Wall time roughly halves.** Deep against baseline is now about 10x on set 1 and 6x on set 2, from about 10x and 8x. The cost is no
+  longer dominated by interpretation. It is now spread over bookkeeping: state keys, coverage, verdicts and garbage collection.
+- **Memory rises by about 20–80 MB per process**, for the memo tables.
+- The rules add a few dozen replayed transitions and no measurable time.
+
+#### The nine remaining false positives on set 1, and what happened to each
+| false positive (set 1, d32f960) | class | rule | now |
+|---|---|---|---|
+| V03 `totalAssets=sum(shares)` by `donate` | wrong invariant family (shares vs assets) | unitRatio | refuted |
+| V08 `totalAssets=sum(shares)` by `harvest` | wrong family, privileged breaker | privilegedBreaker | reclassified; V08 still detected (`totalShares` by `redeem`) |
+| S08 `totalAssets=sum(shares)` by `harvest` | wrong family | unitRatio | refuted |
+| S08 `actor-value` by `redeem` | designed asymmetry funded by a privileged action (yield) | privilegedFunding | reclassified |
+| YieldShares `totalAssets=sum(shares)` by `harvest` | wrong family | unitRatio | refuted |
+| YieldShares `actor-value` by `redeem` | designed yield, privileged | privilegedFunding | reclassified |
+| Rebate `totalDeposited=sum(balances)` by `withdraw` | wrong family (cumulative counter) next to a privileged grant | privilegedRefinement | refuted |
+| Rebate `actor-value` by `withdraw` | privileged action (grant) | privilegedFunding | reclassified |
+| Seasons `one-way:season` by `rollover` | cyclic reset | designedCycle (off) | **still reported** |
+
+"Modelling artefact": none of the nine. Each comes from the inferred family or from intent, not from the interpreter.
+
+#### The rules
+They are in `fp-rules.ts` and `deep-explorer.ts`, under `quality.fpRules`. `false` gives the strategy as at `d32f960`. The defaults are
+in `FP_RULE_DEFAULTS`.
+
+**Privilege** needs two kinds of evidence:
+- **Static.** Authority facts (P3): a caller-side reverting check on a single-address role whose transfer is `fixed-after-deployment` or
+  `by-holder`.
+- **Dynamic.** At that pre-state, the same call by every other actor reverts.
+
+When anyone can set the owner, nothing is privileged; this is asserted.
+
+| rule | effect | default |
+|---|---|---|
+| unitRatio | refutes `A = sum(L)` when the breakers move A alone and every honest two-sided move from a state where they differ keeps A : sum(L) to rounding | on |
+| privilegedRefinement | the refinement rule may excuse deployer-only transitions, never the others (W03's probe) | on |
+| privilegedBreaker | reclassifies a counterexample whose breaking step is privileged; the next fully modelled one is reported | on |
+| privilegedFunding | reclassifies an actor-value counterexample whose gain is at most the ether the deployer paid in through privileged steps on its path | on (trade-off below) |
+| residualBreaker | reports first a conservation counterexample that no one-term refinement explains (ordering only) | on |
+| designedCycle | reclassifies a one-way reversal that resets a phase variable from its explored extreme and restores an earlier state of its path | **off** |
+
+A reclassified counterexample is listed in `report.reclassified`, with the rule, the sequence and the cited check. It is never a
+violation or a hypothesis, and is never counted as withheld by the gate. The rules change no search, no coverage and no gate record.
+The minimiser is unchanged. The 46 gate tests and 5 minimisation tests pass unchanged.
+
+#### Results
+Deep strategy, default options. "Before" is the deep strategy without the rules. Set 2's "before" is the measurement recorded in
+`d1eedf0`.
+
+| | set 1 before | set 1 after | **set 2 before (recorded at freeze)** | **set 2 after** |
+|---|---|---|---|---|
+| recall | 10/10 | 10/10 | 4/7 (W02, W03, W07 missed) | **6/7** (W02 missed) |
+| false positives (wrong claims / twins / controls) | 9 (2/2/5) | 1 (0/0/1) | 23 (5/9/9) | **7** (0/3/4) |
+| false-invariant rate on the fresh controls | 5/16 | 3/14 | 9/16 | **6/13** |
+| baseline strategy, for reference | recall 2/10, 12 FP, 7/17 | | recall 1/7 (W01), 15 FP, 7/13 | |
+
+- **Original controls (§10.2.2): 1/7, unchanged.**
+- **Set 2's remaining false positives:** 6 cyclic resets (twins W04 and W05, Cycle3 ×2, Lap) and one unprivileged donation
+  (DonationShares, `actor-value`).
+- **Ablations** are recorded, not used to tune, in `fresh-set-2-results/fp-rules-ablation.json`. With designedCycle also on, set 2 has
+  1 false positive but recall 5/7, because it loses W05. W05's stale reset restores an earlier state of its own path, as the designed
+  reset in its twin does.
+
+#### Trade-offs
+- **privilegedFunding hides theft of owner-funded rewards.** At the default budget, the deep search never reaches W02's counterexample
+  (frontier dropped), with or without the rule. At 24 000 transitions per search, W02 is found with the rules off and reclassified with
+  them on. This is asserted in `fresh-set-2.test.ts`.
+  - It does not lower measured recall at the default options, so it is on by default.
+  - The owner may prefer it off. Without it, set 1 has 4 false positives and set 2 has 14.
+- **privilegedBreaker trusts the deployer.** A bug inside an owner-only function is reclassified, not reported.
+- **unitRatio refutes a real bug** in which an aggregate drifts only by proportional moves.
+
+#### Regressions from deeper exploration (deep against baseline)
+- **No case is found by the baseline and missed by deep.** Set 1: the baseline finds V03 and V09; deep finds all ten. Set 2: the
+  baseline finds W01; deep finds W01 and five more.
+- **The false-invariant rate went down on both fresh sets.** On the original controls it is 1/7 against 1/5.
+- **The known regression stands:** `Rounds`, a designed reset 4 transactions deep, is reported (§11.1).
+- **Abstentions, suppressions and withholdings are 0** on both fresh sets and the controls, for both strategies. These contracts use no
+  unsupported feature. The gate is exercised by its own 46 tests, which pass unchanged.
+- **Minimisation size.** Reported steps, minimised over original:
+
+  | strategy | set 1 | set 2 |
+  |---|---|---|
+  | baseline | 30/30 | 42/42 |
+  | deep, before the rules | 53/55 | 87/87 |
+  | deep, after the rules | 37/37 | 50/50 |
+
+  The deep counterexamples are breadth-first shortest, so minimisation only shrinks arguments.
+- **Expectations changed:** none, except two pinnings.
+  - `fresh-set.test.ts` (deep) and `memo.test.ts` now pass `fpRules: false`, the strategy their recorded numbers come from.
+  - `memo.test.ts`'s cost figure changed with the memo (197 191 → 64 372 interpreted). It is a cost, not a finding.
+
+#### What would show generalisation
+Neither set can. Both were written by the author of the rules. The evidence that would count:
+- the held-out corpus 5, under the approved amendment (§6.5), not touched here;
+- shadow-mode runs on real sealed snapshots (USX first), whose records show abstentions, suppressions and what would have been
+  claimed;
+- independent replay (§10.2.5, not started).
+
+#### Remaining limits for real protocol analysis
+These are estimated from what the gate supports (§10.1). The USX scope file list in `docs/research-runs/usx-scope-evidence.md` includes a
+diamond (`TreasuryDiamond`, facets), LayerZero OFT adapters, bridge gateways and ERC-20 relayers. The source was not read here.
+
+**Where the gate abstains:**
+- external and interface calls, other contracts, tokens and oracles;
+- `delegatecall` and proxies, so diamond facets abstain;
+- hashing and `abi.*`;
+- `block.*`;
+- arrays, structs, enums and contract-typed state;
+- `try`;
+- inline assembly.
+
+**Where it suppresses:**
+- narrow integers and casts;
+- the loop cap;
+- `tx.origin`;
+- foreign balances.
+
+**What else is missing:**
+- Cross-contract state, bridges, oracles and re-entry are not modelled at all.
+- Actors are the fixed `owner0`, `alice` and `attacker`. Role tables such as AccessControl are not derived (§10.2.3).
+- On USX, most functions are therefore expected to **abstain**. The useful output of a first run is the abstention map, not findings.
+
+#### Readiness for shadow mode on USX
+**Ready for a shadow run whose purpose is measurement, not detection**, with these preconditions:
+- off by default and enabled per run with the owner's approval;
+- offline, on the sealed pinned snapshot;
+- output kept out of the eligible-findings dossier, and every hypothesis kept ineligible.
+
+**Not ready** to produce eligible findings: independent replay is not implemented.
+
+**Each run must log:**
+- every abstention, by feature and file:line;
+- every suppression, by kind;
+- coverage, including dropped frontier states;
+- every candidate, accepted or rejected, with its reason;
+- every reclassified counterexample, with its rule and evidence;
+- every hypothesis it would have made;
+- transitions requested and interpreted, wall time and peak memory.
+
+**Tests.** There are 98 APEX tests: the 91 of `bcf2ea4` plus 7 in `fresh-set-2.test.ts`. `npm run typecheck` exits 0. `npm test` ran 82 files: 1175 passed, 1 skipped.
+
 ### The milestone that counts
 APEX finds something genuinely vulnerable that the existing specialists (and Slither) missed, **and** an independent tool (Foundry
 against the actual contracts, by a separate test author) reproduces it. Test counts are not that milestone.

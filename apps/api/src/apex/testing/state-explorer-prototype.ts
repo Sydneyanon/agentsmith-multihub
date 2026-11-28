@@ -30,13 +30,14 @@
  */
 import { ProgramIndex } from "../../analysis/solidity/index.js";
 import type { FunctionDef } from "../../analysis/solidity/parser.js";
-import { Revert, Unsupported, type Value, type World } from "../../analysis/solidity/simulate.js";
+import { Revert, Unsupported, World, type Value } from "../../analysis/solidity/simulate.js";
 import { namesWithRole, stateVariableRoles } from "../../analysis/solidity/state-roles.js";
 import { analyzeSources } from "../../analysis/solidity/specialists.js";
 import { Tracer } from "../../analysis/solidity/trace.js";
 import { CoverageCollector, type Coverage } from "./coverage.js";
 import { exploreDeep } from "./deep-explorer.js";
-import { classifyUnsupported, FidelityInterp, type Approximation, type ApproximationKind, type UnsupportedFeature } from "./fidelity.js";
+import type { FpRules, Reclassified } from "./fp-rules.js";
+import { ABSENT, classifyUnsupported, FidelityInterp, newTxLog, type Approximation, type ApproximationKind, type UnsupportedFeature } from "./fidelity.js";
 
 export type { Coverage } from "./coverage.js";
 export const PROTOTYPE_GENERATOR = "apex-state-explorer@0-prototype";
@@ -82,6 +83,11 @@ export type ExploreReport = {
   coverage: { honest: Coverage; adversarial: Coverage };
   /** how the search was run (deep strategy only; absent for the baseline strategy) */
   search?: SearchRecord;
+  /**
+   * deep strategy, with a reporting rule of §11.2 on: fully modelled counterexamples that a rule reclassified (privileged behaviour, designed
+   * cycle) instead of reporting them as violations, with the rule's evidence. Never a hypothesis; listed so nothing is dropped silently.
+   */
+  reclassified?: Reclassified[];
   gate: {
     /** `abstained(<feature>@<file:line>)`, one per distinct feature and location */
     abstentions: AbstentionRecord[];
@@ -106,6 +112,11 @@ export type SearchRecord = {
   /** frontier states not expanded because a layer did not fit its share of the budget (coverage-guided selection) */
   frontierDropped: { honest: number; adversarial: number };
   amounts: string[]; values: string[];
+  /**
+   * cost: transitions requested by every phase of this run (searches, randomised sequences, minimisation, replays), and how many of them
+   * the interpreter actually executed; the rest were replayed from the transaction memo (identical outcomes, by construction)
+   */
+  cost?: { requested: number; interpreted: number };
 };
 export type ExploreOptions = {
   /**
@@ -125,8 +136,12 @@ export type ExploreOptions = {
     refinement?: boolean;
     /** deep only: refutation of a solvency candidate whose ledger moves against the ether held (default true) */
     direction?: boolean;
+    /** deep only: the false-positive rules of §11.2 (fp-rules.ts), each on or off; `false` turns them all off (defaults: FP_RULE_DEFAULTS) */
+    fpRules?: false | FpRules;
   };
   minimise?: boolean;
+  /** memoised transactions (Engine.memo, default true); `false` re-interprets every transition, only to measure that the reports are identical */
+  memo?: boolean;
 };
 
 export type Node = { w: World; sentByAttacker: bigint; seq: StepRecord[]; moves: Move[]; approx: Approximation[] };
@@ -160,13 +175,41 @@ export function argsFor(fn: FunctionDef, actor: Actor, d: Domain): Value[][] | n
 
 /** a mapping entry holding its type default is indistinguishable from an unwritten one (mappings have no initialiser) */
 export const isDefaultMappingEntry = (k: string, v: Value): boolean => k.includes("|") && (v === 0n || v === false || v === "zero" || v === null);
+const stateKeys = new WeakMap<Node, string>();
+/** nodes are immutable once created, so their keys are memoised */
 export function stateKey(n: Node): string {
+  let k = stateKeys.get(n); if (k === undefined) { k = stateKeyUncached(n); stateKeys.set(n, k); } return k;
+}
+function stateKeyUncached(n: Node): string {
   return [...n.w.storage.entries()].filter(([k, v]) => !isDefaultMappingEntry(k, v)).map(([k, v]) => `${k}=${fmt(v)}`).sort().join(";") + `#${n.w.balance}#${n.w.received}#${n.sentByAttacker}${n.approx.length ? "#T" : ""}`;
 }
 
+const ledgerSums = new WeakMap<World, Map<string, bigint>>();
+/** the sum of a ledger's entries; a node's world is never mutated after the node is created, so sums are memoised per world */
 export function sumLedger(w: World, ledger: string): bigint {
-  let s = 0n; for (const [k, v] of w.storage) if (k.startsWith(`${ledger}|`) && typeof v === "bigint") s += v; return s;
+  let m = ledgerSums.get(w); if (!m) { m = new Map(); ledgerSums.set(w, m); }
+  let s = m.get(ledger); if (s !== undefined) return s;
+  s = 0n; for (const [k, v] of w.storage) if (k.startsWith(`${ledger}|`) && typeof v === "bigint") s += v;
+  m.set(ledger, s); return s;
 }
+
+/** one executed transaction, as the difference it made, plus the coverage side effects it had, so that it can be replayed exactly */
+type MemoEntry = { guards: Array<[string, boolean]>; reached: string[] } & (
+  | { k: "ok"; set: Array<[string, Value]>; dBalance: bigint; dReceived: bigint; payouts: number; trace: string[]; steps: number; tx: Approximation[] }
+  | { k: "revert"; why: string }
+  | { k: "unsupported"; feature: UnsupportedFeature; at: string; why: string });
+/**
+ * the recorded transactions of one move that read the same slots (in the same first-read order) and the same thing about the ether held,
+ * keyed by the pre-world's content of exactly those
+ */
+type MemoShape = { id: string; keys: string[]; balance: boolean; table: Map<string, MemoEntry> };
+const enc = (v: Value | typeof ABSENT | undefined): string => (v === ABSENT || v === undefined ? "\u2205" : typeof v === "bigint" ? `${v}n` : JSON.stringify(v));
+function signature(w: World, keys: readonly string[], balance: boolean): string {
+  let s = balance ? `${w.balance}` : "";
+  for (const k of keys) s += `\u0001${enc(w.storage.has(k) ? (w.storage.get(k) ?? null) : ABSENT)}`;
+  return s;
+}
+const MEMO_CAP = 250_000;
 
 /** One deployed contract under the instrumented interpreter: deployment, candidates, and single-transition execution. */
 export class Engine {
@@ -175,6 +218,23 @@ export class Engine {
   /** shared facts kept for the deep strategy: ledgers and aggregates (P2), and every non-constant uint state variable */
   ledgers: string[] = []; aggregates: string[] = []; uintScalars: string[] = [];
   readonly deployedValues = new Map<string, Value>();
+  /**
+   * memoisation of `step` by (move, the pre-world's content of the slots the transaction read): a transaction is a deterministic function
+   * of the move and of what it reads from the pre-world (storage slots, through `readVar` only, and the ether held; fidelity.ts logs both).
+   * Two pre-worlds that agree on the slots one execution read, in its first-read order, make the same reads and take the same path, so
+   * the second is replayed from the first's recorded difference: the slots written (in first-write order, so the post-world's storage
+   * order is the interpreter's), the change in ether held and received, payouts, trace, and the coverage side effects (guard outcomes,
+   * statements reached). Every report is identical with or without it; `memo = false` disables it, to measure that.
+   * The adversarial search re-runs most of the honest one, randomised sequences and minimisation replay prefixes, and a transaction that
+   * reads few slots (a revert on a guard, a deposit) recurs across states that differ elsewhere.
+   */
+  memo = true;
+  /** transitions requested, and how many of them were actually interpreted (the rest were replayed from the memo) */
+  executions = 0; memoHits = 0;
+  /** move -> the shapes of its recorded transactions */
+  private readonly memoTable = new Map<string, MemoShape[]>(); private memoSize = 0;
+  private readonly moveKeys = new WeakMap<Move, string>();
+  private fnIndex = new Map<FunctionDef, number>();
   constructor(readonly sources: ReadonlyArray<{ path: string; text: string }>, readonly contract: string) {
     this.ix = new ProgramIndex(sources);
     this.fns = this.ix.deployedEntryPoints(contract);
@@ -240,7 +300,8 @@ export class Engine {
     });
     this.checks = checks;
   }
-  private phaseVars: string[] = [];
+  /** phase-like scalars (guard-read bool/uint state variables that are not aggregates) and the aggregates */
+  phaseVars: string[] = [];
   /** a scalar's value in a state: an unwritten slot reads as its deployed value or type default, as the interpreter reads it */
   valueOf(n: Node, name: string): Value { return n.w.storage.has(name) ? (n.w.storage.get(name) ?? null) : (this.deployedValues.get(name) ?? null); }
 
@@ -275,18 +336,68 @@ export class Engine {
   }
 
   step(pre: Node, m: Move): StepOutcome {
-    const it = this.it;
-    it.w.restore(pre.w); it.w.balance += m.value; // the EVM credits msg.value before the call executes
-    it.beginTransaction();
-    try { it.runFunction(m.fn, this.contract, m.args, m.actor, m.value); }
-    catch (e) {
-      if (e instanceof Revert) return { k: "revert", why: e.why };
-      if (e instanceof Unsupported) return { k: "unsupported", feature: classifyUnsupported(e.why), at: it.whereOf(e), why: e.why };
-      throw e;
+    if (!this.memo) { this.executions++; return this.execute(pre, m, null); }
+    if (!this.fnIndex.size) this.fns.forEach((f, i) => this.fnIndex.set(f, i));
+    let key = this.moveKeys.get(m);
+    if (key === undefined) {
+      const fi = this.fnIndex.get(m.fn);
+      if (fi === undefined) { this.executions++; return this.execute(pre, m, null); }
+      key = `${m.actor}|${fi}|${m.args.map((v) => (typeof v === "bigint" ? `${v}n` : JSON.stringify(v))).join(",")}|${m.value}`; this.moveKeys.set(m, key);
     }
-    const tx = [...it.approximations];
-    const post: Node = { w: it.w.clone(), sentByAttacker: pre.sentByAttacker + (m.actor === "attacker" ? m.value : 0n), seq: [...pre.seq, stepOf(m)], moves: [...pre.moves, m], approx: [...pre.approx, ...tx] };
+    let shapes = this.memoTable.get(key); if (!shapes) { shapes = []; this.memoTable.set(key, shapes); }
+    for (const sh of shapes) {
+      const hit = sh.table.get(signature(pre.w, sh.keys, sh.balance));
+      if (hit) { this.memoHits++; return this.replayEntry(pre, m, hit); }
+    }
+    this.executions++;
+    const log = newTxLog();
+    const out = this.execute(pre, m, log);
+    if (this.memoSize < MEMO_CAP) {
+      this.memoSize++;
+      const keys = [...log.reads.keys()]; const id = `${log.balanceRead ? "B" : ""}|${keys.join("\u0001")}`;
+      let sh = shapes.find((x) => x.id === id);
+      if (!sh) { sh = { id, keys, balance: log.balanceRead, table: new Map() }; shapes.push(sh); }
+      const sig = signature(pre.w, keys, log.balanceRead);
+      const fx = { guards: log.guards, reached: log.reached };
+      if (out.k === "ok") {
+        const w = out.post.w;
+        sh.table.set(sig, { ...fx, k: "ok", set: log.writes.map((k) => [k, w.storage.get(k) ?? null] as [string, Value]), dBalance: w.balance - pre.w.balance, dReceived: w.received - pre.w.received,
+          payouts: w.payouts - pre.w.payouts, trace: w.trace.slice(pre.w.trace.length), steps: w.steps, tx: out.tx });
+      } else sh.table.set(sig, { ...fx, ...out });
+    }
+    return out;
+  }
+
+  private replayEntry(pre: Node, m: Move, e: MemoEntry): StepOutcome {
+    const it = this.it;
+    for (const [at, ok] of e.guards) it.noteGuard(at, ok);
+    for (const r of e.reached) it.reached.add(r);
+    if (e.k === "revert") return { k: "revert", why: e.why };
+    if (e.k === "unsupported") return { k: "unsupported", feature: e.feature, at: e.at, why: e.why };
+    const w = new World(); w.storage = new Map(pre.w.storage); for (const [k, v] of e.set) w.storage.set(k, v);
+    w.balance = pre.w.balance + e.dBalance; w.received = pre.w.received + e.dReceived; w.payouts = pre.w.payouts + e.payouts; w.trace = [...pre.w.trace, ...e.trace]; w.steps = e.steps;
+    const tx = [...e.tx];
+    const post: Node = { w, sentByAttacker: pre.sentByAttacker + (m.actor === "attacker" ? m.value : 0n), seq: [...pre.seq, stepOf(m)], moves: [...pre.moves, m], approx: [...pre.approx, ...tx] };
     return { k: "ok", post, tx };
+  }
+
+  /** one transaction under the instrumented interpreter (stack traces are not captured for its control-flow exceptions: never read) */
+  private execute(pre: Node, m: Move, log: FidelityInterp["txLog"]): StepOutcome {
+    const it = this.it; const limit = Error.stackTraceLimit;
+    it.txLog = log; Error.stackTraceLimit = 0;
+    try {
+      it.w.restore(pre.w); it.w.balance += m.value; // the EVM credits msg.value before the call executes
+      it.beginTransaction();
+      try { it.runFunction(m.fn, this.contract, m.args, m.actor, m.value); }
+      catch (e) {
+        if (e instanceof Revert) return { k: "revert", why: e.why };
+        if (e instanceof Unsupported) return { k: "unsupported", feature: classifyUnsupported(e.why), at: it.whereOf(e), why: e.why };
+        throw e;
+      }
+      const tx = [...it.approximations];
+      const post: Node = { w: it.w.clone(), sentByAttacker: pre.sentByAttacker + (m.actor === "attacker" ? m.value : 0n), seq: [...pre.seq, stepOf(m)], moves: [...pre.moves, m], approx: [...pre.approx, ...tx] };
+      return { k: "ok", post, tx };
+    } finally { it.txLog = null; Error.stackTraceLimit = limit; }
   }
 
   verdict(k: Check, pre: Node, post: Node, m: Move): Verdict {
@@ -437,7 +548,9 @@ export function establish(report: ExploreReport, checks: Check[], stats: Map<str
  * hypothesis drafts with the independence marker.
  */
 export function finishReport(engine: Engine, sources: ReadonlyArray<{ path: string; text: string }>, report: ExploreReport, results: Map<string, CandidateResult>, checks: Check[],
-  clean: Map<string, Found>, tainted: Found[], abst: Map<string, AbstentionRecord>, options: ExploreOptions): ExploreReport {
+  clean: Map<string, Found>, tainted: Found[], abst: Map<string, AbstentionRecord>, options: ExploreOptions,
+  /** deep strategy, §11.2: candidates whose every fully modelled counterexample a rule reclassified; the gate did not withhold them */
+  reclassifiedOnly: ReadonlySet<string> = new Set()): ExploreReport {
   const { contract } = report; const { fns } = engine;
   const established = new Set(report.candidates.filter((r) => r.established).map((r) => r.id));
   // ---- the gate: abstentions, suppressed counterexamples, then violations from fully modelled sequences only
@@ -450,7 +563,7 @@ export function finishReport(engine: Engine, sources: ReadonlyArray<{ path: stri
     for (const kind of new Set(f.post.approx.map((a) => a.kind))) report.gate.suppressed.byKind[kind] = (report.gate.suppressed.byKind[kind] ?? 0) + 1;
     if (report.gate.suppressed.examples.length < 20) report.gate.suppressed.examples.push({ candidate: f.k.c.id, phase: f.phase, breakingFunction: fnName(f.m.fn), sequence: f.post.seq, approximations: f.post.approx });
   }
-  report.gate.candidatesWithOnlySuppressedCounterexamples = [...established].filter((id) => !clean.has(id) && tainted.some((t) => t.k.c.id === id)).sort();
+  report.gate.candidatesWithOnlySuppressedCounterexamples = [...established].filter((id) => !clean.has(id) && !reclassifiedOnly.has(id) && tainted.some((t) => t.k.c.id === id)).sort();
   for (const id of report.gate.candidatesWithOnlySuppressedCounterexamples) report.gate.withheld.push({ candidate: id, why: "only-suppressed-counterexamples", kinds: [...new Set(tainted.filter((t) => t.k.c.id === id).flatMap((t) => t.post.approx.map((a) => a.kind)))].sort() });
   // honest-phase counterexamples are kept over adversarial ones for the same candidate (they were found first, and are shorter or equal)
   for (const k of checks) {
@@ -486,7 +599,7 @@ export function finishReport(engine: Engine, sources: ReadonlyArray<{ path: stri
 export function exploreBaseline(sources: ReadonlyArray<{ path: string; text: string }>, contract: string, options: ExploreOptions = {}): ExploreReport {
   const depth = options.depth ?? 3; const maxSequences = options.maxSequences ?? 50_000;
   const q = options.quality === false ? null : { minSupport: 2, randomSequences: 200, randomLength: depth + 3, seed: 1, depthExtension: true, ...(options.quality ?? {}) };
-  const engine = new Engine(sources, contract);
+  const engine = new Engine(sources, contract); engine.memo = options.memo !== false;
   const emptyCov = (): Coverage => CoverageCollector.empty(depth);
   const report: ExploreReport = {
     contract, abstained: engine.abstained, candidates: [], violations: [], hypotheses: [], coverage: { honest: emptyCov(), adversarial: emptyCov() },

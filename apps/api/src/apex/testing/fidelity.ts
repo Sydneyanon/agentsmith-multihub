@@ -55,6 +55,15 @@ export function classifyUnsupported(why: string): UnsupportedFeature {
   return "other";
 }
 
+/** a storage slot that was not present in the pre-transaction world (distinct from one present with a default value) */
+export const ABSENT: unique symbol = Symbol("absent");
+/** what one transaction did besides its result: coverage side effects (in order) and its dependencies on the pre-transaction world */
+export type TxLog = {
+  guards: Array<[string, boolean]>; reached: string[];
+  reads: Map<string, Value | typeof ABSENT>; balanceRead: boolean; written: Set<string>; writes: string[];
+};
+export const newTxLog = (): TxLog => ({ guards: [], reached: [], reads: new Map(), balanceRead: false, written: new Set(), writes: [] });
+
 export class FidelityInterp extends Interp {
   /** approximations met in the current transaction (reset by `beginTransaction`) */
   approximations: Approximation[] = [];
@@ -71,9 +80,37 @@ export class FidelityInterp extends Interp {
   private locate<T>(f: Frame, line: number, run: () => T): T {
     try { return run(); } catch (err) { if (err instanceof Unsupported && !this.where.has(err)) this.where.set(err, `${f.fn.file}:${line}`); throw err; }
   }
-  private guard(at: string, ok: boolean): void { const g = this.guards.get(at) ?? { passed: 0, failed: 0 }; if (ok) g.passed++; else g.failed++; this.guards.set(at, g); }
+  /**
+   * when set, the coverage side effects of the current transaction (guard outcomes and statements entered, in order) are logged here, so
+   * that a memoised transaction (state-explorer-prototype.ts: Engine.step) can replay them into a later collector exactly
+   */
+  txLog: TxLog | null = null;
+  /**
+   * the transaction's dependencies, logged with its side effects: every storage slot whose PRE-transaction content it read (first read,
+   * before any write of the same slot in the transaction, with the content or ABSENT), whether it read the ether held, and the slots it
+   * wrote, in first-write order. Storage is only reached through `readVar`/`writeVar` (simulate.ts) and the ether held only through
+   * `x.balance` (replayed below) and value transfers (marked conservatively), so an execution from another pre-world that agrees on these
+   * reads takes the same path and has the same effect.
+   */
+  private logRead(name: string, ks: Value[]): void {
+    const log = this.txLog; if (!log) return;
+    const k = this.key(name, ks); if (log.written.has(k) || log.reads.has(k)) return;
+    log.reads.set(k, this.w.storage.has(k) ? (this.w.storage.get(k) ?? null) : ABSENT);
+  }
+  /** records a guard outcome (also used to replay a memoised transaction's guard outcomes) */
+  noteGuard(at: string, ok: boolean): void { const g = this.guards.get(at) ?? { passed: 0, failed: 0 }; if (ok) g.passed++; else g.failed++; this.guards.set(at, g); }
+  private guard(at: string, ok: boolean): void { this.noteGuard(at, ok); this.txLog?.guards.push([at, ok]); }
 
+  /** a state variable's type check is a pure function of its declaration: memoised (the throwing outcomes are re-thrown as new errors) */
+  private readonly typeMemo = new Map<string, { t: string | null } | { unsupported: string }>();
   private checkType(name: string, ks: Value[]): string | null {
+    let m = this.typeMemo.get(name);
+    if (!m) { try { m = { t: this.checkTypeUncached(name) }; } catch (e) { if (!(e instanceof Unsupported)) throw e; m = { unsupported: e.why }; } this.typeMemo.set(name, m); }
+    void ks;
+    if ("unsupported" in m) throw new Unsupported(m.unsupported);
+    return m.t;
+  }
+  private checkTypeUncached(name: string): string | null {
     const sv = this.pix.stateVar(this.pcontract, name); if (!sv) return null;
     const t = sv.type.replace(/\s+/g, " ").trim();
     if (/\[/.test(t)) throw new Unsupported(`array ${name} (${t})`);
@@ -82,18 +119,20 @@ export class FidelityInterp extends Interp {
       if (this.pix.isContractLike(vt)) throw new Unsupported(`other-contract: contract-typed variable ${name} (${vt})`);
       throw new Unsupported(`struct ${name} (${vt}: user-defined type, not modelled)`);
     }
-    void ks; return t;
+    return t;
   }
   private declaredAt(name: string): string { const sv = this.pix.stateVar(this.pcontract, name)!; return `${this.pix.contracts.get(sv.owner)?.file ?? "?"}:${sv.line}`; }
   override readVar(name: string, ks: Value[]): Value {
     const t = this.checkType(name, ks);
     if (t && isNarrowInteger(t)) this.approximations.push({ kind: "narrow-integer", at: this.declaredAt(name), what: `read of ${name} (${valueType(t)})` });
+    this.logRead(name, ks);
     return super.readVar(name, ks);
   }
   override writeVar(name: string, ks: Value[], v: Value): void {
     const t = this.checkType(name, ks);
     if (t && isNarrowInteger(t)) this.approximations.push({ kind: "narrow-integer", at: this.declaredAt(name), what: `write of ${name} (${valueType(t)})` });
     super.writeVar(name, ks, v);
+    const log = this.txLog; if (log) { const k = this.key(name, ks); if (!log.written.has(k)) { log.written.add(k); log.writes.push(k); } }
   }
 
   override eval(e: Expr, f: Frame): Value {
@@ -106,6 +145,7 @@ export class FidelityInterp extends Interp {
         if (++this.w.steps > 20000) throw new Unsupported("step limit");
         const a = this.eval(e.obj, f);
         if (a !== "this") this.approx("foreign-balance", f, e.line, `balance of ${String(a)} read as 0`);
+        if (a === "this" && this.txLog) this.txLog.balanceRead = true;
         return a === "this" ? this.w.balance : 0n;
       }
       return super.eval(e, f);
@@ -138,6 +178,7 @@ export class FidelityInterp extends Interp {
           const to = this.pureAddress(target, f);
           if (to === undefined) throw new Unsupported(`external call to a computed target ${exprText(target)}`);
           if (!this.actors.has(String(to))) throw new Unsupported(`external call to non-actor ${String(to)} via ${name}`);
+          if (this.txLog) this.txLog.balanceRead = true; // a value transfer compares the ether held with the amount (conservative)
         }
       }
       return super.call(e, f);
@@ -145,7 +186,7 @@ export class FidelityInterp extends Interp {
   }
   /** the value of a side-effect-free address expression (an identifier, msg.sender, payable(x)/address(x) of those), or undefined */
   private pureAddress(t: Expr, f: Frame): Value | undefined {
-    if (t.k === "id") return f.locals.has(t.name) ? (f.locals.get(t.name) ?? null) : t.name === "this" ? "this" : super.readVar(t.name, []);
+    if (t.k === "id") { if (f.locals.has(t.name)) return f.locals.get(t.name) ?? null; if (t.name === "this") return "this"; this.logRead(t.name, []); return super.readVar(t.name, []); }
     if (t.k === "member" && t.obj.k === "id" && t.obj.name === "msg" && t.name === "sender") return f.sender;
     if (t.k === "call" && t.fn.k === "id" && (t.fn.name === "payable" || t.fn.name === "address") && t.args.length === 1) {
       const a = t.args[0]!; if (a.k === "num" && a.v === 0n) return "zero"; return this.pureAddress(a, f);
@@ -159,6 +200,7 @@ export class FidelityInterp extends Interp {
   }
 
   override stmt(s: Stmt, f: Frame): ReturnType<Interp["stmt"]> {
+    this.txLog?.reached.push(`${f.fn.file}:${s.line}`); // the statement Interp.stmt (or the replays below) marks as reached
     return this.locate(f, s.line, () => {
       switch (s.k) {
         case "try": throw new Unsupported("try statement");

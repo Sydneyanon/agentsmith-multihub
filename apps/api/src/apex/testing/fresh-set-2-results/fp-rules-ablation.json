@@ -1,0 +1,1253 @@
+{
+ "label": "per-rule measurement of the \u00a711.2 false-positive rules (deep strategy, default search options): each rule alone, all six, the default set, and the default set minus each rule; fresh set 1, fresh set 2 and the original controls (\u00a710.2.2). Measured after the rules were written, with set 2 results visible; reported, not used to tune.",
+ "rows": [
+  {
+   "name": "off",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 9,
+    "wrong": 2,
+    "twins": 2,
+    "controls": 5,
+    "fi": "5/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:conservation:totalDeposited=sum(balances)",
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:conservation:totalAssets=sum(shares)",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V03:conservation:totalAssets=sum(shares) by donate",
+     "V08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:actor-value:attacker-net<=0 by redeem",
+     "Rebate:conservation:totalDeposited=sum(balances) by withdraw",
+     "Rebate:actor-value:attacker-net<=0 by withdraw",
+     "Seasons:one-way:season by rollover",
+     "YieldShares:conservation:totalAssets=sum(shares) by harvest",
+     "YieldShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": []
+   },
+   "set2": {
+    "recall": "4/7",
+    "fn": [
+     "W02 BonusPool",
+     "W03 Treasury",
+     "W07 RebasePool"
+    ],
+    "fp": 23,
+    "wrong": 5,
+    "twins": 9,
+    "controls": 9,
+    "fi": "9/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:conservation:managed=sum(units)",
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:conservation:totalAssets=sum(shares)",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:conservation:totalJoined=sum(credit)",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:conservation:totalDeposited=sum(balances) by credit",
+     "W03:actor-value:attacker-net<=0 by withdraw",
+     "W06:conservation:totalAssets=sum(shares) by harvest",
+     "W06:actor-value:attacker-net<=0 by redeem",
+     "W07:conservation:totalStaked=sum(stakes) by rebase",
+     "S02:actor-value:attacker-net<=0 by withdraw",
+     "S03:conservation:totalDeposited=sum(balances) by credit",
+     "S03:actor-value:attacker-net<=0 by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S06:conservation:totalAssets=sum(shares) by harvest",
+     "S06:actor-value:attacker-net<=0 by redeem",
+     "S07:conservation:totalStaked=sum(stakes) by rebase",
+     "Harvester:conservation:managed=sum(units) by addYield",
+     "Harvester:actor-value:attacker-net<=0 by leave",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:conservation:totalAssets=sum(shares) by donate",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:conservation:totalJoined=sum(credit) by bonus",
+     "Membership:actor-value:attacker-net<=0 by leave"
+    ],
+    "detections": "W01:Y W02:n W03:n W04:Y W05:Y W06:Y W07:n",
+    "reclassified": []
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "privilegedBreaker",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 6,
+    "wrong": 1,
+    "twins": 1,
+    "controls": 4,
+    "fi": "5/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:conservation:totalDeposited=sum(balances)",
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:conservation:totalAssets=sum(shares)",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V03:conservation:totalAssets=sum(shares) by donate",
+     "S08:actor-value:attacker-net<=0 by redeem",
+     "Rebate:conservation:totalDeposited=sum(balances) by withdraw",
+     "Rebate:actor-value:attacker-net<=0 by withdraw",
+     "Seasons:one-way:season by rollover",
+     "YieldShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldShares:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]"
+    ]
+   },
+   "set2": {
+    "recall": "5/7",
+    "fn": [
+     "W02 BonusPool",
+     "W03 Treasury"
+    ],
+    "fp": 18,
+    "wrong": 3,
+    "twins": 7,
+    "controls": 8,
+    "fi": "9/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:conservation:managed=sum(units)",
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:conservation:totalAssets=sum(shares)",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:conservation:totalJoined=sum(credit)",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:conservation:totalDeposited=sum(balances) by withdraw",
+     "W03:actor-value:attacker-net<=0 by withdraw",
+     "W06:actor-value:attacker-net<=0 by redeem",
+     "S02:actor-value:attacker-net<=0 by withdraw",
+     "S03:conservation:totalDeposited=sum(balances) by withdraw",
+     "S03:actor-value:attacker-net<=0 by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S06:actor-value:attacker-net<=0 by redeem",
+     "Harvester:actor-value:attacker-net<=0 by leave",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:conservation:totalAssets=sum(shares) by donate",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:conservation:totalJoined=sum(credit) by leave",
+     "Membership:actor-value:attacker-net<=0 by leave"
+    ],
+    "detections": "W01:Y W02:n W03:n W04:Y W05:Y W06:Y W07:Y",
+    "reclassified": [
+     "Treasury:conservation:totalDeposited=sum(balances) by credit [privilegedBreaker]",
+     "Treasury:conservation:totalDeposited=sum(balances) by credit [privilegedBreaker]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "Harvester:conservation:managed=sum(units) by addYield [privilegedBreaker]",
+     "Membership:conservation:totalJoined=sum(credit) by bonus [privilegedBreaker]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "privilegedFunding",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 6,
+    "wrong": 2,
+    "twins": 1,
+    "controls": 3,
+    "fi": "5/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:conservation:totalDeposited=sum(balances)",
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:conservation:totalAssets=sum(shares)",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V03:conservation:totalAssets=sum(shares) by donate",
+     "V08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:conservation:totalAssets=sum(shares) by harvest",
+     "Rebate:conservation:totalDeposited=sum(balances) by withdraw",
+     "Seasons:one-way:season by rollover",
+     "YieldShares:conservation:totalAssets=sum(shares) by harvest"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+    ]
+   },
+   "set2": {
+    "recall": "4/7",
+    "fn": [
+     "W02 BonusPool",
+     "W03 Treasury",
+     "W07 RebasePool"
+    ],
+    "fp": 16,
+    "wrong": 3,
+    "twins": 6,
+    "controls": 7,
+    "fi": "9/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:conservation:managed=sum(units)",
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:conservation:totalAssets=sum(shares)",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:conservation:totalJoined=sum(credit)",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:conservation:totalDeposited=sum(balances) by credit",
+     "W06:conservation:totalAssets=sum(shares) by harvest",
+     "W07:conservation:totalStaked=sum(stakes) by rebase",
+     "S03:conservation:totalDeposited=sum(balances) by credit",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S06:conservation:totalAssets=sum(shares) by harvest",
+     "S07:conservation:totalStaked=sum(stakes) by rebase",
+     "Harvester:conservation:managed=sum(units) by addYield",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:conservation:totalAssets=sum(shares) by donate",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:conservation:totalJoined=sum(credit) by bonus"
+    ],
+    "detections": "W01:Y W02:n W03:n W04:Y W05:Y W06:Y W07:n",
+    "reclassified": [
+     "BonusPool:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Harvester:actor-value:attacker-net<=0 by leave [privilegedFunding]",
+     "Membership:actor-value:attacker-net<=0 by leave [privilegedFunding]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "designedCycle",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 8,
+    "wrong": 2,
+    "twins": 2,
+    "controls": 4,
+    "fi": "4/15",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:conservation:totalDeposited=sum(balances)",
+     "Rebate:actor-value:attacker-net<=0",
+     "YieldShares:conservation:totalAssets=sum(shares)",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V03:conservation:totalAssets=sum(shares) by donate",
+     "V08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:actor-value:attacker-net<=0 by redeem",
+     "Rebate:conservation:totalDeposited=sum(balances) by withdraw",
+     "Rebate:actor-value:attacker-net<=0 by withdraw",
+     "YieldShares:conservation:totalAssets=sum(shares) by harvest",
+     "YieldShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": []
+   },
+   "set2": {
+    "recall": "3/7",
+    "fn": [
+     "W02 BonusPool",
+     "W03 Treasury",
+     "W05 Ballot",
+     "W07 RebasePool"
+    ],
+    "fp": 17,
+    "wrong": 5,
+    "twins": 6,
+    "controls": 6,
+    "fi": "6/13",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:conservation:managed=sum(units)",
+     "Harvester:actor-value:attacker-net<=0",
+     "DonationShares:conservation:totalAssets=sum(shares)",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:conservation:totalJoined=sum(credit)",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:conservation:totalDeposited=sum(balances) by credit",
+     "W03:actor-value:attacker-net<=0 by withdraw",
+     "W06:conservation:totalAssets=sum(shares) by harvest",
+     "W06:actor-value:attacker-net<=0 by redeem",
+     "W07:conservation:totalStaked=sum(stakes) by rebase",
+     "S02:actor-value:attacker-net<=0 by withdraw",
+     "S03:conservation:totalDeposited=sum(balances) by credit",
+     "S03:actor-value:attacker-net<=0 by withdraw",
+     "S06:conservation:totalAssets=sum(shares) by harvest",
+     "S06:actor-value:attacker-net<=0 by redeem",
+     "S07:conservation:totalStaked=sum(stakes) by rebase",
+     "Harvester:conservation:managed=sum(units) by addYield",
+     "Harvester:actor-value:attacker-net<=0 by leave",
+     "DonationShares:conservation:totalAssets=sum(shares) by donate",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:conservation:totalJoined=sum(credit) by bonus",
+     "Membership:actor-value:attacker-net<=0 by leave"
+    ],
+    "detections": "W01:Y W02:n W03:n W04:Y W05:n W06:Y W07:n",
+    "reclassified": []
+   },
+   "controls": {
+    "fi": "0/6",
+    "falseAccepted": [],
+    "fpHyp": [],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "unitRatio",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 6,
+    "wrong": 1,
+    "twins": 1,
+    "controls": 4,
+    "fi": "4/15",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:conservation:totalDeposited=sum(balances)",
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:actor-value:attacker-net<=0 by redeem",
+     "Rebate:conservation:totalDeposited=sum(balances) by withdraw",
+     "Rebate:actor-value:attacker-net<=0 by withdraw",
+     "Seasons:one-way:season by rollover",
+     "YieldShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": []
+   },
+   "set2": {
+    "recall": "4/7",
+    "fn": [
+     "W02 BonusPool",
+     "W03 Treasury",
+     "W07 RebasePool"
+    ],
+    "fp": 20,
+    "wrong": 5,
+    "twins": 8,
+    "controls": 7,
+    "fi": "7/14",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:conservation:totalJoined=sum(credit)",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:conservation:totalDeposited=sum(balances) by credit",
+     "W03:actor-value:attacker-net<=0 by withdraw",
+     "W06:conservation:totalAssets=sum(shares) by harvest",
+     "W06:actor-value:attacker-net<=0 by redeem",
+     "W07:conservation:totalStaked=sum(stakes) by rebase",
+     "S02:actor-value:attacker-net<=0 by withdraw",
+     "S03:conservation:totalDeposited=sum(balances) by credit",
+     "S03:actor-value:attacker-net<=0 by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S06:actor-value:attacker-net<=0 by redeem",
+     "S07:conservation:totalStaked=sum(stakes) by rebase",
+     "Harvester:actor-value:attacker-net<=0 by leave",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:conservation:totalJoined=sum(credit) by bonus",
+     "Membership:actor-value:attacker-net<=0 by leave"
+    ],
+    "detections": "W01:Y W02:n W03:n W04:Y W05:Y W06:Y W07:n",
+    "reclassified": []
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "privilegedRefinement",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 8,
+    "wrong": 2,
+    "twins": 2,
+    "controls": 4,
+    "fi": "4/15",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:conservation:totalAssets=sum(shares)",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V03:conservation:totalAssets=sum(shares) by donate",
+     "V08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:actor-value:attacker-net<=0 by redeem",
+     "Rebate:actor-value:attacker-net<=0 by withdraw",
+     "Seasons:one-way:season by rollover",
+     "YieldShares:conservation:totalAssets=sum(shares) by harvest",
+     "YieldShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": []
+   },
+   "set2": {
+    "recall": "4/7",
+    "fn": [
+     "W02 BonusPool",
+     "W03 Treasury",
+     "W07 RebasePool"
+    ],
+    "fp": 21,
+    "wrong": 5,
+    "twins": 8,
+    "controls": 8,
+    "fi": "8/15",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:conservation:managed=sum(units)",
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:conservation:totalAssets=sum(shares)",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:conservation:totalDeposited=sum(balances) by credit",
+     "W03:actor-value:attacker-net<=0 by withdraw",
+     "W06:conservation:totalAssets=sum(shares) by harvest",
+     "W06:actor-value:attacker-net<=0 by redeem",
+     "W07:conservation:totalStaked=sum(stakes) by rebase",
+     "S02:actor-value:attacker-net<=0 by withdraw",
+     "S03:actor-value:attacker-net<=0 by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S06:conservation:totalAssets=sum(shares) by harvest",
+     "S06:actor-value:attacker-net<=0 by redeem",
+     "S07:conservation:totalStaked=sum(stakes) by rebase",
+     "Harvester:conservation:managed=sum(units) by addYield",
+     "Harvester:actor-value:attacker-net<=0 by leave",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:conservation:totalAssets=sum(shares) by donate",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:actor-value:attacker-net<=0 by leave"
+    ],
+    "detections": "W01:Y W02:n W03:n W04:Y W05:Y W06:Y W07:n",
+    "reclassified": []
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "residualBreaker",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 9,
+    "wrong": 2,
+    "twins": 2,
+    "controls": 5,
+    "fi": "5/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:conservation:totalDeposited=sum(balances)",
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:conservation:totalAssets=sum(shares)",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V03:conservation:totalAssets=sum(shares) by donate",
+     "V08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:conservation:totalAssets=sum(shares) by harvest",
+     "S08:actor-value:attacker-net<=0 by redeem",
+     "Rebate:conservation:totalDeposited=sum(balances) by withdraw",
+     "Rebate:actor-value:attacker-net<=0 by withdraw",
+     "Seasons:one-way:season by rollover",
+     "YieldShares:conservation:totalAssets=sum(shares) by harvest",
+     "YieldShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": []
+   },
+   "set2": {
+    "recall": "5/7",
+    "fn": [
+     "W02 BonusPool",
+     "W07 RebasePool"
+    ],
+    "fp": 22,
+    "wrong": 4,
+    "twins": 9,
+    "controls": 9,
+    "fi": "9/16",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:conservation:managed=sum(units)",
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:conservation:totalAssets=sum(shares)",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:conservation:totalJoined=sum(credit)",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:actor-value:attacker-net<=0 by withdraw",
+     "W06:conservation:totalAssets=sum(shares) by harvest",
+     "W06:actor-value:attacker-net<=0 by redeem",
+     "W07:conservation:totalStaked=sum(stakes) by rebase",
+     "S02:actor-value:attacker-net<=0 by withdraw",
+     "S03:conservation:totalDeposited=sum(balances) by credit",
+     "S03:actor-value:attacker-net<=0 by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S06:conservation:totalAssets=sum(shares) by harvest",
+     "S06:actor-value:attacker-net<=0 by redeem",
+     "S07:conservation:totalStaked=sum(stakes) by rebase",
+     "Harvester:conservation:managed=sum(units) by addYield",
+     "Harvester:actor-value:attacker-net<=0 by leave",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:conservation:totalAssets=sum(shares) by donate",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:conservation:totalJoined=sum(credit) by bonus",
+     "Membership:actor-value:attacker-net<=0 by leave"
+    ],
+    "detections": "W01:Y W02:n W03:Y W04:Y W05:Y W06:Y W07:n",
+    "reclassified": []
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "all",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 0,
+    "wrong": 0,
+    "twins": 0,
+    "controls": 0,
+    "fi": "2/13",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:actor-value:attacker-net<=0",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+    ]
+   },
+   "set2": {
+    "recall": "5/7",
+    "fn": [
+     "W02 BonusPool",
+     "W05 Ballot"
+    ],
+    "fp": 1,
+    "wrong": 0,
+    "twins": 0,
+    "controls": 1,
+    "fi": "3/10",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:actor-value:attacker-net<=0",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "DonationShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "W01:Y W02:n W03:Y W04:Y W05:n W06:Y W07:Y",
+    "reclassified": [
+     "BonusPool:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "Harvester:actor-value:attacker-net<=0 by leave [privilegedFunding]",
+     "Membership:actor-value:attacker-net<=0 by leave [privilegedFunding]"
+    ]
+   },
+   "controls": {
+    "fi": "0/6",
+    "falseAccepted": [],
+    "fpHyp": [],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "default",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 1,
+    "wrong": 0,
+    "twins": 0,
+    "controls": 1,
+    "fi": "3/14",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "Seasons:one-way:season by rollover"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+    ]
+   },
+   "set2": {
+    "recall": "6/7",
+    "fn": [
+     "W02 BonusPool"
+    ],
+    "fp": 7,
+    "wrong": 0,
+    "twins": 3,
+    "controls": 4,
+    "fi": "6/13",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "W01:Y W02:n W03:Y W04:Y W05:Y W06:Y W07:Y",
+    "reclassified": [
+     "BonusPool:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "Harvester:actor-value:attacker-net<=0 by leave [privilegedFunding]",
+     "Membership:actor-value:attacker-net<=0 by leave [privilegedFunding]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "default - privilegedBreaker",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 2,
+    "wrong": 1,
+    "twins": 0,
+    "controls": 1,
+    "fi": "3/14",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V08:conservation:totalAssets=sum(shares) by harvest",
+     "Seasons:one-way:season by rollover"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+    ]
+   },
+   "set2": {
+    "recall": "5/7",
+    "fn": [
+     "W02 BonusPool",
+     "W07 RebasePool"
+    ],
+    "fp": 10,
+    "wrong": 2,
+    "twins": 4,
+    "controls": 4,
+    "fi": "6/13",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W06:conservation:totalAssets=sum(shares) by harvest",
+     "W07:conservation:totalStaked=sum(stakes) by rebase",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S07:conservation:totalStaked=sum(stakes) by rebase",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "W01:Y W02:n W03:Y W04:Y W05:Y W06:Y W07:n",
+    "reclassified": [
+     "BonusPool:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Harvester:actor-value:attacker-net<=0 by leave [privilegedFunding]",
+     "Membership:actor-value:attacker-net<=0 by leave [privilegedFunding]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "default - privilegedFunding",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 4,
+    "wrong": 0,
+    "twins": 1,
+    "controls": 3,
+    "fi": "3/14",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "S08:actor-value:attacker-net<=0 by redeem",
+     "Rebate:actor-value:attacker-net<=0 by withdraw",
+     "Seasons:one-way:season by rollover",
+     "YieldShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]"
+    ]
+   },
+   "set2": {
+    "recall": "6/7",
+    "fn": [
+     "W02 BonusPool"
+    ],
+    "fp": 14,
+    "wrong": 2,
+    "twins": 6,
+    "controls": 6,
+    "fi": "6/13",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:actor-value:attacker-net<=0 by withdraw",
+     "W06:actor-value:attacker-net<=0 by redeem",
+     "S02:actor-value:attacker-net<=0 by withdraw",
+     "S03:actor-value:attacker-net<=0 by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "S06:actor-value:attacker-net<=0 by redeem",
+     "Harvester:actor-value:attacker-net<=0 by leave",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:actor-value:attacker-net<=0 by leave"
+    ],
+    "detections": "W01:Y W02:n W03:Y W04:Y W05:Y W06:Y W07:Y",
+    "reclassified": [
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "default - unitRatio",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 2,
+    "wrong": 1,
+    "twins": 0,
+    "controls": 1,
+    "fi": "4/15",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:conservation:totalAssets=sum(shares)",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "V03:conservation:totalAssets=sum(shares) by donate",
+     "Seasons:one-way:season by rollover"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "YieldShares:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+    ]
+   },
+   "set2": {
+    "recall": "6/7",
+    "fn": [
+     "W02 BonusPool"
+    ],
+    "fp": 8,
+    "wrong": 0,
+    "twins": 3,
+    "controls": 5,
+    "fi": "8/15",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:conservation:managed=sum(units)",
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:conservation:totalAssets=sum(shares)",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:conservation:totalAssets=sum(shares) by donate",
+     "DonationShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "W01:Y W02:n W03:Y W04:Y W05:Y W06:Y W07:Y",
+    "reclassified": [
+     "BonusPool:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "Harvester:conservation:managed=sum(units) by addYield [privilegedBreaker]",
+     "Harvester:actor-value:attacker-net<=0 by leave [privilegedFunding]",
+     "Membership:actor-value:attacker-net<=0 by leave [privilegedFunding]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "default - privilegedRefinement",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 2,
+    "wrong": 0,
+    "twins": 0,
+    "controls": 2,
+    "fi": "4/15",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:conservation:totalDeposited=sum(balances)",
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "Rebate:conservation:totalDeposited=sum(balances) by withdraw",
+     "Seasons:one-way:season by rollover"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+    ]
+   },
+   "set2": {
+    "recall": "6/7",
+    "fn": [
+     "W02 BonusPool"
+    ],
+    "fp": 9,
+    "wrong": 0,
+    "twins": 4,
+    "controls": 5,
+    "fi": "7/14",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:conservation:totalJoined=sum(credit)",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "S03:conservation:totalDeposited=sum(balances) by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:actor-value:attacker-net<=0 by redeem",
+     "Membership:conservation:totalJoined=sum(credit) by leave"
+    ],
+    "detections": "W01:Y W02:n W03:Y W04:Y W05:Y W06:Y W07:Y",
+    "reclassified": [
+     "BonusPool:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "Treasury:conservation:totalDeposited=sum(balances) by credit [privilegedBreaker]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "Harvester:actor-value:attacker-net<=0 by leave [privilegedFunding]",
+     "Membership:conservation:totalJoined=sum(credit) by bonus [privilegedBreaker]",
+     "Membership:actor-value:attacker-net<=0 by leave [privilegedFunding]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  },
+  {
+   "name": "default - residualBreaker",
+   "set1": {
+    "recall": "10/10",
+    "fn": [],
+    "fp": 1,
+    "wrong": 0,
+    "twins": 0,
+    "controls": 1,
+    "fi": "3/14",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Rebate:actor-value:attacker-net<=0",
+     "Seasons:one-way:season",
+     "YieldShares:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "Seasons:one-way:season by rollover"
+    ],
+    "detections": "V01:Y V02:Y V03:Y V04:Y V05:Y V06:Y V07:Y V08:Y V09:Y V10:Y",
+    "reclassified": [
+     "YieldVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "YieldVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "Rebate:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "YieldShares:actor-value:attacker-net<=0 by redeem [privilegedFunding]"
+    ]
+   },
+   "set2": {
+    "recall": "5/7",
+    "fn": [
+     "W02 BonusPool",
+     "W03 Treasury"
+    ],
+    "fp": 8,
+    "wrong": 1,
+    "twins": 3,
+    "controls": 4,
+    "fi": "6/13",
+    "trueRejected": [],
+    "falseAccepted": [
+     "Harvester:actor-value:attacker-net<=0",
+     "Cycle3:one-way:phase",
+     "Cycle3:one-way:marks",
+     "Lap:one-way:lap",
+     "DonationShares:actor-value:attacker-net<=0",
+     "Membership:actor-value:attacker-net<=0"
+    ],
+    "fps": [
+     "W03:conservation:totalDeposited=sum(balances) by withdraw",
+     "S04:one-way:stage by finish",
+     "S05:one-way:stage by newRound",
+     "S05:one-way:tally by newRound",
+     "Cycle3:one-way:phase by wrap",
+     "Cycle3:one-way:marks by wrap",
+     "Lap:one-way:lap by clear",
+     "DonationShares:actor-value:attacker-net<=0 by redeem"
+    ],
+    "detections": "W01:Y W02:n W03:n W04:Y W05:Y W06:Y W07:Y",
+    "reclassified": [
+     "BonusPool:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:conservation:totalDeposited=sum(balances) by credit [privilegedBreaker]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdraw [privilegedFunding]",
+     "Treasury:actor-value:attacker-net<=0 by withdrawAll [privilegedFunding]",
+     "PricedVault:conservation:totalAssets=sum(shares) by harvest [privilegedBreaker]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "PricedVault:actor-value:attacker-net<=0 by redeem [privilegedFunding]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "RebasePool:conservation:totalStaked=sum(stakes) by rebase [privilegedBreaker]",
+     "Harvester:actor-value:attacker-net<=0 by leave [privilegedFunding]",
+     "Membership:actor-value:attacker-net<=0 by leave [privilegedFunding]"
+    ]
+   },
+   "controls": {
+    "fi": "1/7",
+    "falseAccepted": [
+     "Rounds:one-way:round"
+    ],
+    "fpHyp": [
+     "Rounds.close: apex-invariant-one-way"
+    ],
+    "trueRejected": [
+     "Seeded:one-way:seeded"
+    ]
+   }
+  }
+ ]
+}
