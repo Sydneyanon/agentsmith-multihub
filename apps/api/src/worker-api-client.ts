@@ -3,6 +3,8 @@ import type { Dossier, StoredHypothesis } from "./analysis/solidity/pipeline.js"
 import type { SlitherScanOutcome } from "./analysis/solidity/slither-record.js";
 import { ResearchConflictError, type EvaluationOutcome, type GeneratorIdentity, type SnapshotFileInput, type SpanRole, type StepLease } from "./research-state.js";
 import type { ResearchReads, ResearchStorePort, SealedSnapshotRef, WorkerLoopPort } from "./research-port.js";
+import type { ConfigFiles, DependencyManifest } from "./acquisition/dependencies.js";
+import type { SharedModelRef, SharedModelUnavailable } from "./analysis/solidity/shared-model.js";
 import { LeaseLostError, StepError } from "./step-errors.js";
 import type { ClaimedStep } from "./worker.js";
 import type { StepProgress } from "./step-progress.js";
@@ -232,4 +234,12 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
   slitherHypothesisIds(ids: readonly string[], snapshotId: string): Promise<string[]> { return this.call("slither_hypothesis_ids", { ...this.stepRef(), snapshot_id: snapshotId, ids: [...ids] }, false); }
   specialistHypothesesOfRun(_runId: string, snapshotId: string): Promise<StoredHypothesis[]> { return this.call("specialist_hypotheses_of_run", { ...this.stepRef(), snapshot_id: snapshotId }, false); }
   buildDossier(snapshotId: string): Promise<Dossier> { return this.call("build_dossier", { ...this.stepRef(), snapshot_id: snapshotId }, false); }
+  // C1 / C3 reads: the stored shared protocol model (the caller re-hashes it), the resolver's configuration files, the dependency manifest
+  sharedProtocolModel(_runId: string): Promise<SharedModelRef | SharedModelUnavailable> { return this.call("shared_protocol_model", this.stepRef(), false); }
+  snapshotConfigFiles(snapshotId: string): Promise<ConfigFiles> { return this.call("snapshot_config_files", { ...this.stepRef(), snapshot_id: snapshotId }, false); }
+  dependencyContext(_runId: string): Promise<{ manifest: DependencyManifest; files: Record<string, string[]> } | null> { return this.call("dependency_context", this.stepRef(), false); }
+  async dependencySolidityFiles(_runId: string): Promise<Array<{ path: string; content: Buffer }>> {
+    const files = await this.call<Array<{ path: string; content_base64: string }>>("dependency_solidity_files", this.stepRef(), false);
+    return files.map((f) => ({ path: f.path, content: Buffer.from(f.content_base64, "base64") }));
+  }
 }
