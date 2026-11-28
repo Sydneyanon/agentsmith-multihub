@@ -221,6 +221,10 @@ export async function runProgress(pool: Pool, runId: string, env: Record<string,
     issues: issuesFor(stepRows.map((s) => s.step_key)),
   });
   overall.issues.refusals.total += runRefusalsWithoutStep;
+  // name the codes of refusals that cite no step of this run too, so the total always equals the sum of its listed codes
+  for (const r of refusals.rows.filter((x) => !x.step_id || !ids.includes(String(x.step_id)))) {
+    const code = String(r.code ?? "unknown"); overall.issues.refusals.by_code[code] = (overall.issues.refusals.by_code[code] ?? 0) + Number(r.n);
+  }
   if (runRefusalsWithoutStep) overall.notes.push(`${runRefusalsWithoutStep} worker-API refusals name no step of this run (bad token, schema or foreign step)`);
   const stages = all.map((s) => ({ step_key: s.step_key, status: s.status, attempt: s.attempt, elapsed_seconds: s.elapsed_seconds, lease_live: s.lease_live, started_at: s.started_at, completed_at: s.completed_at }));
 

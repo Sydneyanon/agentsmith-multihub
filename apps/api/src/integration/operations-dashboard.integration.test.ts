@@ -178,6 +178,8 @@ describe.skipIf(skipIntegration)("live operations dashboard: progress records an
     const tools = panelOf(doc, "tools") as Omit<Panel, "capabilities"> & { capabilities: Array<{ id: string; state: string; reason: string }> };
     expect(tools.capabilities.find((c) => c.id === "slither")).toMatchObject({ state: "unavailable" });
     expect(tools.capabilities.find((c) => c.id === "slither")!.reason).toMatch(/AGENTSMITH_SLITHER_BIN/);
+    // every refusal total equals the sum of its listed codes (a refusal that cites no step of the run still names its code)
+    for (const p of doc.panels as any[]) expect(Object.values(p.issues.refusals.by_code as Record<string, number>).reduce((a, n) => a + n, 0), p.id).toBe(p.issues.refusals.total);
     for (const p of doc.panels as Panel[]) for (const x of [...p.processing, ...p.coverage, ...p.counts]) {
       if (x.measurable) { expect(x.denominator, `${p.id}.${x.key}`).toBeGreaterThan(0); expect(x.numerator!).toBeLessThanOrEqual(x.denominator!); }
       expect(["processing", "coverage", "confidence", "outcome"]).toContain(x.kind);

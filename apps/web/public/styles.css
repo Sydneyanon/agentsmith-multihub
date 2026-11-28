@@ -170,7 +170,7 @@ details { margin: .5rem 0; } summary { cursor: pointer; display: list-item; min-
   .stepper { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem .4rem; }
   .bar-row { grid-template-columns: 7rem minmax(0, 1fr) 1.6rem; } .kv { grid-template-columns: minmax(0, 1fr); gap: 0; } .kv dd { margin-bottom: .5rem; }
   .tabbar { position: fixed; inset: auto 0 0 0; z-index: 10; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); height: calc(var(--tabbar) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); background: rgba(5,15,11,.97); backdrop-filter: blur(8px); border-top: 1px solid var(--line2); }
-  .tabbar .nav-item { flex-direction: column; justify-content: center; gap: .15rem; padding: .2rem; font-size: .6rem; color: var(--text); border-radius: 0; border: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; } .tabbar .nav-icon { font-size: 1.35rem; line-height: 1; opacity: .9; }
+  .tabbar .nav-item { flex-direction: column; justify-content: center; gap: .15rem; padding: .2rem; font-size: .6rem; color: var(--text); border-radius: 0; border: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; } .tabbar .nav-icon { font-size: 1.35rem; line-height: 1; opacity: .9; width: auto; min-width: 1.6rem; }
   .tabbar .nav-item.is-active { background: transparent; color: var(--accent); } .tabbar .nav-item.is-active .nav-icon { opacity: 1; text-shadow: 0 0 10px rgba(43,255,136,.55); }
   .table { display: block; overflow-x: auto; white-space: nowrap; } .code { max-height: 420px; }
 }
