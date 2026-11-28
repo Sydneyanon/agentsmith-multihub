@@ -36,7 +36,7 @@ import { analyzeSources } from "../../analysis/solidity/specialists.js";
 import { Tracer } from "../../analysis/solidity/trace.js";
 import { CoverageCollector, type Coverage } from "./coverage.js";
 import { exploreDeep } from "./deep-explorer.js";
-import { classifyUnsupported, FidelityInterp, type Approximation, type ApproximationKind, type UnsupportedFeature } from "./fidelity.js";
+import { ABSENT, classifyUnsupported, FidelityInterp, newTxLog, type Approximation, type ApproximationKind, type UnsupportedFeature } from "./fidelity.js";
 
 export type { Coverage } from "./coverage.js";
 export const PROTOTYPE_GENERATOR = "apex-state-explorer@0-prototype";
@@ -185,22 +185,22 @@ export function sumLedger(w: World, ledger: string): bigint {
   m.set(ledger, s); return s;
 }
 
-/**
- * The interpreter-relevant content of a world: every storage entry (default-valued mapping entries included, since they are stored),
- * the ether held and the ether received by the observed actor. `trace`, `payouts` and `steps` are never read by an execution (the first
- * two are only appended to, the third is reset by `beginTransaction`), so they are not part of it.
- */
-const worldKeys = new WeakMap<World, string>();
-function worldKey(w: World): string {
-  let k = worldKeys.get(w);
-  if (k === undefined) { k = [...w.storage.entries()].map(([x, v]) => `${x}=${typeof v === "bigint" ? `${v}n` : JSON.stringify(v)}`).sort().join(";") + `#${w.balance}#${w.received}`; worldKeys.set(w, k); }
-  return k;
-}
 /** one executed transaction, as the difference it made, plus the coverage side effects it had, so that it can be replayed exactly */
 type MemoEntry = { guards: Array<[string, boolean]>; reached: string[] } & (
-  | { k: "ok"; set: Array<[string, Value]>; balance: bigint; received: bigint; payouts: number; trace: string[]; steps: number; tx: Approximation[] }
+  | { k: "ok"; set: Array<[string, Value]>; dBalance: bigint; dReceived: bigint; payouts: number; trace: string[]; steps: number; tx: Approximation[] }
   | { k: "revert"; why: string }
   | { k: "unsupported"; feature: UnsupportedFeature; at: string; why: string });
+/**
+ * the recorded transactions of one move that read the same slots (in the same first-read order) and the same thing about the ether held,
+ * keyed by the pre-world's content of exactly those
+ */
+type MemoShape = { id: string; keys: string[]; balance: boolean; table: Map<string, MemoEntry> };
+const enc = (v: Value | typeof ABSENT | undefined): string => (v === ABSENT || v === undefined ? "\u2205" : typeof v === "bigint" ? `${v}n` : JSON.stringify(v));
+function signature(w: World, keys: readonly string[], balance: boolean): string {
+  let s = balance ? `${w.balance}` : "";
+  for (const k of keys) s += `\u0001${enc(w.storage.has(k) ? (w.storage.get(k) ?? null) : ABSENT)}`;
+  return s;
+}
 const MEMO_CAP = 250_000;
 
 /** One deployed contract under the instrumented interpreter: deployment, candidates, and single-transition execution. */
@@ -211,18 +211,20 @@ export class Engine {
   ledgers: string[] = []; aggregates: string[] = []; uintScalars: string[] = [];
   readonly deployedValues = new Map<string, Value>();
   /**
-   * memoisation of `step` by (exact pre-world content, move): a transaction is a deterministic function of the pre-world's storage, ether
-   * held and receipts, and of the move, so a repeated one (the adversarial search re-runs most of the honest one; randomised sequences and
-   * minimisation replay prefixes) is replayed from its recorded difference instead of being re-interpreted. The replay reproduces the
-   * post-world exactly (storage contents and insertion order, trace, payouts) and re-applies the transaction's coverage side effects (guard
-   * outcomes, statements reached), so every report is identical with or without it. `memo = false` disables it, to measure that.
+   * memoisation of `step` by (move, the pre-world's content of the slots the transaction read): a transaction is a deterministic function
+   * of the move and of what it reads from the pre-world (storage slots, through `readVar` only, and the ether held; fidelity.ts logs both).
+   * Two pre-worlds that agree on the slots one execution read, in its first-read order, make the same reads and take the same path, so
+   * the second is replayed from the first's recorded difference: the slots written (in first-write order, so the post-world's storage
+   * order is the interpreter's), the change in ether held and received, payouts, trace, and the coverage side effects (guard outcomes,
+   * statements reached). Every report is identical with or without it; `memo = false` disables it, to measure that.
+   * The adversarial search re-runs most of the honest one, randomised sequences and minimisation replay prefixes, and a transaction that
+   * reads few slots (a revert on a guard, a deposit) recurs across states that differ elsewhere.
    */
   memo = true;
   /** transitions requested, and how many of them were actually interpreted (the rest were replayed from the memo) */
   executions = 0; memoHits = 0;
-  /** pre-world content -> move -> recorded transaction; `memoByWorld` caches the inner table per world object */
-  private readonly memoTable = new Map<string, Map<string, MemoEntry>>(); private memoSize = 0;
-  private readonly memoByWorld = new WeakMap<World, Map<string, MemoEntry>>();
+  /** move -> the shapes of its recorded transactions */
+  private readonly memoTable = new Map<string, MemoShape[]>(); private memoSize = 0;
   private readonly moveKeys = new WeakMap<Move, string>();
   private fnIndex = new Map<FunctionDef, number>();
   constructor(readonly sources: ReadonlyArray<{ path: string; text: string }>, readonly contract: string) {
@@ -333,20 +335,26 @@ export class Engine {
       if (fi === undefined) { this.executions++; return this.execute(pre, m, null); }
       key = `${m.actor}|${fi}|${m.args.map((v) => (typeof v === "bigint" ? `${v}n` : JSON.stringify(v))).join(",")}|${m.value}`; this.moveKeys.set(m, key);
     }
-    let table = this.memoByWorld.get(pre.w);
-    if (!table) { const wk = worldKey(pre.w); table = this.memoTable.get(wk); if (!table) { table = new Map(); this.memoTable.set(wk, table); } this.memoByWorld.set(pre.w, table); }
-    const hit = table.get(key);
-    if (hit) { this.memoHits++; return this.replayEntry(pre, m, hit); }
+    let shapes = this.memoTable.get(key); if (!shapes) { shapes = []; this.memoTable.set(key, shapes); }
+    for (const sh of shapes) {
+      const hit = sh.table.get(signature(pre.w, sh.keys, sh.balance));
+      if (hit) { this.memoHits++; return this.replayEntry(pre, m, hit); }
+    }
     this.executions++;
-    const log = { guards: [] as Array<[string, boolean]>, reached: [] as string[] };
+    const log = newTxLog();
     const out = this.execute(pre, m, log);
     if (this.memoSize < MEMO_CAP) {
       this.memoSize++;
+      const keys = [...log.reads.keys()]; const id = `${log.balanceRead ? "B" : ""}|${keys.join("\u0001")}`;
+      let sh = shapes.find((x) => x.id === id);
+      if (!sh) { sh = { id, keys, balance: log.balanceRead, table: new Map() }; shapes.push(sh); }
+      const sig = signature(pre.w, keys, log.balanceRead);
+      const fx = { guards: log.guards, reached: log.reached };
       if (out.k === "ok") {
-        const w = out.post.w; const set: Array<[string, Value]> = [];
-        for (const [k, v] of w.storage) if (!pre.w.storage.has(k) || pre.w.storage.get(k) !== v) set.push([k, v]);
-        table.set(key, { ...log, k: "ok", set, balance: w.balance, received: w.received, payouts: w.payouts - pre.w.payouts, trace: w.trace.slice(pre.w.trace.length), steps: w.steps, tx: out.tx });
-      } else table.set(key, { ...log, ...out });
+        const w = out.post.w;
+        sh.table.set(sig, { ...fx, k: "ok", set: log.writes.map((k) => [k, w.storage.get(k) ?? null] as [string, Value]), dBalance: w.balance - pre.w.balance, dReceived: w.received - pre.w.received,
+          payouts: w.payouts - pre.w.payouts, trace: w.trace.slice(pre.w.trace.length), steps: w.steps, tx: out.tx });
+      } else sh.table.set(sig, { ...fx, ...out });
     }
     return out;
   }
@@ -358,7 +366,7 @@ export class Engine {
     if (e.k === "revert") return { k: "revert", why: e.why };
     if (e.k === "unsupported") return { k: "unsupported", feature: e.feature, at: e.at, why: e.why };
     const w = new World(); w.storage = new Map(pre.w.storage); for (const [k, v] of e.set) w.storage.set(k, v);
-    w.balance = e.balance; w.received = e.received; w.payouts = pre.w.payouts + e.payouts; w.trace = [...pre.w.trace, ...e.trace]; w.steps = e.steps;
+    w.balance = pre.w.balance + e.dBalance; w.received = pre.w.received + e.dReceived; w.payouts = pre.w.payouts + e.payouts; w.trace = [...pre.w.trace, ...e.trace]; w.steps = e.steps;
     const tx = [...e.tx];
     const post: Node = { w, sentByAttacker: pre.sentByAttacker + (m.actor === "attacker" ? m.value : 0n), seq: [...pre.seq, stepOf(m)], moves: [...pre.moves, m], approx: [...pre.approx, ...tx] };
     return { k: "ok", post, tx };

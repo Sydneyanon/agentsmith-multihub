@@ -1,7 +1,7 @@
 /**
  * PROTOTYPE: the transaction memo (state-explorer-prototype.ts: Engine.memo) is a pure cost reduction. With it on (the default) and off,
- * every report is identical, field for field, except the cost record itself; on the fresh sets most adversarial and randomised transitions
- * are replayed from the memo instead of being re-interpreted. Self-authored contracts: this measures cost, not detection quality.
+ * every report is identical, field for field, except the cost record itself; on the fresh sets most transitions are replayed from the memo
+ * (keyed by the slots a transaction read) instead of being re-interpreted. Self-authored contracts: this measures cost, not detection quality.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,9 +27,16 @@ describe("PROTOTYPE APEX transaction memo: identical reports, lower interpreter 
     }
   }, 60_000);
 
-  it("fresh set 1: the search is unchanged (275 995 transitions) and about 38% fewer transitions are interpreted", () => {
+  // the recorded totals were measured before the memo existed (fresh set 1: d32f960; fresh set 2: d1eedf0), so equality is the acceptance test
+  it("fresh set 1: every finding as recorded, the search unchanged (275 995 transitions), about 80% fewer transitions interpreted", () => {
     const s = scoreFreshSet({}, FRESH_DIR);
     expect(s.totals).toEqual((JSON.parse(readFileSync(join(__dirname, "fresh-set-results", "after.json"), "utf8")) as { totals: unknown }).totals);
-    expect(s.cost).toEqual({ requested: 317_885, interpreted: 197_191 });
+    expect(s.cost).toEqual({ requested: 317_885, interpreted: 64_372 }); // 317 885 before the memo; 197 191 with the exact-world memo
+  }, 60_000);
+
+  it("fresh set 2: every finding as recorded before the memo, the search unchanged (168 207 transitions)", () => {
+    const s = scoreFreshSet({}, FRESH_DIR_2);
+    expect(s.totals).toEqual((JSON.parse(readFileSync(join(__dirname, "fresh-set-2-results", "deep-before.json"), "utf8")) as { totals: unknown }).totals);
+    expect(s.cost).toEqual({ requested: 200_675, interpreted: 32_240 });
   }, 60_000);
 });
