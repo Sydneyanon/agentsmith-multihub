@@ -1,6 +1,6 @@
 # Research dossier: scroll-tech/usx-contracts @ 9e972566deb59b4d2c499015c2557c5e5f236e3c
 
-Snapshot e299e1d3-8780-4a01-9cfb-2aff88b99471: 33 files, manifest `965270d2b263ec4aa31e881247576b7d8cf359ef0aa8c894486b969b39b7ca77`, database verification ok=true. Content hash `c4ccf157261c8ce42ea9dcbc1164b300d659a6f94cba04a683d0744c45cf04a2`.
+Snapshot 990df7c3-6c47-43dc-95a7-fad5189d1a57: 33 files, manifest `965270d2b263ec4aa31e881247576b7d8cf359ef0aa8c894486b969b39b7ca77`, database verification ok=true. Content hash `98efb09d468534d0c5f50a8564febae08c585a0872e8344cb2ce2acf15447526`.
 
 **Provenance.** Snapshot content: WORKER-REPORTED (not verified by the API); analysis: worker reported; challenge: worker reported; external tool output: worker reported.
 
@@ -284,16 +284,16 @@ Human review: none recorded.
 8 hypotheses are 6 investigations: 2 lead(s) were reported by more than one hypothesis and are counted ONCE. Each engine's claim and evidence stays separate; agreement between generators is independent generation, not validation.
 
 ### SharedVault.configure - access-control (lead key `1e906c33b66d5695…`): CONTRADICTED
-- **solidity-structural-specialists@1** (agentsmith-solidity-parser), hypothesis `cb83fa5c-4ac4-4e2e-bd25-9595889aadb9`: cites `src/demo/SharedVault.sol:27-27`, `src/demo/SharedVault.sol:25-25`; evaluations: execution-challenge-access-control@1 **contradicts** (same-family to its generator; same-family to the investigation)
-- **slither@0.11.3** (slither-ir), hypothesis `70dcd50a-48e2-47a3-bb93-6aee7d4cdcdb`: cites `src/demo/SharedVault.sol:25-27`; evaluations: execution-challenge-access-control@1 **inconclusive** (cross-family to its generator; same-family to the investigation)
+- **solidity-structural-specialists@1** (agentsmith-solidity-parser), hypothesis `52d8a9ce-608e-4e5e-9a09-5ba8c5e75598`: cites `src/demo/SharedVault.sol:27-27`, `src/demo/SharedVault.sol:25-25`; evaluations: execution-challenge-access-control@1 **contradicts** (same-family to its generator; same-family to the investigation)
+- **slither@0.11.3** (slither-ir), hypothesis `32941679-d1b3-47d9-a831-a6f416e58cfc`: cites `src/demo/SharedVault.sol:25-27`; evaluations: execution-challenge-access-control@1 **inconclusive** (cross-family to its generator; same-family to the investigation)
 Corroboration at the investigation level: 0 from another family than every generator, 0 sharing a family with a generator.
 **Contradictions (2, both sides kept):**
 - refuted by another engine: solidity-structural-specialists@1 (agentsmith-solidity-parser) asserts the lead; execution-challenge-access-control@1 (agentsmith-solidity-parser) executed a counterexample when evaluating that hypothesis. Both records are kept; neither overrides the other without a human decision.
 - refuted by another engine: slither@0.11.3 (slither-ir) asserts the lead; execution-challenge-access-control@1 (agentsmith-solidity-parser) executed a counterexample when evaluating the same lead as reported by solidity-structural-specialists@1. Both records are kept; neither overrides the other without a human decision.
 
 ### SharedVault.withdraw - reentrancy (lead key `9fb9f31c4a0be9d9…`): CORROBORATED SAME FAMILY
-- **solidity-structural-specialists@1** (agentsmith-solidity-parser), hypothesis `34df16b6-f124-4339-80e0-4341f7505c24`: cites `src/demo/SharedVault.sol:20-20`, `src/demo/SharedVault.sol:22-22`; evaluations: reentrancy-execution-validator@1 **supports** (same-family to its generator; same-family to the investigation)
-- **slither@0.11.3** (slither-ir), hypothesis `16f13f4b-7774-437a-8344-2255e6eda211`: cites `src/demo/SharedVault.sol:17-22`; evaluations: reentrancy-execution-validator@1 **supports** (cross-family to its generator; same-family to the investigation)
+- **solidity-structural-specialists@1** (agentsmith-solidity-parser), hypothesis `ad99a834-3492-4692-92cc-b92e3b66414a`: cites `src/demo/SharedVault.sol:20-20`, `src/demo/SharedVault.sol:22-22`; evaluations: reentrancy-execution-validator@1 **supports** (same-family to its generator; same-family to the investigation)
+- **slither@0.11.3** (slither-ir), hypothesis `bf7f76d2-1501-4710-aa41-8a2013e26b65`: cites `src/demo/SharedVault.sol:17-22`; evaluations: reentrancy-execution-validator@1 **supports** (cross-family to its generator; same-family to the investigation)
 Corroboration at the investigation level: 0 from another family than every generator, 2 sharing a family with a generator.
 
 ## Architecture (protocol model P1-P3)

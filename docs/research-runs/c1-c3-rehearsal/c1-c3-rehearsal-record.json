@@ -4,7 +4,7 @@
   "slither": "AUTHORED STAND-IN OUTPUT (not Slither's detection): a shell script printing fixed JSON in Slither's shape",
   "apex": "the unchanged APEX engine on the USX-like fixture; eligible only because the fixture is served as the approved repository, commit and scope (test configuration); measurement only",
   "run": {
-    "id": "38818c7e-6855-4aec-a17a-1a6fc094ea53",
+    "id": "9b3d699c-aa94-4e61-8935-0fc6dedda620",
     "repository": "scroll-tech/usx-contracts",
     "commit": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
     "status": "succeeded",
@@ -54,7 +54,7 @@
     ]
   },
   "snapshot": {
-    "id": "e299e1d3-8780-4a01-9cfb-2aff88b99471",
+    "id": "990df7c3-6c47-43dc-95a7-fad5189d1a57",
     "manifest_sha256": "965270d2b263ec4aa31e881247576b7d8cf359ef0aa8c894486b969b39b7ca77",
     "dependency_snapshots": [
       {
@@ -328,7 +328,7 @@
     },
     "contributions": [
       {
-        "hypothesis_id": "34df16b6-f124-4339-80e0-4341f7505c24",
+        "hypothesis_id": "ad99a834-3492-4692-92cc-b92e3b66414a",
         "generator": "solidity-structural-specialists@1",
         "generator_kind": "deterministic_rule",
         "analysis_family": "agentsmith-solidity-parser",
@@ -349,7 +349,7 @@
         ],
         "evaluations": [
           {
-            "evaluation_id": "9a626c56-4c5c-41f1-a31f-ab39f7ed18ba",
+            "evaluation_id": "37be6aa1-b056-47c6-912c-ac750c4b45fd",
             "evaluator": "reentrancy-execution-validator@1",
             "analysis_family": "agentsmith-solidity-parser",
             "method": "bounded-execution",
@@ -361,7 +361,7 @@
         ]
       },
       {
-        "hypothesis_id": "16f13f4b-7774-437a-8344-2255e6eda211",
+        "hypothesis_id": "bf7f76d2-1501-4710-aa41-8a2013e26b65",
         "generator": "slither@0.11.3",
         "generator_kind": "deterministic_rule",
         "analysis_family": "slither-ir",
@@ -377,7 +377,7 @@
         ],
         "evaluations": [
           {
-            "evaluation_id": "7bc7bae8-2716-49d7-8630-d95c38be7685",
+            "evaluation_id": "455d5db5-61ae-4892-b005-30d44e78c153",
             "evaluator": "reentrancy-execution-validator@1",
             "analysis_family": "agentsmith-solidity-parser",
             "method": "bounded-execution",
@@ -419,7 +419,7 @@
     },
     "contributions": [
       {
-        "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
+        "hypothesis_id": "52d8a9ce-608e-4e5e-9a09-5ba8c5e75598",
         "generator": "solidity-structural-specialists@1",
         "generator_kind": "deterministic_rule",
         "analysis_family": "agentsmith-solidity-parser",
@@ -440,7 +440,7 @@
         ],
         "evaluations": [
           {
-            "evaluation_id": "71893ff3-ad80-4bd3-ad41-16da6b86b809",
+            "evaluation_id": "1ed2c00a-238e-473a-a0ef-86d0327ba37a",
             "evaluator": "execution-challenge-access-control@1",
             "analysis_family": "agentsmith-solidity-parser",
             "method": "bounded-execution",
@@ -452,7 +452,7 @@
         ]
       },
       {
-        "hypothesis_id": "70dcd50a-48e2-47a3-bb93-6aee7d4cdcdb",
+        "hypothesis_id": "32941679-d1b3-47d9-a831-a6f416e58cfc",
         "generator": "slither@0.11.3",
         "generator_kind": "deterministic_rule",
         "analysis_family": "slither-ir",
@@ -468,7 +468,7 @@
         ],
         "evaluations": [
           {
-            "evaluation_id": "941abd0c-e29b-44d9-a73c-9b499bc7ccdf",
+            "evaluation_id": "5eb6166a-34f1-41d9-9fb9-bd15c210cb18",
             "evaluator": "execution-challenge-access-control@1",
             "analysis_family": "agentsmith-solidity-parser",
             "method": "bounded-execution",
@@ -501,14 +501,14 @@
           "engine": "solidity-structural-specialists@1",
           "analysis_family": "agentsmith-solidity-parser",
           "stance": "asserts",
-          "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9"
+          "hypothesis_id": "52d8a9ce-608e-4e5e-9a09-5ba8c5e75598"
         },
         "against": {
           "engine": "execution-challenge-access-control@1",
           "analysis_family": "agentsmith-solidity-parser",
           "stance": "contradicts",
-          "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
-          "evaluation_id": "71893ff3-ad80-4bd3-ad41-16da6b86b809"
+          "hypothesis_id": "52d8a9ce-608e-4e5e-9a09-5ba8c5e75598",
+          "evaluation_id": "1ed2c00a-238e-473a-a0ef-86d0327ba37a"
         },
         "families": "same-family",
         "note": "solidity-structural-specialists@1 (agentsmith-solidity-parser) asserts the lead; execution-challenge-access-control@1 (agentsmith-solidity-parser) executed a counterexample when evaluating that hypothesis. Both records are kept; neither overrides the other without a human decision."
@@ -519,14 +519,14 @@
           "engine": "slither@0.11.3",
           "analysis_family": "slither-ir",
           "stance": "asserts",
-          "hypothesis_id": "70dcd50a-48e2-47a3-bb93-6aee7d4cdcdb"
+          "hypothesis_id": "32941679-d1b3-47d9-a831-a6f416e58cfc"
         },
         "against": {
           "engine": "execution-challenge-access-control@1",
           "analysis_family": "agentsmith-solidity-parser",
           "stance": "contradicts",
-          "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
-          "evaluation_id": "71893ff3-ad80-4bd3-ad41-16da6b86b809"
+          "hypothesis_id": "52d8a9ce-608e-4e5e-9a09-5ba8c5e75598",
+          "evaluation_id": "1ed2c00a-238e-473a-a0ef-86d0327ba37a"
         },
         "families": "cross-family",
         "note": "slither@0.11.3 (slither-ir) asserts the lead; execution-challenge-access-control@1 (agentsmith-solidity-parser) executed a counterexample when evaluating the same lead as reported by solidity-structural-specialists@1. Both records are kept; neither overrides the other without a human decision."
@@ -550,7 +550,7 @@
     }
   },
   "dossier": {
-    "content_sha256": "c4ccf157261c8ce42ea9dcbc1164b300d659a6f94cba04a683d0744c45cf04a2",
+    "content_sha256": "98efb09d468534d0c5f50a8564febae08c585a0872e8344cb2ce2acf15447526",
     "entries": 8,
     "investigations": 6,
     "step_output_leads": 6,
@@ -560,7 +560,7 @@
     "self_evaluation_refused": "refused by the database: an evaluation cannot be made by the generator of its hypothesis (solidity-structural-specialists)",
     "relations": [
       {
-        "hypothesis": "34df16b6-f124-4339-80e0-4341f7505c24",
+        "hypothesis": "ad99a834-3492-4692-92cc-b92e3b66414a",
         "generator": "solidity-structural-specialists@1",
         "evaluator": "reentrancy-execution-validator@1",
         "relation_to_generator": "same-family",
@@ -568,7 +568,7 @@
         "outcome": "supports"
       },
       {
-        "hypothesis": "16f13f4b-7774-437a-8344-2255e6eda211",
+        "hypothesis": "bf7f76d2-1501-4710-aa41-8a2013e26b65",
         "generator": "slither@0.11.3",
         "evaluator": "reentrancy-execution-validator@1",
         "relation_to_generator": "cross-family",
@@ -576,7 +576,7 @@
         "outcome": "supports"
       },
       {
-        "hypothesis": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
+        "hypothesis": "52d8a9ce-608e-4e5e-9a09-5ba8c5e75598",
         "generator": "solidity-structural-specialists@1",
         "evaluator": "execution-challenge-access-control@1",
         "relation_to_generator": "same-family",
@@ -584,7 +584,7 @@
         "outcome": "contradicts"
       },
       {
-        "hypothesis": "70dcd50a-48e2-47a3-bb93-6aee7d4cdcdb",
+        "hypothesis": "32941679-d1b3-47d9-a831-a6f416e58cfc",
         "generator": "slither@0.11.3",
         "evaluator": "execution-challenge-access-control@1",
         "relation_to_generator": "cross-family",
@@ -595,7 +595,7 @@
   },
   "dependencies": {
     "digest": "6bca023a6f5f303f76f672ae584d773d9a7c3726745efa0d507eb70536b0a1c7",
-    "blob_sha256": "989297f8d60eb8e490dcfaf80752542b21db0d19a337cb11f41fba00bdc935d6",
+    "blob_sha256": "f97e344c398a5cd1c6af12cbf1c4cd686c57062d45e8b69dc8df6d8795875cc8",
     "records": [
       {
         "kind": "git_submodule",
@@ -709,7 +709,7 @@
         "file_count": 4,
         "repository": "acme-labs/vault-lib",
         "source_url": "https://github.com/acme-labs/vault-lib",
-        "snapshot_id": "54faa9a6-eb12-4513-a400-f5e97be38b89",
+        "snapshot_id": "6aef2007-33b1-436e-b13f-8e0279ff8dca",
         "completeness": "complete",
         "declared_url": "https://github.com/acme-labs/vault-lib",
         "stored_bytes": 289,
@@ -733,7 +733,7 @@
         "file_count": 3,
         "repository": "acme-labs/nested-lib",
         "source_url": "https://github.com/acme-labs/nested-lib",
-        "snapshot_id": "893fa575-3f08-43f7-a222-847d1342a0be",
+        "snapshot_id": "ad8f579e-e6c0-4fe3-aa86-30f309060c20",
         "completeness": "complete",
         "declared_url": "git@github.com:acme-labs/nested-lib.git",
         "stored_bytes": 228,
@@ -930,7 +930,7 @@
       "epistemic": "derived",
       "provenance": {
         "analysis": "apex-fidelity-gate",
-        "report_sha256": "83bf1c1fe55817efd320df06f290c8c0283b35ac0f26456c7e3f2636cfb5c58b",
+        "report_sha256": "c9405952698e40ac33cf9599cb6ff0ad8435af6296d88bc33b5c36650f145111",
         "audit_event_id": "32",
         "reported_by": "worker",
         "label": "APEX shadow: unvalidated, not evidence",
@@ -1055,7 +1055,7 @@
   "apex_shadow": {
     "status": "apex_shadow_recorded",
     "eligibility": "checked at creation, by the step and by the recorder (production check unchanged)",
-    "report_sha256": "83bf1c1fe55817efd320df06f290c8c0283b35ac0f26456c7e3f2636cfb5c58b",
+    "report_sha256": "c9405952698e40ac33cf9599cb6ff0ad8435af6296d88bc33b5c36650f145111",
     "label": "APEX shadow: unvalidated, not evidence",
     "contracts_explored": {
       "meaning": "deployable contracts in in-scope files that APEX deployed and searched / deployable contracts in in-scope files (interfaces, libraries and abstract contracts are listed separately)",
@@ -1075,7 +1075,7 @@
     "slither_status": "abstained",
     "abstention": {
       "code": "dependency_unavailable",
-      "detail": "cannot compile: dependency lib/ghost unavailable (dependency lib/ghost is unavailable: repository_not_found: the repository was not found (it may not exist, or it is not public)); 2 import(s) of the analysed sources cannot be resolved [lib/ghost, lib/unpinned]"
+      "detail": "cannot compile: dependency lib/ghost unavailable (dependency lib/ghost is unavailable: repository_not_found: the repository was not found (it may not exist, or it is not public)); 2 import statement(s) of the analysed sources cannot be resolved [lib/ghost, lib/unpinned]"
     },
     "limitations": [
       {
@@ -1112,7 +1112,7 @@
     "dossier_coverage_status": "partial"
   },
   "reproducibility": {
-    "second_run_id": "0ad7f392-561e-4513-8b5f-0f88eb52307e",
+    "second_run_id": "5fc79c86-9237-470d-8ae3-15335d932bae",
     "dependency_digest_equal": true,
     "shared_model_sha256_equal": true,
     "analysed_snapshot_manifest_equal": true
