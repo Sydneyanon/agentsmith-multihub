@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,6 +8,8 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createRepositoryResearchRun } from "../acquisition/step.js";
 import { FakeSource } from "../acquisition/testing/fake-source.js";
+import { GitHubSource } from "../acquisition/github-source.js";
+import { startLoopbackGitHub, type LoopbackGitHub } from "../acquisition/testing/loopback-github.js";
 import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fixture.js";
 import { buildDossier, type Dossier } from "../analysis/solidity/pipeline.js";
 import { buildApp } from "../app.js";
@@ -27,7 +29,7 @@ import { expireLease, migratedTestDatabase, REPO_ROOT, skipIntegration, type Tes
  * worker routes, authorised by a run-scoped capability token. The end-to-end case runs a REAL API process (server.ts) and a REAL worker
  * process with no database URL in its environment, over real HTTP; the rest use an in-process Fastify server listening on a real port.
  */
-const DRAFT = join(REPO_ROOT, "db", "drafts", "d-worker-api", "0015_worker_capability_tokens.sql");
+const GH_TOKEN = "github_pat_" + "11ABCDEFG0" + "y".repeat(72); // the API's own read-only GitHub credential (shape only; loopback fake)
 const OPERATOR = randomBytes(36).toString("base64url");
 const corpus = join(REPO_ROOT, "eval", "dev", "contracts");
 const devFiles = () => readdirSync(corpus).sort().map((f) => ({ path: `contracts/${f}`, content: readFileSync(join(corpus, f), "utf8") }));
@@ -44,22 +46,25 @@ function start(script: string, env: Record<string, string>): Proc {
 }
 /** the secret part of `wct1_<32 hex id>_<secret>` (base64url, so it may itself contain "_") */
 const secretOf = (token: string) => token.slice("wct1_".length + 33);
-const stripIds = (d: Dossier) => d.entries.map(({ hypothesis_id: _id, ...rest }) => rest);
+const stripIds = (d: Dossier) => d.entries.map(({ hypothesis_id: _id, provenance: _p, ...rest }) => rest);
 
 describe.skipIf(skipIntegration)("option D: the worker reaches the database only through the API's run-scoped worker routes", () => {
-  let db: TestDatabase; let app: FastifyInstance; let base = ""; const fixtures: GitFixture[] = []; let n = 4200;
+  let db: TestDatabase; let app: FastifyInstance; let base = ""; const fixtures: GitFixture[] = []; let n = 4200; let gh: LoopbackGitHub; let tokenDir = "";
   const owner = () => db.ownerPool;
   const permissive = () => new AuthFailureLimiter({ perClientMax: 1e6, globalMax: 1e6, windowMs: 60_000 });
 
   beforeAll(async () => {
     db = await migratedTestDatabase();
-    await owner().query(readFileSync(DRAFT, "utf8"));
-    // the API uses the OWNER connection, as it does in production (Fly's schema_admin)
-    app = buildApp({ pool: owner(), apiBearerToken: OPERATOR, hubAllowedHosts: [], limiter: permissive(), engineInfo: { expectedMigrations: null }, workerApi: { reaperIntervalMs: 0, limiter: permissive() } });
+    gh = await startLoopbackGitHub(); tokenDir = mkdtempSync(join(tmpdir(), "wapi-tokens-"));
+    // the API uses the OWNER connection, as it does in production (Fly's schema_admin), and its OWN read-only GitHub source (D2)
+    const github = new GitHubSource({ token: GH_TOKEN, testOrigins: { api: gh.origin, archive: [gh.origin] }, requestTimeoutMs: 5000 });
+    app = buildApp({ pool: owner(), apiBearerToken: OPERATOR, hubAllowedHosts: [], limiter: permissive(), engineInfo: { expectedMigrations: null }, workerApi: { reaperIntervalMs: 0, limiter: permissive(), github } });
     await app.listen({ host: "127.0.0.1", port: 0 });
     base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   }, 60_000);
-  afterAll(async () => { await app?.close(); for (const f of fixtures) f.cleanup(); await db?.drop(); });
+  afterAll(async () => { await app?.close(); await gh?.close(); rmSync(tokenDir, { recursive: true, force: true }); for (const f of fixtures) f.cleanup(); await db?.drop(); });
+  /** D6: the token is delivered in a file (never in the environment) */
+  const tokenFile = (token: string) => { const f = join(tokenDir, randomUUID()); writeFileSync(f, `${token}\n`, { mode: 0o600 }); return f; };
 
   async function call(op: string, body: unknown, opts: { token?: string | null; key?: string | null | undefined; raw?: string; method?: string; url?: string; headers?: Record<string, string> } = {}) {
     const headers: Record<string, string> = { "content-type": "application/json", ...opts.headers };
@@ -71,7 +76,7 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
   }
   const client = (token: string, extra: Partial<ConstructorParameters<typeof WorkerApiClient>[0]> = {}) => new WorkerApiClient({ baseUrl: base, token, backoffMs: 1, attempts: 3, ...extra });
   const newRun = async (repo: string) => createRepositoryResearchRun(owner(), { repository: `acme/${repo}`, ref: "main" }, "operator", { structuralAnalysis: true });
-  const fixture = (repo: string, files = devFiles()) => { const fx = buildGitFixture(files, { owner: "acme", repo }); fixtures.push(fx); return fx; };
+  const fixture = (repo: string, files = devFiles()) => { const fx = buildGitFixture(files, { owner: "acme", repo }); fixtures.push(fx); gh.add(fx); return fx; };
   /** claim the next step of the token's run and run it through the SAME handlers the remote runtime uses */
   async function drive(c: WorkerApiClient, source: FakeSource) {
     const step = await c.claimNext(remoteStepKeys(SWITCHES)); expect(step).not.toBeNull();
@@ -118,7 +123,8 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
     // a REAL API process: owner connection, the worker API only on a second, private listener
     const [pub, priv] = [await freePort(), await freePort()];
     const api = start("apps/api/src/server.ts", { NODE_ENV: "test", DATABASE_URL: db.url, API_BEARER_TOKEN: OPERATOR, HOST: "127.0.0.1", PORT: String(pub), LOG_LEVEL: "info",
-      WORKER_API_ENABLED: "true", WORKER_API_HOST: "127.0.0.1", WORKER_API_PORT: String(priv) });
+      WORKER_API_ENABLED: "true", WORKER_API_HOST: "127.0.0.1", WORKER_API_PORT: String(priv), WORKER_API_GITHUB_TEST_ORIGIN: gh.origin, GITHUB_TOKEN: GH_TOKEN });
+    gh.add(fixture("remote-target", files));
     let worker: Proc | undefined;
     try {
       for (let i = 0; i < 200; i++) { try { if ((await fetch(`http://127.0.0.1:${pub}/health/live`)).ok) break; } catch { /* starting */ } await new Promise((r) => setTimeout(r, 100)); }
@@ -134,7 +140,7 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
       const dir = mkdtempSync(join(tmpdir(), "remote-child-")); const spec = join(dir, "fixture.json");
       writeFileSync(spec, JSON.stringify({ owner: "acme", repo: "remote-target", files }));
       // the worker's ENTIRE environment: no DATABASE_URL, no PG* variable, nothing that could connect to Postgres
-      const env = { WORKER_STORE: "api", WORKER_API_URL: `http://127.0.0.1:${priv}`, WORKER_API_TOKEN: token, ...SWITCHES, REMOTE_CHILD_FIXTURE: spec, NODE_ENV: "test" };
+      const env = { WORKER_STORE: "api", WORKER_API_URL: `http://127.0.0.1:${priv}`, WORKER_API_TOKEN_FILE: tokenFile(token), ...SWITCHES, REMOTE_CHILD_FIXTURE: spec, NODE_ENV: "test" };
       expect(Object.keys(env).filter((k) => /DATABASE|^PG/.test(k))).toEqual([]);
       worker = start("apps/api/src/integration/remote-worker-child.ts", env);
       const code = await Promise.race([worker.code, new Promise<number>((r) => setTimeout(() => r(-1), 110_000))]);
@@ -148,11 +154,18 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
       expect(remote.snapshot.verified).toBe(true);
       expect(remote.coverage).toEqual(direct.coverage);
       expect(remote.entries.length).toBeGreaterThan(0);
+      // the same findings, evidence, evaluations and assessments as the direct mode; only WHO established them differs (D3):
+      // the remote run's snapshot, analysis and evaluations were verified or derived by the API, the direct run's are worker-reported
       expect(stripIds(remote)).toEqual(stripIds(direct));
       expect(remote.architecture).toEqual(direct.architecture);
-      expect(remote.content_sha256).toBe(direct.content_sha256); // the same dossier content as the direct mode
+      expect(remote.provenance).toMatchObject({ snapshot: { status: "api_verified_against_github" }, analysis: "api_derived", challenge: "api_derived" });
+      expect(direct.provenance).toMatchObject({ snapshot: { status: "worker_reported" }, analysis: "worker_reported", challenge: "worker_reported" });
+      expect(remote.entries.every((e) => e.provenance.claim === "api_derived" && e.provenance.evaluations.every((x) => x.recorded_by === "api_verified"))).toBe(true);
+      expect(direct.entries.every((e) => e.provenance.claim === "worker_reported" && e.provenance.evaluations.every((x) => x.recorded_by === "direct_worker"))).toBe(true);
+      expect(remote.content_sha256).not.toBe(direct.content_sha256); // the provenance is part of the content
       const dossierStep = (await owner().query(`SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = 'build_dossier'`, [remoteRun])).rows[0].output;
-      expect(dossierStep.content_sha256).toBe(direct.content_sha256);
+      expect(dossierStep.content_sha256).toBe(remote.content_sha256); expect(dossierStep.derived_by).toBe("api");
+      expect(gh.hits.some((h) => h.url.startsWith("/repos/acme/remote-target/git/trees/") && h.authorized)).toBe(true); // the API's own authenticated GitHub read
       // every lease was held by the token's identity; the audit trail names the token id and never the token
       const claimedBy = (await owner().query(`SELECT DISTINCT a.actor FROM audit_events a JOIN workflow_steps s ON s.id::text = a.entity_id WHERE a.action = 'workflow_step.claimed' AND s.workflow_run_id = $1`, [remoteRun])).rows.map((r) => r.actor);
       expect(claimedBy).toEqual([`worker-api:${tokenId}`]);
@@ -178,7 +191,7 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
   it("refuses to start in remote mode when any database URL is present, and the default mode is still the direct worker", async () => {
     const run = await newRun("startup-refusal");
     const { token, tokenId } = await mintWorkerToken(owner(), { runId: run.runId, createdBy: "operator@test" });
-    const remote = { WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN: token };
+    const remote = { WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN_FILE: tokenFile(token) };
     for (const extra of [{ DATABASE_URL: db.url }, { WORKER_DATABASE_URL: db.url }, { PGPASSWORD: "x" }, { SOME_OTHER_SETTING: db.url }]) {
       const p = start("apps/api/src/worker-main.ts", { ...remote, ...extra });
       expect(await p.code, p.out()).toBe(64);
@@ -192,6 +205,9 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
     expect(await noToken.code).toBe(64);
     const plainHttp = start("apps/api/src/worker-main.ts", { ...remote, WORKER_API_URL: "http://api.example.com" });
     expect(await plainHttp.code).toBe(64); expect(plainHttp.out()).toMatch(/must be https/);
+    // D6: a token in the ENVIRONMENT refuses the start, even next to a valid token file
+    const inEnv = start("apps/api/src/worker-main.ts", { ...remote, WORKER_API_TOKEN: token });
+    expect(await inEnv.code).toBe(64); expect(inEnv.out()).toMatch(/WORKER_API_TOKEN is set in the environment/); expect(inEnv.out()).not.toContain(secretOf(token));
     // WORKER_STORE unset: the unchanged direct worker, which still insists on its database URL
     const direct = start("apps/api/src/worker-main.ts", {});
     expect(await direct.code).toBe(1); expect(direct.out()).toContain("WORKER_DATABASE_URL or DATABASE_URL is required");
@@ -247,43 +263,54 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
       ["snapshot_sources", { step_id: challenge!.id, snapshot_id: snapB }],
       ["hypothesis_span_ids", { step_id: challenge!.id, hypothesis_id: hypB }],
       ["specialist_hypothesis_id", { step_id: challenge!.id, snapshot_id: snapB, claim: "anything at all" }],
-      ["record_evaluation", { step_id: challenge!.id, hypothesis_id: hypB, evaluator_id: "no-independent-validator", evaluator_version: "1", outcome: "inconclusive", rationale: "x", span_ids: [], input_sha256: "0".repeat(64) }],
-      ["record_evaluation", { step_id: challenge!.id, hypothesis_id: hypA, evaluator_id: "no-independent-validator", evaluator_version: "1", outcome: "supports", rationale: "x", span_ids: [spanB], input_sha256: "0".repeat(64) }],
     ] as const;
-    for (const [op, body] of cross) { const r = await call(op, body, { token: ta.token, key: op === "record_evaluation" ? undefined : null }); expect(r.status, op).toBe(403); expect(r.json.error, op).toBe("cross_run_reference"); }
+    for (const [op, body] of cross) { const r = await call(op, body, { token: ta.token, key: null }); expect(r.status, op).toBe(403); expect(r.json.error, op).toBe("cross_run_reference"); }
+    // D1: a worker records no evaluation at all, whatever it names (another run's hypothesis or span included)
+    for (const body of [{ hypothesis_id: hypB, span_ids: [] as string[], outcome: "inconclusive" }, { hypothesis_id: hypA, span_ids: [spanB], outcome: "supports" }]) {
+      const r = await call("record_evaluation", { step_id: challenge!.id, evaluator_id: "no-independent-validator", evaluator_version: "1", rationale: "x", input_sha256: "0".repeat(64), ...body }, { token: ta.token });
+      expect([r.status, r.json.error]).toEqual([403, "evaluations_are_api_derived"]);
+    }
     expect((await call("create_hypothesis", { step_id: challenge!.id }, { token: ta.token })).status).toBe(400); // strict schema first
     expect((await call("put_blob", { step_id: challenge!.id, content_base64: "eA==" }, { token: ta.token })).json.error).toBe("operation_not_allowed_for_step");
 
-    // idempotency: the same key twice writes once; the same key with another body is refused; concurrent duplicates write once
-    const evaluation = { step_id: challenge!.id, hypothesis_id: hypA, evaluator_id: "no-independent-validator", evaluator_version: "1", outcome: "inconclusive", rationale: "idempotency probe", span_ids: [], input_sha256: "1".repeat(64) };
-    const before = await evaluations(hypA); const key = randomUUID();
-    const first = await call("record_evaluation", evaluation, { token: ta.token, key });
-    const second = await call("record_evaluation", evaluation, { token: ta.token, key });
+    // idempotency (D7), on a fresh acquisition step: the same key twice writes once; the same key with another body is refused;
+    // concurrent duplicates write once; a lost answer is replayed to the retry AND to a restarted worker (derived keys)
+    const c = await newRun("scope-c"); const tc = await mintWorkerToken(owner(), { runId: c.runId, createdBy: "operator@test" });
+    const cc = client(tc.token); const stepC = (await cc.claimNext(["acquire_repository"]))!;
+    const blob = { step_id: stepC.id, content_base64: Buffer.from(`idempotency probe ${randomUUID()}`).toString("base64") };
+    const usage = async () => Number((await owner().query("SELECT blobs_stored FROM worker_token_usage WHERE token_id = $1", [tc.tokenId])).rows[0]?.blobs_stored ?? 0);
+    const key = randomUUID();
+    const first = await call("put_blob", blob, { token: tc.token, key });
+    const second = await call("put_blob", blob, { token: tc.token, key });
     expect(first.status).toBe(200); expect(second.json).toMatchObject({ ok: true, replayed: true, result: first.json.result });
-    expect(await evaluations(hypA)).toBe(before + 1);
-    expect((await call("record_evaluation", { ...evaluation, rationale: "changed" }, { token: ta.token, key })).json.error).toBe("idempotency_conflict");
-    const k2 = randomUUID();
-    const both = await Promise.all([call("record_evaluation", { ...evaluation, rationale: "concurrent" }, { token: ta.token, key: k2 }), call("record_evaluation", { ...evaluation, rationale: "concurrent" }, { token: ta.token, key: k2 })]);
-    expect(both.map((r) => r.status)).toEqual([200, 200]); expect(both[0]!.json.result).toBe(both[1]!.json.result);
-    expect(await evaluations(hypA)).toBe(before + 2);
-    // a response lost AFTER the API committed: the client retries with the same key and gets the stored answer, not a second row
+    expect(await usage()).toBe(1);
+    expect((await call("put_blob", { ...blob, content_base64: "eA==" }, { token: tc.token, key })).json.error).toBe("idempotency_conflict");
+    const k2 = randomUUID(); const blob2 = { ...blob, content_base64: Buffer.from(`concurrent ${randomUUID()}`).toString("base64") };
+    const both = await Promise.all([call("put_blob", blob2, { token: tc.token, key: k2 }), call("put_blob", blob2, { token: tc.token, key: k2 })]);
+    expect(both.map((r) => r.status)).toEqual([200, 200]); expect(both[0]!.json.result).toEqual(both[1]!.json.result);
+    expect(await usage()).toBe(2);
     let dropped = false;
-    const lossy = client(ta.token, { fetchImpl: async (input, init) => { const res = await fetch(input, init); if (!dropped && String(input).endsWith("record_evaluation")) { dropped = true; throw new TypeError("fetch failed"); } return res; } });
-    lossy.scopeToStep(challenge!.id);
-    const id = await lossy.recordEvaluation({ stepId: challenge!.id, workerId: "ignored" }, { hypothesisId: hypA, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive", rationale: "lost response", spanIds: [], inputSha256: "2".repeat(64) });
-    expect(dropped).toBe(true); expect(typeof id).toBe("string");
-    expect(Number((await owner().query("SELECT count(*) FROM hypothesis_evaluations WHERE rationale = 'lost response'")).rows[0].count)).toBe(1);
+    const lossy = client(tc.token, { fetchImpl: async (input, init) => { const res = await fetch(input, init); if (!dropped && String(input).endsWith("put_blob")) { dropped = true; await res.text(); throw new TypeError("fetch failed"); } return res; } });
+    lossy.adoptStep(stepC);
+    const lost = Buffer.from(`lost response ${randomUUID()}`);
+    const got = await lossy.putBlob({ stepId: stepC.id, workerId: "ignored" }, lost);
+    expect(dropped).toBe(true); expect(got.sha256).toBe(createHash("sha256").update(lost).digest("hex"));
+    expect(await usage()).toBe(3); // stored once
+    const restarted = client(tc.token); restarted.adoptStep(stepC); // a NEW process for the same attempt derives the same key
+    expect(await restarted.putBlob({ stepId: stepC.id, workerId: "ignored" }, lost)).toEqual(got);
+    expect(await usage()).toBe(3);
+    expect(Number((await owner().query("SELECT count(*) FROM audit_events WHERE action = 'worker_api.replayed' AND payload->>'token_id' = $1 AND payload->>'operation' = 'put_blob'", [tc.tokenId])).rows[0].count)).toBe(4); // same key, concurrent duplicate, lost answer, restart
 
     // a lease that has expired is not held: every write is refused, and the client reports it as LeaseLostError
     await expireLease(owner(), challenge!.id);
-    expect((await call("record_evaluation", { ...evaluation, rationale: "late" }, { token: ta.token })).json.error).toBe("lease_not_held");
+    expect((await call("record_evaluation", { step_id: challenge!.id, hypothesis_id: hypA, evaluator_id: "no-independent-validator", evaluator_version: "1", outcome: "inconclusive", rationale: "late", span_ids: [], input_sha256: "1".repeat(64) }, { token: ta.token })).json.error).toBe("lease_not_held");
     await expect(ca.recordEvaluation({ stepId: challenge!.id, workerId: "x" }, { hypothesisId: hypA, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive", rationale: "late", spanIds: [], inputSha256: "3".repeat(64) })).rejects.toBeInstanceOf(LeaseLostError);
     expect(await ca.heartbeat(challenge!.id)).toBe(false);
 
     // the audit trail: accepted, refused and replayed calls, each with the token id, operation, run and step; never the token
     const trail = await audits(ta.tokenId);
     const outcomes = new Set(trail.map((t) => t.payload.outcome));
-    expect(outcomes).toEqual(new Set(["accepted", "refused", "replayed"]));
+    expect(outcomes).toEqual(new Set(["accepted", "refused"])); // replays of this suite are on the scope-c token (above)
     for (const t of trail) { expect(t.payload).toMatchObject({ token_id: ta.tokenId, run_id: a.runId }); expect(typeof t.payload.operation).toBe("string"); }
     expect(trail.some((t) => t.payload.outcome === "refused" && t.payload.code === "cross_run_reference" && t.payload.step_id === challenge!.id)).toBe(true);
     expect(trail.some((t) => t.payload.outcome === "refused" && t.payload.code === "lease_not_held" && t.payload.operation === "record_evaluation")).toBe(true);
@@ -309,7 +336,7 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
     await expect(owner().query("DELETE FROM worker_capability_tokens WHERE id = $1", [t.tokenId])).rejects.toThrow(/never deleted/);
     const dir = mkdtempSync(join(tmpdir(), "remote-child-")); const spec = join(dir, "fixture.json");
     writeFileSync(spec, JSON.stringify({ owner: "acme", repo: "refusals", files: [{ path: "README.md", content: "x\n" }] }));
-    const child = start("apps/api/src/integration/remote-worker-child.ts", { WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN: t.token, REMOTE_CHILD_FIXTURE: spec, NODE_ENV: "test" });
+    const child = start("apps/api/src/integration/remote-worker-child.ts", { WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN_FILE: tokenFile(t.token), REMOTE_CHILD_FIXTURE: spec, NODE_ENV: "test" });
     expect(await child.code, child.out()).toBe(77); expect(child.out()).toContain('"stop":"token_rejected"'); expect(child.out()).not.toContain(secretOf(t.token));
     rmSync(dir, { recursive: true, force: true });
     expect((await owner().query("SELECT status, attempt FROM workflow_steps WHERE id = $1", [run.stepId])).rows[0]).toEqual({ status: "queued", attempt: 0 });
@@ -333,7 +360,7 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
     expect(v(await call("put_blob", { step_id: run.stepId, content_base64: "A".repeat(1_500_000) }, { token: live.token }))).toEqual([413, "body_too_large"]);
     expect(v(await call("create_hypothesis", { step_id: run.stepId, snapshot_id: randomUUID(), family: "solidity-x", claim: "a claim long enough", rationale: "r", required_checks: [], alternative_explanations: [],
       generator: { kind: "human", id: "operator", version: "1" }, spans: [{ span_id: randomUUID(), role: "primary" }] }, { token: live.token }))).toEqual([400, "invalid_request"]);
-    expect(v(await call("record_evaluation", { step_id: run.stepId, hypothesis_id: randomUUID(), evaluator_id: "human-review", evaluator_version: "1", outcome: "supports", rationale: "r", span_ids: [], input_sha256: "0".repeat(64) }, { token: live.token }))).toEqual([400, "invalid_request"]);
+    expect(v(await call("record_evaluation", { step_id: run.stepId, hypothesis_id: randomUUID(), evaluator_id: "human-review", evaluator_version: "1", outcome: "approved", rationale: "r", span_ids: [], input_sha256: "0".repeat(64) }, { token: live.token }))).toEqual([400, "invalid_request"]);
     const refusedCodes = (await audits(live.tokenId)).map((a) => a.payload.code);
     for (const code of ["invalid_request", "idempotency_key_required", "malformed_body", "body_too_large"]) expect(refusedCodes).toContain(code);
     // unknown operations, other methods and path tricks never reach worker code: the default-deny operator check answers 401
@@ -356,6 +383,10 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
     const src = readFileSync(join(REPO_ROOT, "apps/api/src/worker-api.ts"), "utf8");
     expect(src.match(/\bUPDATE\s+\w+/g)).toEqual(["UPDATE worker_capability_tokens"]);
     expect(src).not.toMatch(/\bDELETE\s+FROM\b|\bTRUNCATE\b|\bALTER\s+TABLE\b|DISABLE TRIGGER/);
+    // D4: the quota ledger is the only other table the worker API updates, from its own module, and only to grow its counters
+    const quotas = readFileSync(join(REPO_ROOT, "apps/api/src/worker-quotas.ts"), "utf8");
+    expect([...new Set(quotas.match(/\bUPDATE\s+\w+/g))]).toEqual(["UPDATE worker_token_usage"]);
+    expect(quotas).not.toMatch(/\bDELETE\s+FROM\b|\bTRUNCATE\b|\bALTER\s+TABLE\b|DISABLE TRIGGER/);
   });
 
   it("an unreachable API is retryable for the loop, and a step with an unrecorded write can never complete", async () => {

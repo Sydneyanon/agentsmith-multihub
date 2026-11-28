@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { join } from "node:path";
@@ -9,9 +10,15 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createRepositoryResearchRun } from "../acquisition/step.js";
 import { FakeSource } from "../acquisition/testing/fake-source.js";
+import { GitHubSource } from "../acquisition/github-source.js";
+import { startLoopbackGitHub, type LoopbackGitHub } from "../acquisition/testing/loopback-github.js";
 import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fixture.js";
-import { buildDossier, VALIDATOR_ID } from "../analysis/solidity/pipeline.js";
+import { buildDossier, computeStructuralAnalysis, VALIDATOR_ID } from "../analysis/solidity/pipeline.js";
+import { analysisIdentity } from "../analysis-identity.js";
+import { execFixed } from "../engine/tools/tool-host/exec.js";
+import type { SnapshotFileInput, StepLease } from "../research-state.js";
 import { buildApp } from "../app.js";
+import type { WorkerApiOptions } from "../worker-api.js";
 import { AuthFailureLimiter } from "../auth.js";
 import { ResearchStore } from "../research-state.js";
 import { WorkerApiClient } from "../worker-api-client.js";
@@ -30,7 +37,7 @@ import { expireLease, migratedTestDatabase, REPO_ROOT, skipIntegration, type Tes
  * The same scenario ids are implemented against design B' in the B' worktree.
  */
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 180_000 });
-const DRAFT = join(REPO_ROOT, "db", "drafts", "d-worker-api", "0015_worker_capability_tokens.sql");
+const GH_TOKEN = "github_pat_" + "11ABCDEFG0" + "y".repeat(72); // the API's own read-only GitHub credential (shape only; loopback fake)
 const OPERATOR = randomBytes(36).toString("base64url");
 const corpus = join(REPO_ROOT, "eval", "dev", "contracts");
 const devFiles = () => readdirSync(corpus).sort().map((f) => ({ path: `contracts/${f}`, content: readFileSync(join(corpus, f), "utf8") }));
@@ -45,18 +52,19 @@ const PROTECTED = ["bounty_programs", "bounty_repository_mappings", "bounty_rese
 type Api = { app: FastifyInstance; internal: Server; pool: pg.Pool; pub: number; priv: number; close(): Promise<void> };
 
 describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a compromised worker holding a run-scoped token and arbitrary HTTP", () => {
-  let db: TestDatabase; let api: Api; let base = ""; let pubBase = "";
+  let db: TestDatabase; let api: Api; let base = ""; let pubBase = ""; let gh: LoopbackGitHub;
   const fixtures: GitFixture[] = []; const apis: Api[] = [];
   const owner = () => db.ownerPool;
 
   /** The API as server.ts runs it: owner pool (max 5 as in production), public listener + private worker listener. */
-  async function startApi(ports: { pub?: number; priv?: number } = {}, rateLimit?: { perSecond: number; burst: number }, connectTimeoutMs = 3_000): Promise<Api> {
+  async function startApi(ports: { pub?: number; priv?: number } = {}, rateLimit?: { perSecond: number; burst: number }, connectTimeoutMs = 3_000, extra: Partial<WorkerApiOptions> = {}): Promise<Api> {
     // as buildPoolConfig configures the API in production: max 5 (server.ts), connectionTimeoutMillis 3000 (DATABASE_CONNECT_TIMEOUT_MS default)
     const pool = new pg.Pool({ connectionString: db.url, max: 5, application_name: "dapi", connectionTimeoutMillis: connectTimeoutMs });
     pool.on("error", () => undefined); pool.on("connect", (c) => { c.on("error", () => undefined); });
     const priv = ports.priv ?? await freePort();
+    const github = new GitHubSource({ token: GH_TOKEN, testOrigins: { api: gh.origin, archive: [gh.origin] }, requestTimeoutMs: 5000 });
     const app = buildApp({ pool, apiBearerToken: OPERATOR, hubAllowedHosts: [], limiter: permissive(), engineInfo: { expectedMigrations: null },
-      workerApi: { reaperIntervalMs: 0, limiter: permissive(), privateListenerPort: priv, ...(rateLimit ? { rateLimit } : {}) } });
+      workerApi: { reaperIntervalMs: 0, limiter: permissive(), privateListenerPort: priv, github, ...(rateLimit ? { rateLimit } : {}), ...extra } });
     await app.listen({ host: "127.0.0.1", port: ports.pub ?? 0 });
     const internal = createServer((req, res) => app.server.emit("request", req, res));
     await new Promise<void>((resolve, reject) => { internal.once("error", reject); internal.listen(priv, "127.0.0.1", () => resolve()); });
@@ -67,13 +75,13 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
 
   beforeAll(async () => {
     db = await migratedTestDatabase();
-    await owner().query(readFileSync(DRAFT, "utf8"));
+    gh = await startLoopbackGitHub();
     api = await startApi();
     base = `http://127.0.0.1:${api.priv}`; pubBase = `http://127.0.0.1:${api.pub}`;
     await owner().query(`INSERT INTO bounty_programs (canonical_key, project_name, name_key, resolved, status, verification) VALUES ('sherlock:adv', 'victim', 'victim', '{}'::jsonb, 'active', 'official_confirmed')`);
     await owner().query("INSERT INTO ai_budget_reservations (provider, model, purpose, tier, reserved_usd) VALUES ('test','m','investigation','tier2', 5.0)");
   });
-  afterAll(async () => { for (const a of apis) await a.close().catch(() => undefined); for (const f of fixtures) f.cleanup(); await db?.drop(); });
+  afterAll(async () => { for (const a of apis) await a.close().catch(() => undefined); await gh?.close(); for (const f of fixtures) f.cleanup(); await db?.drop(); });
 
   async function call(op: string, body: unknown, opts: { token?: string | null; key?: string | null | undefined; raw?: string; method?: string; url?: string; headers?: Record<string, string>; at?: string } = {}) {
     const headers: Record<string, string> = { "content-type": "application/json", ...opts.headers };
@@ -89,7 +97,7 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
   async function researchRun(repo: string, files = devFiles()): Promise<R> {
     const { runId, stepId } = await createRepositoryResearchRun(owner(), { repository: `acme/${repo}`, ref: "main" }, "operator", { structuralAnalysis: true });
     const t = await mintWorkerToken(owner(), { runId, createdBy: "operator@test" });
-    const gx = buildGitFixture(files, { owner: "acme", repo }); fixtures.push(gx);
+    const gx = buildGitFixture(files, { owner: "acme", repo }); fixtures.push(gx); gh.add(gx);
     return { runId, stepId, token: t.token, tokenId: t.tokenId, client: new WorkerApiClient({ baseUrl: base, token: t.token, backoffMs: 1, attempts: 3 }), source: new FakeSource(gx), gx };
   }
   async function claim(r: R, keys = remoteStepKeys(SWITCHES)): Promise<ClaimedStep> { const s = await r.client.claimNext(keys); expect(s).not.toBeNull(); return s!; }
@@ -187,23 +195,26 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
     expect((await call("fail", { step_id: ch.id, reason: "s4 done", retryable: true }, { token: A.token })).status).toBe(200);
   });
 
-  it("S4 cross-run blob read through content addressing [PARTIAL]: knowing a blob's sha256+size, another run's bytes can be pulled into the attacker's snapshot", async () => {
+  it("S4 cross-run blob read through content addressing [PREVENTED by D4]: a manifest row may cite only blobs its OWN run uploaded; an unknown hash and another run's hash get the SAME refusal (no existence oracle); own copies are checked against GitHub", async () => {
     const C = await researchRun("adv-c", [{ path: "contracts/Mine.sol", content: "contract Mine {}\n" }]);
     const acq = await claim(C);
     const secretContent = (await owner().query("SELECT b.content_sha256 AS sha, b.size_bytes AS size, convert_from(b.content, 'UTF8') AS text FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256 WHERE f.workflow_run_id = $1 AND f.path LIKE '%.sol' LIMIT 1", [B.runId])).rows[0];
     const snap = (await call("create_snapshot", { step_id: acq.id, repository: "acme/adv-c", commit_sha: C.gx.commitSha, ref_name: "main" }, { token: C.token })).json.result as string;
-    // an existence oracle: an unknown hash is refused, a stored one (from any run) is accepted
     const unknown = await call("add_snapshot_files", { step_id: acq.id, snapshot_id: snap, files: [{ path: "contracts/X.sol", classification: "source", size_bytes: 3, blob_sha256: sha256Hex("nope") }] }, { token: C.token });
-    expect(unknown.json.error).toBe("database_rejected"); expect(unknown.json.message).toMatch(/is not stored/);
     const known = await call("add_snapshot_files", { step_id: acq.id, snapshot_id: snap, files: [{ path: "contracts/Stolen.sol", classification: "source", size_bytes: secretContent.size, blob_sha256: secretContent.sha }] }, { token: C.token });
-    expect(known.status).toBe(200);
-    await call("seal_snapshot", { step_id: acq.id, snapshot_id: snap }, { token: C.token });
-    await call("complete", { step_id: acq.id, output: { status: "snapshot_sealed", snapshot_id: snap } }, { token: C.token });
-    const an = await claim(C);
-    const src = (await plain("snapshot_sources", { step_id: an.id, snapshot_id: snap }, C.token)).json.result as Array<{ path: string; text: string }>;
-    expect(src.find((f) => f.path === "contracts/Stolen.sol")!.text).toBe(secretContent.text); // B's file, read through C's token
+    expect([unknown.status, unknown.json.error]).toEqual([422, "blob_not_uploaded"]);
+    expect([known.status, known.json.error, known.json.message]).toEqual([422, "blob_not_uploaded", unknown.json.message]); // indistinguishable
+    expect(await count("SELECT count(*) AS n FROM repo_snapshot_files WHERE snapshot_id = $1", [snap])).toBe(0);
+    // uploading the same bytes itself is allowed (it then knows them anyway), but the API verifies the snapshot against GitHub at seal:
+    // a path that is not in the commit's tree is refused, so another run's file cannot be smuggled into this run's snapshot
+    expect((await call("put_blob", { step_id: acq.id, content_base64: Buffer.from(secretContent.text, "utf8").toString("base64") }, { token: C.token })).status).toBe(200);
+    expect((await call("add_snapshot_files", { step_id: acq.id, snapshot_id: snap, files: [{ path: "contracts/Stolen.sol", classification: "source", size_bytes: secretContent.size, blob_sha256: secretContent.sha }] }, { token: C.token })).status).toBe(200);
+    const seal = await call("seal_snapshot", { step_id: acq.id, snapshot_id: snap }, { token: C.token });
+    expect([seal.status, seal.json.error]).toEqual([422, "snapshot_verification_failed"]);
+    expect(seal.json.problems.join("\n")).toMatch(/"contracts\/Stolen\.sol" is not in the GitHub tree/);
+    expect((await owner().query("SELECT sealed_at FROM repo_snapshots WHERE id = $1", [snap])).rows[0].sealed_at).toBeNull();
+    await call("fail", { step_id: acq.id, reason: "s4 blob done", retryable: false }, { token: C.token });
   });
-
   // ------------------------------------------------------------------------------------------------------------------------------
   it("S5 authentication [PREVENTED]: none, malformed, wrong secret, unknown id, another run's token, expired, revoked, terminal-run token; operator token", async () => {
     const R1 = await researchRun("adv-auth");
@@ -278,12 +289,11 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
     const k2 = randomUUID();
     const snapBody = { step_id: acq.id, repository: "acme/adv-replay", commit_sha: R3.gx.commitSha, ref_name: "main" };
     const raced = await Promise.all(Array.from({ length: 12 }, () => call("create_snapshot", snapBody, { token: R3.token, key: k2 })));
-    // every accepted duplicate gets the SAME snapshot id and only one row is written. Duplicates that lose the race can instead time out
-    // waiting for one of the 5 pool connections (see "racing duplicates exhaust the owner pool"): observed as 422 'rejected' or
-    // 500 'internal_error' carrying the pool-timeout message -- never a second write
+    // every accepted duplicate gets the SAME snapshot id and only one row is written
     const ok = raced.filter((r) => r.status === 200);
-    const poolTimeout = (r: { status: number; json: any }) => (r.status === 422 && r.json.error === "rejected" && /timeout exceeded when trying to connect/.test(r.json.message)) || (r.status === 500 && r.json.error === "internal_error") || (r.status === 503 && r.json.error === "database_unavailable");
-    expect(raced.every((r) => r.status === 200 || poolTimeout(r)), JSON.stringify(raced.map((r) => [r.status, r.json?.error]))).toBe(true);
+    // D5: a duplicate that cannot get a slot or a connection is a RETRYABLE 503, never a 422 or a 500
+    const retryable = (r: { status: number; json: any }) => r.status === 503 && ["database_unavailable", "worker_api_busy"].includes(r.json.error);
+    expect(raced.every((r) => r.status === 200 || retryable(r)), JSON.stringify(raced.map((r) => [r.status, r.json?.error]))).toBe(true);
     expect(ok.length).toBeGreaterThan(0); expect(new Set(ok.map((r) => r.json.result)).size).toBe(1);
     expect(await count("SELECT count(*) AS n FROM repo_snapshots WHERE workflow_run_id = $1", [R3.runId])).toBe(1);
     expect(await count("SELECT count(*) AS n FROM worker_api_requests WHERE token_id = $1 AND idempotency_key = $2", [R3.tokenId, k2])).toBe(1);
@@ -303,73 +313,164 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
   });
 
   // ------------------------------------------------------------------------------------------------------------------------------
-  it("S7a / (b) forge the independent validator [VULNERABLE]: the API records a validator 'supports' on a lead the validator never evaluates; it shows in the dossier", async () => {
-    const V = await researchRun("adv-forge"); await drive(V); await drive(V); // acquired + REAL analysis
+  it("S7a / (b) forge the independent validator [PREVENTED by D1]: the worker cannot record any evaluation under any id; the API runs the validators itself and only its verdicts, with provenance, reach the dossier", async () => {
+    const V = await researchRun("adv-forge"); await drive(V); await drive(V); // acquired + the API's own analysis
     const snap = await snapOf(V.runId);
     const leads = (await owner().query<{ id: string; family: string }>("SELECT id, family FROM hypotheses WHERE workflow_run_id = $1 ORDER BY family", [V.runId])).rows;
-    // a lead of a class with NO validator method (the honest challenge records 'no-independent-validator' / execution-challenge-*)
     const target = leads.find((l) => /tx-origin/.test(l.family)) ?? leads.find((l) => l.family !== "solidity-reentrancy")!;
-    expect(target.family).not.toBe("solidity-reentrancy");
+    const reent = leads.find((l) => l.family === "solidity-reentrancy");
     const ch = await claim(V); expect(ch.step_key).toBe("challenge_leads");
     const primary = (await plain("hypothesis_span_ids", { step_id: ch.id, hypothesis_id: target.id }, V.token)).json.result[0] as string;
-    const forged = await call("record_evaluation", { step_id: ch.id, hypothesis_id: target.id, evaluator_id: VALIDATOR_ID, evaluator_version: "1", outcome: "supports",
-      rationale: "Executed model: reentrancy validated (forged by a compromised worker)", span_ids: [primary], input_sha256: sha256Hex("forged") }, { token: V.token });
-    expect(forged.status).toBe(200);
-    // latest-wins within one evaluator id: a weakens followed by a supports under the validator's id reads as 'supports'
-    const reent = leads.find((l) => l.family === "solidity-reentrancy");
-    if (reent) {
-      const sp = (await plain("hypothesis_span_ids", { step_id: ch.id, hypothesis_id: reent.id }, V.token)).json.result[0];
-      for (const outcome of ["weakens", "supports"]) await call("record_evaluation", { step_id: ch.id, hypothesis_id: reent.id, evaluator_id: VALIDATOR_ID, evaluator_version: "1", outcome, rationale: outcome, span_ids: [sp], input_sha256: sha256Hex(outcome) }, { token: V.token });
-      expect((await owner().query("SELECT static_outcome FROM hypothesis_status WHERE hypothesis_id = $1", [reent.id])).rows[0].static_outcome).toBe("supports");
+    const FORGED = "Executed model: reentrancy validated (forged by a compromised worker)";
+    const forge = (hypothesisId: string, evaluatorId: string, outcome: string) => call("record_evaluation", { step_id: ch.id, hypothesis_id: hypothesisId, evaluator_id: evaluatorId, evaluator_version: "1", outcome,
+      rationale: FORGED, span_ids: outcome === "inconclusive" ? [] : [primary], input_sha256: sha256Hex(`${evaluatorId}${outcome}`) }, { token: V.token });
+    for (const [h, e, o] of [[target.id, VALIDATOR_ID, "supports"], [target.id, "execution-challenge-access-control", "supports"], [target.id, "foundry-forge", "supports"], [target.id, "no-independent-validator", "inconclusive"],
+      ...(reent ? [[reent.id, VALIDATOR_ID, "weakens"], [reent.id, VALIDATOR_ID, "supports"]] : [])] as const) {
+      const r = await forge(h, e, o); expect([r.status, r.json.error], `${e} ${o}`).toEqual([403, "evaluations_are_api_derived"]);
     }
-    // the honest challenge code then runs on the same held step, and the dossier is built from the records
+    expect(await count("SELECT count(*) AS n FROM hypothesis_evaluations WHERE workflow_run_id = $1", [V.runId])).toBe(0);
+    expect(await count("SELECT count(*) AS n FROM audit_events WHERE payload->>'token_id' = $1 AND payload->>'code' = 'evaluations_are_api_derived'", [V.tokenId])).toBeGreaterThanOrEqual(4);
+    // a completion that carries verdicts is refused by the strict per-step schema (D3)
+    const verdicts = await call("complete", { step_id: ch.id, output: { status: "leads_challenged", snapshot_id: snap, reentrancy_verdicts: { validated: 9 } } }, { token: V.token });
+    expect([verdicts.status, verdicts.json.error]).toEqual([422, "output_rejected"]);
+    // the honest remote step names the snapshot only; the API runs the validators on the stored hypotheses by id and records them
     await executeRemoteStep(V.client, "adv", ch, { source: V.source, env: SWITCHES });
     const d = await buildDossier(owner(), new ResearchStore(owner()), snap);
     const entry = d.entries.find((e) => e.hypothesis_id === target.id)!;
-    expect(entry.evaluations).toContainEqual({ evaluator: VALIDATOR_ID, outcome: "supports", rationale: "Executed model: reentrancy validated (forged by a compromised worker)" });
-    expect(entry.static_outcome).toBe("supports");
-    expect(entry.status).toBe("unreviewed"); // no review operation exists: a 'supported_by_review' status cannot be forged in D
+    expect(entry.evaluations.map((e) => e.rationale)).not.toContain(FORGED);
+    expect(d.entries.flatMap((e) => e.evaluations).some((e) => e.rationale === FORGED)).toBe(false);
+    expect(d.entries.flatMap((e) => e.provenance.evaluations).every((x) => x.recorded_by === "api_verified" && /^[0-9a-f]{64}$/.test(x.output_blob_sha256 ?? ""))).toBe(true);
+    expect(d.provenance.challenge).toBe("api_derived");
+    // every evaluation's provenance: identity, version and family from the API's registry, the input hash, the snapshot, the raw output
+    const prov = (await owner().query<{ validator_id: string; validator_version: string; analysis_family: string; input_sha256: string; recorded_by: string; snapshot_id: string; content: Buffer }>(
+      "SELECT p.validator_id, p.validator_version, p.analysis_family, p.input_sha256, p.recorded_by, p.snapshot_id, b.content FROM evaluation_provenance p JOIN research_blobs b ON b.content_sha256 = p.output_blob_sha256 WHERE p.workflow_run_id = $1", [V.runId])).rows;
+    expect(prov.length).toBe(await count("SELECT count(*) AS n FROM hypothesis_evaluations WHERE workflow_run_id = $1", [V.runId]));
+    expect(prov.length).toBe(leads.length);
+    for (const x of prov) {
+      expect(x.recorded_by).toBe("api"); expect(x.snapshot_id).toBe(snap);
+      expect(x.analysis_family).toBe(analysisIdentity(x.validator_id)!.analysisFamily);
+      const doc = JSON.parse(x.content.toString("utf8"));
+      expect(doc).toMatchObject({ schema: "agentsmith-validator-output/1", validator_id: x.validator_id, validator_version: x.validator_version, analysis_family: x.analysis_family, input_sha256: x.input_sha256, snapshot_id: snap, ran_by: "api" });
+    }
   });
-
-  it("S7b record a hypothesis under another generator's id [PREVENTED]: only the step's own generator; never model, human, or the other stage's id", async () => {
+  it("S7b record a hypothesis under another generator's id [PREVENTED]: the analysis stage records NO hypothesis itself (D3: the API derives them); never model, human, or another stage's id", async () => {
     const G = await researchRun("adv-gen"); await drive(G);
     const an = await claim(G); const snap = await snapOf(G.runId);
-    const span = (await call("create_evidence_span", { step_id: an.id, snapshot_id: snap, path: "contracts/Bank.sol", line_start: 1, line_end: 1 }, { token: G.token })).json.result as string;
-    const h = (generator: Record<string, string>) => call("create_hypothesis", { step_id: an.id, snapshot_id: snap, family: "solidity-reentrancy", claim: "Bank.withdraw forged lead text.", rationale: "r", required_checks: [], alternative_explanations: [], generator, spans: [{ span_id: span, role: "primary" }] }, { token: G.token });
+    expect((await call("create_evidence_span", { step_id: an.id, snapshot_id: snap, path: "contracts/Bank.sol", line_start: 1, line_end: 1 }, { token: G.token })).json.error).toBe("operation_not_allowed_for_step");
+    const h = (generator: Record<string, string>) => call("create_hypothesis", { step_id: an.id, snapshot_id: snap, family: "solidity-reentrancy", claim: "Bank.withdraw forged lead text.", rationale: "r", required_checks: [], alternative_explanations: [], generator, spans: [{ span_id: randomUUID(), role: "primary" }] }, { token: G.token });
     expect((await h({ kind: "model", id: "claude", version: "1" })).json.error).toBe("invalid_request");
     expect((await h({ kind: "human", id: "alice", version: "1" })).json.error).toBe("invalid_request");
-    expect((await h({ kind: "deterministic_rule", id: "slither", version: "1" })).json.error).toBe("generator_not_allowed");
-    expect((await h({ kind: "deterministic_rule", id: "solidity-structural-specialists", version: "2" })).json.error).toBe("generator_not_allowed");
-    // what remains: ANY claim text under the analyze stage's own id is accepted (the API cannot know what the rules would have produced)
-    expect((await h({ kind: "deterministic_rule", id: "solidity-structural-specialists", version: "1" })).status).toBe(200);
+    for (const g of [{ kind: "deterministic_rule", id: "slither", version: "1" }, { kind: "deterministic_rule", id: "solidity-structural-specialists", version: "2" }, { kind: "deterministic_rule", id: "solidity-structural-specialists", version: "1" }]) {
+      expect((await h(g)).json.error, JSON.stringify(g)).toBe("operation_not_allowed_for_step"); // was accepted under the stage's own id before D3
+    }
+    expect(await count("SELECT count(*) AS n FROM hypotheses WHERE workflow_run_id = $1", [G.runId])).toBe(0);
     await call("fail", { step_id: an.id, reason: "done", retryable: false }, { token: G.token });
   });
 
-  it("S7c make the snapshot claim a different commit/content than GitHub has [VULNERABLE]: any 40-hex commit and any bytes, for the queued repository and ref", async () => {
-    const S = await researchRun("adv-snap", [{ path: "contracts/Real.sol", content: "contract Real {}\n" }]);
-    const acq = await claim(S);
-    const snap = (await call("create_snapshot", { step_id: acq.id, repository: "acme/adv-snap", commit_sha: "deadbeef".repeat(5), ref_name: "main" }, { token: S.token })).json.result as string;
-    const blob = (await call("put_blob", { step_id: acq.id, content_base64: Buffer.from("contract Real { /* attacker bytes */ }\n").toString("base64") }, { token: S.token })).json.result;
-    expect((await call("add_snapshot_files", { step_id: acq.id, snapshot_id: snap, files: [{ path: "contracts/Real.sol", classification: "source", size_bytes: blob.sizeBytes, blob_sha256: blob.sha256 }] }, { token: S.token })).status).toBe(200);
-    expect((await call("seal_snapshot", { step_id: acq.id, snapshot_id: snap }, { token: S.token })).status).toBe(200);
-    expect((await call("complete", { step_id: acq.id, output: { status: "snapshot_sealed", snapshot_id: snap, commit_sha: "deadbeef".repeat(5) } }, { token: S.token })).status).toBe(200);
-    expect((await owner().query("SELECT verify_repo_snapshot($1) AS v", [snap])).rows[0].v.ok).toBe(true);
-    expect((await owner().query("SELECT commit_sha FROM repo_snapshots WHERE id = $1", [snap])).rows[0].commit_sha).toBe("deadbeef".repeat(5));
-    // what IS enforced: the repository and ref the operator queued
+  it("S7b' the optional Slither stage's leads [PARTIAL]: the tool runs on the worker, so any claim text under 'slither' is accepted; such leads are labelled WORKER-REPORTED and are challenged by the API's own validators", async () => {
+    const { runId } = await createRepositoryResearchRun(owner(), { repository: "acme/adv-slither", ref: "main" }, "operator", { structuralAnalysis: true, slitherScan: true });
+    const t = await mintWorkerToken(owner(), { runId, createdBy: "operator@test" });
+    const gx = buildGitFixture(devFiles(), { owner: "acme", repo: "adv-slither" }); fixtures.push(gx); gh.add(gx);
+    const R: R = { runId, stepId: "", token: t.token, tokenId: t.tokenId, client: new WorkerApiClient({ baseUrl: base, token: t.token, backoffMs: 1, attempts: 3 }), source: new FakeSource(gx), gx };
+    await drive(R); await drive(R); // acquisition, then the API's own analysis
+    const sl = (await call("claim", { step_keys: ["slither_scan"] }, { token: R.token })).json.result as ClaimedStep; expect(sl.step_key).toBe("slither_scan");
+    const snap = await snapOf(runId);
+    const span = (await call("create_evidence_span", { step_id: sl.id, snapshot_id: snap, path: "contracts/Bank.sol", line_start: 1, line_end: 1 }, { token: R.token })).json.result as string;
+    const hyp = (generator: Record<string, string>, claim: string) => call("create_hypothesis", { step_id: sl.id, snapshot_id: snap, family: "solidity-reentrancy", claim, rationale: "worker says so", required_checks: [], alternative_explanations: [], generator, spans: [{ span_id: span, role: "primary" }] }, { token: R.token });
+    expect((await hyp({ kind: "deterministic_rule", id: "solidity-structural-specialists", version: "1" }, "Bank.withdraw is reentrant (forged specialist lead).")).json.error).toBe("generator_not_allowed");
+    const forged = await hyp({ kind: "deterministic_rule", id: "slither", version: "0.11.3" }, "Slither reentrancy-eth (High) in Bank.withdraw: a lead invented by the compromised worker.");
+    expect(forged.status).toBe(200); // [PARTIAL]: the API cannot know what the tool would have reported
+    const id = forged.json.result.id as string;
+    const out = { status: "tool_completed", generator: "slither@0.11.3", producer: "slither", pinned_version: "0.11.3", snapshot_id: snap, repository: "acme/adv-slither", commit_sha: gx.commitSha,
+      manifest_sha256: (await owner().query("SELECT manifest_sha256 FROM repo_snapshots WHERE id = $1", [snap])).rows[0].manifest_sha256, limits: {}, wall_ms: 1, execution_mode: "passive_only", authorization_status: "unverified", active_testing_allowed: false,
+      tool: { name: "slither", version: "0.11.3", solc_version: "0.8.28", args: [], input_manifest_sha256: "0".repeat(64), raw_output_sha256: "0".repeat(64), raw_output_blob: null, exit_codes: [255], duration_ms: 1 },
+      hypothesis_ids: [id], leads: [{ hypothesisId: id, class: "reentrancy", contract: "Bank", function: "withdraw", file: "contracts/Bank.sol", line: 1 }], leads_by_class: { reentrancy: 1 }, detections_total: 1, informational_detections: 0,
+      unmapped_detectors: {}, outside_snapshot_contracts: 0, unanchored: 0, leads_not_recorded: 0 };
+    expect((await call("complete", { step_id: sl.id, output: { ...out, authorization_status: "authorized" } }, { token: R.token })).json.error).toBe("output_rejected");
+    expect((await call("complete", { step_id: sl.id, output: { ...out, hypothesis_ids: [randomUUID()] } }, { token: R.token })).json.error).toBe("output_rejected");
+    expect((await call("complete", { step_id: sl.id, output: out }, { token: R.token })).status).toBe(200);
+    await drive(R); await drive(R); // the API's challenge (it evaluates the Slither lead too) and the API's dossier
+    const d = await buildDossier(owner(), new ResearchStore(owner()), snap);
+    const e = d.entries.find((x) => x.hypothesis_id === id)!;
+    expect(e.provenance.claim).toBe("worker_reported"); expect(d.provenance.external_tools).toBe("worker_reported");
+    expect(e.provenance.evaluations.length).toBeGreaterThan(0);
+    expect(e.provenance.evaluations.every((x) => x.recorded_by === "api_verified")).toBe(true); // judged by the API, never by the worker
+    expect(d.entries.filter((x) => x.generator.startsWith("solidity-structural-specialists")).every((x) => x.provenance.claim === "api_derived")).toBe(true);
+  });
+  it("S7c make the snapshot claim a different commit/content than GitHub has [PREVENTED by D2]: the API resolves the ref and fetches the tree from GitHub itself, re-hashes every stored byte, and refuses any difference", async () => {
+    const files = [{ path: "contracts/Real.sol", content: "contract Real {}\n" }, { path: "contracts/Other.sol", content: "contract Other {}\n" }, { path: "README.md", content: "# real\n" }];
+    /** a compromised worker running the honest acquisition but rewriting what it uploads */
+    class Tampering extends WorkerApiClient {
+      constructor(token: string, private readonly mutate: { commit?: (c: string) => string; files?: (rows: readonly SnapshotFileInput[], c: Tampering, lease: StepLease) => Promise<SnapshotFileInput[]> }) { super({ baseUrl: base, token, backoffMs: 1, attempts: 2 }); }
+      override createSnapshot(lease: StepLease, input: Parameters<WorkerApiClient["createSnapshot"]>[1]) { return super.createSnapshot(lease, { ...input, commitSha: this.mutate.commit ? this.mutate.commit(input.commitSha) : input.commitSha }); }
+      override async addSnapshotFiles(lease: StepLease, snapshotId: string, rows: readonly SnapshotFileInput[]) { return super.addSnapshotFiles(lease, snapshotId, this.mutate.files ? await this.mutate.files(rows, this, lease) : rows); }
+    }
+    const run = async (name: string, mutate: ConstructorParameters<typeof Tampering>[1], pin = false) => {
+      const gx = buildGitFixture(files, { owner: "acme", repo: name }); fixtures.push(gx); gh.add(gx);
+      const { runId } = await createRepositoryResearchRun(owner(), { repository: `acme/${name}`, ref: pin ? gx.commitSha : "main" }, "operator", { structuralAnalysis: true });
+      const t = await mintWorkerToken(owner(), { runId, createdBy: "operator@test" });
+      const c = new Tampering(t.token, mutate); const s = (await c.claimNext(["acquire_repository"]))!;
+      const error = await executeRemoteStep(c, "adv", s, { source: new FakeSource(gx), env: SWITCHES }).then(() => null, (e: Error) => e.message);
+      const sealed = await count("SELECT count(*) AS n FROM repo_snapshots WHERE workflow_run_id = $1 AND sealed_at IS NOT NULL", [runId]);
+      const verifications = await count("SELECT count(*) AS n FROM snapshot_verifications WHERE workflow_run_id = $1", [runId]);
+      return { error, sealed, verifications, runId, gx };
+    };
+    const swapBytes = (path: string, bytes: string) => async (rows: readonly SnapshotFileInput[], c: Tampering, lease: StepLease) => {
+      const blob = await c.putBlob(lease, Buffer.from(bytes, "utf8"));
+      return rows.map((r) => r.path === path ? { ...r, sizeBytes: blob.sizeBytes, blobSha256: blob.sha256 } as SnapshotFileInput : r);
+    };
+    // the honest worker: verified against GitHub, sealed, with the evidence recorded
+    const honest = await run("adv-snap-honest", {});
+    expect([honest.error, honest.sealed, honest.verifications]).toEqual([null, 1, 1]);
+    const v = (await owner().query("SELECT * FROM snapshot_verifications WHERE workflow_run_id = $1", [honest.runId])).rows[0];
+    expect(v).toMatchObject({ verifier: "api-github", resolved_commit: honest.gx.commitSha, tree_sha: honest.gx.treeSha, files_total: 3, files_matched: 3, skips_unverified: 0, completeness: "complete" });
+    expect(gh.hits.some((x) => x.url === `/repos/acme/adv-snap-honest/git/trees/${honest.gx.treeSha}?recursive=1` && x.authorized)).toBe(true); // the API's OWN authenticated read
+    const pinned = await run("adv-snap-pinned", {}, true); expect([pinned.error, pinned.sealed]).toEqual([null, 1]);
+    // every forgery is refused at the seal, nothing is sealed, no verification is recorded
+    for (const [name, mutate, pin, why] of [
+      ["adv-snap-commit", { commit: () => "deadbeef".repeat(5) }, false, /commit_mismatch|GitHub resolves main/],
+      ["adv-snap-pin", { commit: () => "deadbeef".repeat(5) }, true, /the step pins/],
+      ["adv-snap-bytes", { files: swapBytes("contracts/Real.sol", "contract Real { /* attacker bytes */ }\n") }, false, /snapshot_verification_failed/],
+      ["adv-snap-samesize", { files: swapBytes("contracts/Real.sol", "contract Evil {}\n") }, false, /snapshot_verification_failed/],
+      ["adv-snap-extra", { files: async (rows: readonly SnapshotFileInput[], c: Tampering, lease: StepLease) => { const b = await c.putBlob(lease, Buffer.from("contract Planted {}\n")); return [...rows, { path: "contracts/Planted.sol", classification: "source", sizeBytes: b.sizeBytes, blobSha256: b.sha256 }]; } }, false, /snapshot_verification_failed/],
+      ["adv-snap-omit", { files: async (rows: readonly SnapshotFileInput[]) => rows.filter((r) => r.path !== "contracts/Other.sol") }, false, /snapshot_verification_failed/],
+      ["adv-snap-skip", { files: async (rows: readonly SnapshotFileInput[]) => rows.map((r) => r.path === "contracts/Real.sol" ? { path: r.path, classification: r.classification, sizeBytes: r.sizeBytes, skipReason: "binary", ...(r.gitBlobSha ? { gitBlobSha: r.gitBlobSha } : {}) } : r) }, false, /snapshot_verification_failed/],
+    ] as const) {
+      const r = await run(name, mutate as never, pin);
+      expect(r.error, name).toMatch(why); expect([r.sealed, r.verifications], name).toEqual([0, 0]);
+    }
+    const audit = (await owner().query<{ code: string }>("SELECT payload->>'code' AS code FROM audit_events WHERE action = 'worker_api.refused' AND payload->>'operation' = 'seal_snapshot'")).rows.map((x) => x.code);
+    expect(audit.filter((c) => c === "snapshot_verification_failed").length).toBeGreaterThanOrEqual(7);
+    // GitHub unreachable from the API: a RETRYABLE refusal, never an acceptance; once GitHub answers, the same snapshot seals
+    gh.mode = "down";
+    const down = await run("adv-snap-down", {});
+    gh.mode = "ok";
+    expect([down.sealed, down.verifications]).toEqual([0, 0]); expect(down.error).toMatch(/worker API unavailable for seal_snapshot|github_unavailable/);
+    expect((await owner().query<{ c: string }>("SELECT payload->>'code' AS c FROM audit_events WHERE action = 'worker_api.refused' AND payload->>'operation' = 'seal_snapshot' AND payload->>'run_id' = $1 LIMIT 1", [down.runId])).rows[0]?.c).toBe("github_unavailable");
+    // the repository and ref the operator queued are still enforced
     const S2 = await researchRun("adv-snap2"); const a2 = await claim(S2);
     expect((await call("create_snapshot", { step_id: a2.id, repository: "OpenZeppelin/openzeppelin-contracts", commit_sha: "a".repeat(40), ref_name: "main" }, { token: S2.token })).json.error).toBe("repository_mismatch");
   });
-
-  it("S7d make dossier coverage say 'complete' when analysis did not run [VULNERABLE]: complete analyze_structure with a hand-written output", async () => {
+  it("S7d make dossier coverage say 'complete' when analysis did not run [PREVENTED by D3]: a hand-written analysis output is refused; coverage comes only from the API's own analysis of the sealed snapshot", async () => {
     const K = await researchRun("adv-cov"); await drive(K);
     const an = await claim(K); expect(an.step_key).toBe("analyze_structure");
-    const r = await call("complete", { step_id: an.id, output: { status: "structure_analyzed", problems: [], contracts: 42, functions: 420 } }, { token: K.token });
+    const snap = await snapOf(K.runId);
+    for (const output of [{ status: "structure_analyzed", problems: [], contracts: 42, functions: 420 }, { status: "structure_analyzed", snapshot_id: snap, contracts: 42, functions: 420, problems: [] },
+      { status: "structure_analyzed", snapshot_id: snap, hypothesis_ids: [] }, { status: "structure_analyzed", snapshot_id: snap, authorization_status: "authorized" }]) {
+      const r = await call("complete", { step_id: an.id, output }, { token: K.token });
+      expect([r.status, r.json.error], JSON.stringify(output)).toEqual([422, "output_rejected"]);
+    }
+    expect((await call("complete", { step_id: an.id, output: { status: "structure_analyzed", snapshot_id: randomUUID() } }, { token: K.token })).json.error).toBe("cross_run_reference");
+    expect((await stepsOf(K.runId))[1]!.status).toBe("running");
+    const r = await call("complete", { step_id: an.id, output: { status: "structure_analyzed", snapshot_id: snap } }, { token: K.token });
     expect(r.status).toBe(200);
-    const d = await buildDossier(owner(), new ResearchStore(owner()), await snapOf(K.runId));
-    expect(d.coverage).toMatchObject({ status: "complete", contracts: 42, functions: 420, problems: [] });
-    expect(d.entries).toEqual([]); // nothing was analysed, yet the dossier says the analysis was complete
+    const truth = computeStructuralAnalysis(devFiles().map((f) => ({ path: f.path, text: f.content })));
+    const stored = (await owner().query("SELECT output FROM workflow_steps WHERE id = $1", [an.id])).rows[0].output;
+    expect(stored).toMatchObject({ derived_by: "api", contracts: truth.contracts, functions: truth.functions, problems: truth.problems, hypotheses: truth.findings.length, authorization_status: "unverified" });
+    const d = await buildDossier(owner(), new ResearchStore(owner()), snap);
+    expect(d.coverage).toMatchObject({ contracts: truth.contracts, functions: truth.functions });
+    expect(d.coverage.contracts).not.toBe(42); expect(d.entries.length).toBe(truth.findings.length); expect(d.provenance.analysis).toBe("api_derived");
   });
-
   // ------------------------------------------------------------------------------------------------------------------------------
   it("S8 reuse another worker's credentials [PREVENTED]: token A against run B's steps, snapshots, hypotheses and spans", async () => {
     const bs = await stepsOf(B.runId); const ch = bs.find((s) => s.step_key === "challenge_leads")!;
@@ -398,19 +499,41 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
     expect((await plain("heartbeat", { step_id: Y.stepId }, Y.token)).json.error).toBe("token_revoked");
   });
 
-  it("S10 secrets and reach [PARTIAL]: no DB credential and no operator route; but the token survives `delete process.env` in /proc/<pid>/environ", async () => {
+  it("S10 secrets and reach [PREVENTED by D6 for the environment; residual documented]: the worker reads its token from a file it unlinks, refuses a token in its environment, and neither its /proc/<pid>/environ nor its tool child's environment holds a token", async () => {
     expect((await fetch(`${pubBase}/v1/workflows`, { headers: { authorization: `Bearer ${A.token}` } })).status).toBe(401);
     expect((await fetch(`${base}/v1/workflows`, { headers: { authorization: `Bearer ${A.token}` } })).status).toBe(401);
-    // the worker runtime deletes WORKER_API_TOKEN from process.env after reading it (worker-remote-main.ts); the kernel copy remains
-    const child = spawn(process.execPath, ["-e", "delete process.env.WORKER_API_TOKEN; console.log(JSON.stringify(process.env.WORKER_API_TOKEN ?? null)); setTimeout(() => {}, 4000)"], { env: { PATH: process.env.PATH ?? "", WORKER_API_TOKEN: A.token }, stdio: ["ignore", "pipe", "ignore"] });
-    const said = await new Promise<string>((r) => child.stdout.once("data", (d) => r(String(d).trim())));
-    const environ = readFileSync(`/proc/${child.pid}/environ`, "utf8"); child.kill();
-    expect(said).toBe("null"); // gone from process.env ...
-    expect(environ).toContain(`WORKER_API_TOKEN=${A.token}`); // ... but readable by any same-user process on the machine
-    // what the token can reach: exactly the 21 worker operations of its run on the private listener
     expect((await call("claim", { step_keys: ["acquire_repository"] }, { token: A.token, at: pubBase })).status).toBe(404);
+    const R10 = await researchRun("adv-env"); const dir = mkdtempSync(join(tmpdir(), "adv-env-"));
+    try {
+      const fixture = join(dir, "fixture.json"); writeFileSync(fixture, JSON.stringify({ owner: "acme", repo: "adv-env", files: [{ path: "contracts/A.sol", content: "contract A {}\n" }] }));
+      const tokenFile = join(dir, "token"); writeFileSync(tokenFile, `${R10.token}\n`, { mode: 0o600 });
+      const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", NODE_ENV: "test", WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN_FILE: tokenFile, ...SWITCHES,
+        REMOTE_CHILD_FIXTURE: fixture, REMOTE_CHILD_PAUSE_BEFORE: "acquire_repository", REMOTE_CHILD_PAUSE_FILE: join(dir, "paused") };
+      const child = spawn(`${REPO_ROOT}node_modules/.bin/tsx`, [`${REPO_ROOT}apps/api/src/integration/remote-worker-child.ts`], { cwd: REPO_ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+      let out = ""; child.stdout.on("data", (c) => { out += c; }); child.stderr.on("data", (c) => { out += c; });
+      for (let i = 0; i < 300 && !existsSync(join(dir, "paused")); i++) await sleep(50);
+      expect(existsSync(join(dir, "paused")), out).toBe(true);
+      // tsx runs the script in a node grandchild: read every process of the tree
+      const pids = [child.pid!, ...readFileSync(`/proc/${child.pid}/task/${child.pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number)];
+      for (const pid of pids) { const environ = readFileSync(`/proc/${pid}/environ`, "utf8"); expect(environ).not.toContain(R10.token); expect(environ).not.toMatch(/WORKER_API_TOKEN=/); }
+      expect(existsSync(tokenFile)).toBe(false); // unlinked after reading
+      expect(out).toContain('"environ_has_token":false'); expect(out).toContain('"token_file_removed":true'); expect(out).not.toContain(secretOf(R10.token));
+      child.kill("SIGKILL");
+      // a token in the environment refuses the start (exit 64), without echoing it
+      const refused = spawn(`${REPO_ROOT}node_modules/.bin/tsx`, [`${REPO_ROOT}apps/api/src/worker-remote-main.ts`], { cwd: REPO_ROOT, env: { PATH: process.env.PATH ?? "", WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN: R10.token }, stdio: ["ignore", "pipe", "pipe"] });
+      let rout = ""; refused.stdout.on("data", (c) => { rout += c; }); refused.stderr.on("data", (c) => { rout += c; });
+      expect(await new Promise((r) => refused.on("close", r))).toBe(64);
+      expect(rout).toMatch(/WORKER_API_TOKEN is set in the environment/); expect(rout).not.toContain(secretOf(R10.token));
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+    // the pinned tool runner (Slither, forge) starts its child with PATH, HOME and LANG only, whatever the worker's environment holds
+    process.env.ADV_PROBE_SECRET = "must-not-leak";
+    try {
+      const work = mkdtempSync(join(tmpdir(), "adv-envprobe-"));
+      const r = await execFixed("/usr/bin/env", [], { cwd: work, timeoutMs: 5000, home: work });
+      rmSync(work, { recursive: true, force: true });
+      expect(r.stdout.trim().split("\n").map((l) => l.split("=")[0]).sort()).toEqual(["HOME", "LANG", "PATH"]);
+    } finally { delete process.env.ADV_PROBE_SECRET; }
   });
-
   // ------------------------------------------------------------------------------------------------------------------------------
   it("S11 compromised API / owner path [VULNERABLE]: the API's owner connection disables the immutability triggers and rewrites the ledger; it can mint any run's token", async () => {
     const h = (await owner().query("SELECT id FROM hypotheses WHERE workflow_run_id = $1 LIMIT 1", [B.runId])).rows[0].id;
@@ -443,17 +566,23 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
     const again = await claim(W2); expect([again.id, again.attempt]).toEqual([acq.id, 2]);
     await executeRemoteStep(reborn, "adv", again, { source: W.source, env: SWITCHES });
     await drive(W2); // analysis
-    // killed mid-CHALLENGE after the first evaluation was committed: the retried step records it AGAIN (no idempotency across processes)
-    const ch = await claim(W2);
+    // killed mid-CHALLENGE: the worker records no evaluation (D1); the API's challenge is ONE transaction, so a kill leaves nothing or
+    // everything, and every evaluation is idempotent on its key (D7). (a) the worker dies with the request in flight (its connection
+    // is cut); (b) the lease expires and a fresh client retries the whole step
+    const ch = await claim(W2); const snapW = await snapOf(W.runId);
     const h = (await owner().query("SELECT id FROM hypotheses WHERE workflow_run_id = $1 ORDER BY claim COLLATE \"C\" LIMIT 1", [W.runId])).rows[0].id as string;
-    await reborn.recordEvaluation({ stepId: ch.id, workerId: "x" }, { hypothesisId: h, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive", rationale: "partial progress before the kill", spanIds: [], inputSha256: sha256Hex("p") });
-    await expireLease(owner(), ch.id);
-    const ch2 = await claim(W2); await executeRemoteStep(reborn, "adv", ch2, { source: W.source, env: SWITCHES });
+    expect((await reborn.recordEvaluation({ stepId: ch.id, workerId: "x" }, { hypothesisId: h, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive", rationale: "partial progress before the kill", spanIds: [], inputSha256: sha256Hex("p") }).catch((e: Error) => e.message))).toMatch(/evaluations_are_api_derived/);
+    const cut = new AbortController();
+    const inFlight = fetch(`${base}/internal/worker/v1/complete`, { method: "POST", signal: cut.signal, headers: { authorization: `Bearer ${W.token}`, "content-type": "application/json", "idempotency-key": randomUUID() }, body: JSON.stringify({ step_id: ch.id, output: { status: "leads_challenged", snapshot_id: snapW } }) }).catch(() => "cut");
+    await sleep(30); cut.abort(); await inFlight;
+    for (let i = 0; i < 100 && (await stepsOf(W.runId))[2]!.status === "running" && await count("SELECT count(*) AS n FROM hypothesis_evaluations WHERE workflow_run_id = $1", [W.runId]) === 0; i++) await sleep(50);
+    if ((await stepsOf(W.runId))[2]!.status === "running") { await expireLease(owner(), ch.id); const ch2 = await claim(W2); await executeRemoteStep(reborn, "adv", ch2, { source: W.source, env: SWITCHES }); }
     await drive(W2); // dossier
     expect((await stepsOf(W.runId)).map((s) => s.status)).toEqual(["succeeded", "succeeded", "succeeded", "succeeded"]);
     expect(await count("SELECT count(*) AS n FROM repo_snapshots WHERE workflow_run_id = $1", [W.runId])).toBe(1);
-    const perHyp = (await owner().query("SELECT count(*)::int AS n FROM hypothesis_evaluations WHERE hypothesis_id = $1", [h])).rows[0].n;
-    expect(perHyp).toBe(2); // [observed] a duplicate evaluation from the retried challenge (the honest code has no "already evaluated" check)
+    const dup = (await owner().query("SELECT hypothesis_id, evaluator_id, count(*)::int AS n FROM hypothesis_evaluations WHERE workflow_run_id = $1 GROUP BY 1, 2 HAVING count(*) > 1", [W.runId])).rows;
+    expect(dup).toEqual([]); // [PREVENTED by D1+D7]; before the fixes: a duplicate evaluation from the retried challenge
+    expect(await count("SELECT count(*) AS n FROM hypothesis_evaluations WHERE hypothesis_id = $1", [h])).toBe(1);
 
     // (2) API down longer than the client's retries, then restarted on the same ports, mid-acquisition
     const fixed = await startApi();
@@ -508,16 +637,20 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
 
   // ------------------------------------------------------------------------------------------------------------------------------
   describe("D-specific", () => {
-    it("operations beyond their purpose [PARTIAL]: complete() stores arbitrary output fields; acquisition_report is free JSON; claim text is free (see S7)", async () => {
+    it("operations beyond their purpose [PARTIAL]: complete() is refused unless it matches its step's strict schema (D3); acquisition_report stays free JSON, worker-reported and counted against the storage quota", async () => {
       const O = await researchRun("adv-output"); const acq = await claim(O);
       const snap = (await call("create_snapshot", { step_id: acq.id, repository: "acme/adv-output", commit_sha: O.gx.commitSha, ref_name: "main", acquisition_report: { completeness: "complete", note: "x".repeat(1_000_000) } }, { token: O.token }));
-      expect(snap.status).toBe(200); // ~1 MB of free JSON stored in a research record
+      expect(snap.status).toBe(200); // [PARTIAL] ~1 MB of free JSON stored in a research record (bounded by the body limit and charged to the quota)
+      expect(Number((await owner().query("SELECT bytes_stored FROM worker_token_usage WHERE token_id = $1", [O.tokenId])).rows[0].bytes_stored)).toBeGreaterThan(1_000_000);
       const s = snap.json.result as string;
-      await call("add_snapshot_files", { step_id: acq.id, snapshot_id: s, files: [{ path: "a.txt", classification: "docs", size_bytes: 0, skip_reason: "binary" }] }, { token: O.token });
-      await call("seal_snapshot", { step_id: acq.id, snapshot_id: s }, { token: O.token });
-      const done = await call("complete", { step_id: acq.id, output: { status: "snapshot_sealed", snapshot_id: s, completeness: "complete", authorization_status: "authorized", active_testing_allowed: true, file_count: 99999 } }, { token: O.token });
-      expect(done.status).toBe(200);
-      expect((await owner().query("SELECT output FROM workflow_steps WHERE id = $1", [acq.id])).rows[0].output).toMatchObject({ authorization_status: "authorized", active_testing_allowed: true, file_count: 99999 });
+      const forged = { status: "snapshot_sealed", snapshot_id: s, completeness: "complete", authorization_status: "authorized", active_testing_allowed: true, file_count: 99999 };
+      const done = await call("complete", { step_id: acq.id, output: forged }, { token: O.token });
+      expect([done.status, done.json.error]).toEqual([422, "output_rejected"]); // [PREVENTED]
+      expect((await owner().query("SELECT status, output FROM workflow_steps WHERE id = $1", [acq.id])).rows[0]).toMatchObject({ status: "running", output: null });
+      // every step key: a field outside its schema is refused, including the passive labels set to anything but their fixed values
+      for (const output of [{ status: "snapshot_sealed", snapshot_id: s, extra: 1 }, { status: "dossier_built" }, { status: "snapshot_sealed", snapshot_id: s, execution_mode: "active" }]) {
+        expect((await call("complete", { step_id: acq.id, output }, { token: O.token })).json.error, JSON.stringify(output)).toBe("output_rejected");
+      }
     });
 
     it("transactionalPool [PREVENTED]: a failing store call inside a request leaves no partial rows, no idempotency record and no accepted audit", async () => {
@@ -528,48 +661,108 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
       const bad = await call("add_snapshot_files", { step_id: acq.id, snapshot_id: snap, files: [
         { path: "contracts/Good.sol", classification: "source", size_bytes: blob.sizeBytes, blob_sha256: blob.sha256 },
         { path: "contracts/Bad.sol", classification: "source", size_bytes: 1, blob_sha256: sha256Hex("missing") }] }, { token: P.token, key });
-      expect(bad.json.error).toBe("database_rejected");
+      expect(bad.json.error).toBe("blob_not_uploaded"); // D4: refused before the store runs; nothing of the batch is written
       expect(await count("SELECT count(*) AS n FROM repo_snapshot_files WHERE snapshot_id = $1", [snap])).toBe(0);
       expect(await count("SELECT count(*) AS n FROM worker_api_requests WHERE idempotency_key = $1", [key])).toBe(0);
       expect(await count("SELECT count(*) AS n FROM audit_events WHERE action = 'worker_api.accepted' AND payload->>'idempotency_key' = $1", [key])).toBe(0);
       // a store transaction that commits inside the savepoint, followed by a failure later in the SAME request, is rolled back too
       await call("add_snapshot_files", { step_id: acq.id, snapshot_id: snap, files: [{ path: "contracts/Good.sol", classification: "source", size_bytes: blob.sizeBytes, blob_sha256: blob.sha256 }] }, { token: P.token });
-      await call("seal_snapshot", { step_id: acq.id, snapshot_id: snap }, { token: P.token });
-      const badOutput = await call("complete", { step_id: acq.id, output: { status: "snapshot_sealed", snapshot_id: randomUUID() } }, { token: P.token });
+      expect((await call("seal_snapshot", { step_id: acq.id, snapshot_id: snap }, { token: P.token })).json.error).toBe("snapshot_verification_failed"); // D2: not GitHub's content
+      expect(await count("SELECT count(*) AS n FROM snapshot_verifications WHERE snapshot_id = $1", [snap])).toBe(0);
+      expect((await call("complete", { step_id: acq.id, output: { status: "snapshot_sealed", snapshot_id: randomUUID() } }, { token: P.token })).json.error).toBe("output_rejected"); // strict schema (D3)
+      const wellFormed = { status: "snapshot_sealed", snapshot_id: randomUUID(), repository: "acme/adv-tx", commit_sha: P.gx.commitSha, tree_sha: P.gx.treeSha, manifest_sha256: "0".repeat(64), file_count: 1, stored_files: 1, stored_bytes: 1,
+        skipped_by_reason: {}, completeness: "complete", reused: "new", execution_mode: "passive_only", authorization_status: "unverified", active_testing_allowed: false };
+      const badOutput = await call("complete", { step_id: acq.id, output: wellFormed }, { token: P.token });
       expect(badOutput.json.error).toBe("cross_run_reference");
       expect((await stepsOf(P.runId))[0]!.status).toBe("running");
     });
 
-    it("storage abuse [VULNERABLE]: one token stores distinct 1 MiB blobs with no quota; they are global and outlive the run", async () => {
-      const St = await researchRun("adv-storage"); const acq = await claim(St);
+    it("storage abuse [PREVENTED by D4]: per-token byte and blob quotas refuse with 413 and an audit; other tokens and operator routes are unaffected", async () => {
+      const q = await startApi({}, undefined, 3_000, { quotas: { maxBytesStored: 8 * 1_048_576, maxBlobs: 50 } }); const at = `http://127.0.0.1:${q.priv}`;
+      const St = await researchRun("adv-storage"); const acq = (await new WorkerApiClient({ baseUrl: at, token: St.token, backoffMs: 1, attempts: 1 }).claimNext(["acquire_repository"]))!;
       const before = Number((await owner().query("SELECT blob_bytes FROM research_storage_stats")).rows[0].blob_bytes);
-      const t0 = Date.now(); const N = 48;
-      const rs = await Promise.all(Array.from({ length: N }, (_, i) => call("put_blob", { step_id: acq.id, content_base64: randomBytes(1_048_576 - (i % 3)).toString("base64") }, { token: St.token })));
-      const ms = Date.now() - t0;
-      expect(rs.every((r) => r.status === 200)).toBe(true);
+      const N = 48;
+      const rs = []; for (let i = 0; i < N; i++) rs.push(await call("put_blob", { step_id: acq.id, content_base64: randomBytes(1_048_576 - (i % 3)).toString("base64") }, { token: St.token, at }));
+      const by = rs.reduce<Record<string, number>>((m, r) => { const k = `${r.status}:${r.json?.error ?? "ok"}`; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+      console.log(`[measured] ${N} x 1 MiB from one token with an 8 MiB quota: ${JSON.stringify(by)}`);
+      expect(by["200:ok"]).toBe(8); expect(by["413:storage_quota_exceeded"]).toBe(N - 8);
       const grown = Number((await owner().query("SELECT blob_bytes FROM research_storage_stats")).rows[0].blob_bytes) - before;
-      expect(grown).toBeGreaterThan(N * 1_048_570);
-      console.log(`[measured] ${N} x 1 MiB blobs accepted from one token in ${ms} ms (${((grown / 1048576) / (ms / 1000)).toFixed(1)} MiB/s); the token bucket allows 200 req/s sustained`);
-      await owner().query("UPDATE workflow_runs SET status = 'cancelled' WHERE id = $1", [St.runId]);
-      expect(Number((await owner().query("SELECT blob_bytes FROM research_storage_stats")).rows[0].blob_bytes) - before).toBe(grown); // nothing reclaims them
+      expect(grown).toBeLessThanOrEqual(8 * 1_048_576);
+      expect(await count("SELECT count(*) AS n FROM audit_events WHERE payload->>'token_id' = $1 AND payload->>'code' = 'storage_quota_exceeded'", [St.tokenId])).toBe(N - 8);
+      // the quota is per token, durable (a database ledger), and other tokens and operators are unaffected
+      const Other = await researchRun("adv-storage-other"); const oacq = (await new WorkerApiClient({ baseUrl: at, token: Other.token, backoffMs: 1, attempts: 1 }).claimNext(["acquire_repository"]))!;
+      expect((await call("put_blob", { step_id: oacq.id, content_base64: randomBytes(1000).toString("base64") }, { token: Other.token, at })).status).toBe(200);
+      expect((await fetch(`http://127.0.0.1:${q.pub}/v1/workflows`, { headers: { authorization: `Bearer ${OPERATOR}` } })).status).toBe(200);
+      const restarted = await startApi({}, undefined, 3_000, { quotas: { maxBytesStored: 8 * 1_048_576, maxBlobs: 50 } });
+      expect((await call("put_blob", { step_id: acq.id, content_base64: randomBytes(10).toString("base64") }, { token: St.token, at: `http://127.0.0.1:${restarted.priv}` })).json.error).toBe("storage_quota_exceeded");
+      await restarted.close(); await q.close();
     });
 
-    it("racing duplicates exhaust the owner pool [VULNERABLE availability]: a duplicate that loses the race awaits its 'replayed' audit while still holding its transaction client", async () => {
-      // worker-api.ts, raced branch: `await client.query("ROLLBACK"); ... await audit(...)` -- audit() needs a SECOND pool connection
+    it("read volume and processing time [PREVENTED by D4]: per-token read and API-processing budgets, and per-request CPU, wall, heap and size limits, refuse cleanly while other tokens and operator routes stay responsive", async () => {
+      // reads: a token's read budget is charged with every answer's size
+      const r1 = await startApi({}, undefined, 3_000, { quotas: { maxBytesRead: 200_000 } }); const at1 = `http://127.0.0.1:${r1.priv}`;
+      const Rd = await researchRun("adv-reads"); const rc = new WorkerApiClient({ baseUrl: at1, token: Rd.token, backoffMs: 1, attempts: 1 });
+      const a1 = (await rc.claimNext(["acquire_repository"]))!; await executeRemoteStep(rc, "adv", a1, { source: Rd.source, env: SWITCHES });
+      const z = (await rc.claimNext(remoteStepKeys(SWITCHES)))!; const snapR = await snapOf(Rd.runId);
+      const readsAt = []; for (let i = 0; i < 40; i++) readsAt.push(await call("snapshot_sources", { step_id: z.id, snapshot_id: snapR }, { token: Rd.token, key: null, at: at1 }));
+      expect(readsAt.some((r) => r.status === 200)).toBe(true);
+      expect(readsAt.filter((r) => r.status !== 200).every((r) => r.status === 429 && r.json.error === "read_quota_exceeded")).toBe(true);
+      expect(readsAt.some((r) => r.json?.error === "read_quota_exceeded")).toBe(true);
+      expect(Number((await owner().query("SELECT bytes_read FROM worker_token_usage WHERE token_id = $1", [Rd.tokenId])).rows[0].bytes_read)).toBeLessThanOrEqual(200_000);
+      await r1.close();
+      // a per-request CPU limit: the API's own analysis is killed, refused with 413, the step stays as it was; the operator is served meanwhile
+      const r2 = await startApi({}, undefined, 3_000, { compute: { cpuMs: 1 } }); const at2 = `http://127.0.0.1:${r2.priv}`;
+      const Cp = await researchRun("adv-cpu"); const cc = new WorkerApiClient({ baseUrl: at2, token: Cp.token, backoffMs: 1, attempts: 1 });
+      const ca = (await cc.claimNext(["acquire_repository"]))!; await executeRemoteStep(cc, "adv", ca, { source: Cp.source, env: SWITCHES });
+      const cz = (await cc.claimNext(remoteStepKeys(SWITCHES)))!; const snapC = await snapOf(Cp.runId);
+      const t0 = Date.now(); const cpu = call("complete", { step_id: cz.id, output: { status: "structure_analyzed", snapshot_id: snapC } }, { token: Cp.token, at: at2 });
+      const probe = await fetch(`http://127.0.0.1:${r2.pub}/v1/workflows`, { headers: { authorization: `Bearer ${OPERATOR}` } }); const probeMs = Date.now() - t0;
+      const cpuR = await cpu;
+      expect([cpuR.status, cpuR.json.error, cpuR.json.limit]).toEqual([413, "processing_limit_exceeded", "cpu_limit"]);
+      expect(probe.status).toBe(200); expect(probeMs).toBeLessThan(2_000);
+      expect((await stepsOf(Cp.runId))[1]!.status).toBe("running");
+      expect(await count("SELECT count(*) AS n FROM hypotheses WHERE workflow_run_id = $1", [Cp.runId])).toBe(0);
+      expect(Number((await owner().query("SELECT processing_ms FROM worker_token_usage WHERE token_id = $1", [Cp.tokenId])).rows[0].processing_ms)).toBeGreaterThan(0);
+      await r2.close();
+      // the cumulative processing budget: once spent, further API-side work for the token is refused (429), another token is unaffected
+      const r3 = await startApi({}, undefined, 3_000, { quotas: { maxProcessingMs: 1 } }); const at3 = `http://127.0.0.1:${r3.priv}`;
+      const Pb = await researchRun("adv-budget"); const pc = new WorkerApiClient({ baseUrl: at3, token: Pb.token, backoffMs: 1, attempts: 1 });
+      const pa = (await pc.claimNext(["acquire_repository"]))!; await executeRemoteStep(pc, "adv", pa, { source: Pb.source, env: SWITCHES }); // the seal's verification spends the budget
+      const pz = (await pc.claimNext(remoteStepKeys(SWITCHES)))!; const snapP = await snapOf(Pb.runId);
+      const spent = await call("complete", { step_id: pz.id, output: { status: "structure_analyzed", snapshot_id: snapP } }, { token: Pb.token, at: at3 });
+      expect([spent.status, spent.json.error]).toEqual([429, "processing_budget_exhausted"]);
+      const Ob = await researchRun("adv-budget-other"); const oc = new WorkerApiClient({ baseUrl: at3, token: Ob.token, backoffMs: 1, attempts: 1 });
+      const oa = (await oc.claimNext(["acquire_repository"]))!; await executeRemoteStep(oc, "adv", oa, { source: Ob.source, env: SWITCHES });
+      expect((await stepsOf(Ob.runId))[0]!.status).toBe("succeeded");
+      expect(await count("SELECT count(*) AS n FROM audit_events WHERE payload->>'token_id' = $1 AND payload->>'code' = 'processing_budget_exhausted'", [Pb.tokenId])).toBe(1);
+      await r3.close();
+      // the maximum snapshot size for the API's own analysis
+      const r4 = await startApi({}, undefined, 3_000, { compute: { maxInputBytes: 1000 } }); const at4 = `http://127.0.0.1:${r4.priv}`;
+      const Mx = await researchRun("adv-size"); const mc = new WorkerApiClient({ baseUrl: at4, token: Mx.token, backoffMs: 1, attempts: 1 });
+      const ma = (await mc.claimNext(["acquire_repository"]))!; await executeRemoteStep(mc, "adv", ma, { source: Mx.source, env: SWITCHES });
+      const mz = (await mc.claimNext(remoteStepKeys(SWITCHES)))!;
+      const big = await call("complete", { step_id: mz.id, output: { status: "structure_analyzed", snapshot_id: await snapOf(Mx.runId) } }, { token: Mx.token, at: at4 });
+      expect([big.status, big.json.error, big.json.limit]).toEqual([413, "processing_limit_exceeded", "input_too_large"]);
+      await r4.close();
+    });
+
+    it("racing duplicates exhaust the owner pool [PREVENTED by D5]: no request waits for a second connection while holding one; 8+ same-key duplicates on a pool of 5 all answer, none with 500 or 422, and operator routes stay responsive", async () => {
       const own = await startApi(); const at = `http://127.0.0.1:${own.priv}`;
       const Rr = await researchRun("adv-race"); const rc = new WorkerApiClient({ baseUrl: at, token: Rr.token, backoffMs: 1, attempts: 1 });
       const st = (await rc.claimNext(remoteStepKeys(SWITCHES)))!;
       const key = randomUUID();
       const body = { step_id: st.id, content_base64: Buffer.from(`race ${randomUUID()}`).toString("base64") };
-      // hold the request's advisory lock so that five duplicates are inside their transactions, waiting, when the stored answer appears
+      // hold the request's advisory lock so that the duplicates are inside their transactions, waiting, when the stored answer appears
       const lock = await owner().connect();
       await lock.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [`${Rr.tokenId}:${key}`]);
       const t0 = Date.now();
-      const racers = Array.from({ length: 8 }, () => call("put_blob", body, { token: Rr.token, key, at }).then((r) => ({ ...r, ms: Date.now() - t0 })));
+      const racers = Array.from({ length: 10 }, () => call("put_blob", body, { token: Rr.token, key, at }).then((r) => ({ ...r, ms: Date.now() - t0 })));
       let waiting = 0;
-      for (let i = 0; i < 150 && waiting < 5; i++) { waiting = (await owner().query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'dapi' AND wait_event = 'advisory'")).rows[0].n; if (waiting < 5) await sleep(20); }
-      expect([waiting, own.pool.totalCount, own.pool.idleCount]).toEqual([5, 5, 0]);
-      // the stored answer for exactly this request (what a concurrent winner would have committed)
+      for (let i = 0; i < 150 && waiting < 3; i++) { waiting = (await owner().query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'dapi' AND wait_event = 'advisory'")).rows[0].n; if (waiting < 3) await sleep(20); }
+      // the worker API never takes more than its slots (3 of the pool's 5): the operator still gets a connection WHILE they wait
+      const tHeld = Date.now();
+      const during = await fetch(`http://127.0.0.1:${own.pub}/v1/workflows`, { headers: { authorization: `Bearer ${OPERATOR}` } }).then(async (r) => ({ status: r.status, ms: Date.now() - tHeld }));
+      expect([waiting, own.pool.totalCount <= 5]).toEqual([3, true]);
       await owner().query("INSERT INTO worker_api_requests (token_id, idempotency_key, operation, step_id, request_sha256, response) VALUES ($1, $2, 'put_blob', $3, $4, '\"stored\"')",
         [Rr.tokenId, key, st.id, sha256Hex(`put_blob\n${JSON.stringify(body)}`)]);
       await lock.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [`${Rr.tokenId}:${key}`]); lock.release();
@@ -577,19 +770,27 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
       const probe = await fetch(`http://127.0.0.1:${own.pub}/v1/workflows`, { headers: { authorization: `Bearer ${OPERATOR}` } }).then(async (r) => ({ status: r.status, ms: Date.now() - tProbe }));
       const rs = await Promise.all(racers);
       const replayAudits = await count("SELECT count(*) AS n FROM audit_events WHERE action = 'worker_api.replayed' AND payload->>'token_id' = $1", [Rr.tokenId]);
-      console.log(`[measured] 8 same-key duplicates: statuses ${JSON.stringify(rs.map((r) => r.status))}, slowest ${Math.max(...rs.map((r) => r.ms))} ms; operator GET /v1/workflows meanwhile: HTTP ${probe.status} after ${probe.ms} ms; 'replayed' audits written ${replayAudits}/8`);
-      // every pool connection is held by a request that waits for a pool connection: nothing moves until connectionTimeoutMillis (3 s)
-      expect(Math.max(...rs.map((r) => r.ms))).toBeGreaterThanOrEqual(2_900);
-      expect(probe.ms).toBeGreaterThanOrEqual(2_000); // the operator's request waited for (or timed out on) the exhausted pool
-      expect(replayAudits).toBeLessThan(8); // the timed-out audit inserts are lost (only logged)
-      // and a pool timeout surfaces as a PERMANENT refusal: asRefusal() tests `error.constructor === Error` (422 "rejected") before its
-      // connection-timeout pattern (503), so the remote client treats a transient overload as a non-retryable WorkerApiRefusedError
-      for (const r of rs.filter((x) => x.status !== 200)) expect([[422, "rejected", "timeout exceeded when trying to connect"], [500, "internal_error", "internal error"]]).toContainEqual([r.status, r.json.error, r.json.message]);
-      expect(rs.some((r) => r.status !== 200)).toBe(true);
+      console.log(`[measured] 10 same-key duplicates: statuses ${JSON.stringify(rs.map((r) => r.status))}, slowest ${Math.max(...rs.map((r) => r.ms))} ms; operator GET while held: HTTP ${during.status} after ${during.ms} ms, after release: ${probe.ms} ms; 'replayed' audits ${replayAudits}/10`);
+      expect(rs.every((r) => r.status === 200 && r.json.replayed === true && r.json.result === "stored"), JSON.stringify(rs.map((r) => [r.status, r.json?.error]))).toBe(true);
+      expect(rs.some((r) => r.status === 500 || r.status === 422)).toBe(false);
+      expect([during.status, probe.status]).toEqual([200, 200]);
+      expect(during.ms).toBeLessThan(1_000); expect(probe.ms).toBeLessThan(1_000);
+      expect(replayAudits).toBe(10); // every replay is audited (on the request's own connection)
       await own.close();
     });
 
-    it("API resource exhaustion from one token [PARTIAL availability]: a 400-request burst is admitted whole and shares the 5-connection owner pool with operator requests", async () => {
+    it("pool or connect timeouts are a RETRYABLE 503 [PREVENTED by D5]: asRefusal checks them before the generic 'rejected' mapping", async () => {
+      const tiny = await startApi({}, undefined, 200); const at = `http://127.0.0.1:${tiny.priv}`;
+      const Tt = await researchRun("adv-timeout"); const tc = new WorkerApiClient({ baseUrl: at, token: Tt.token, backoffMs: 1, attempts: 1 });
+      const st = (await tc.claimNext(["acquire_repository"]))!;
+      const held = await Promise.all(Array.from({ length: 5 }, () => tiny.pool.connect())); // the API's whole pool, taken
+      const r = await call("put_blob", { step_id: st.id, content_base64: "eA==" }, { token: Tt.token, at });
+      for (const c of held) c.release();
+      expect([r.status, r.json?.error ?? null]).toEqual([503, "database_unavailable"]);
+      await tiny.close();
+    });
+
+    it("API resource exhaustion from one token [PREVENTED by D5, measured]: a 400-request burst is served at most 3 at a time; operator latency stays bounded", async () => {
       const E = await researchRun("adv-dos"); await drive(E);
       const an = await claim(E); const snap = await snapOf(E.runId);
       const probe = async () => { const t = Date.now(); const r = await fetch(`http://127.0.0.1:${api.pub}/v1/workflows`, { headers: { authorization: `Bearer ${OPERATOR}` } }); await r.text(); return { ms: Date.now() - t, status: r.status }; };
@@ -598,11 +799,11 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
       await sleep(30);
       const loaded = await probe();
       const results = await burst;
-      const by = results.reduce<Record<number, number>>((m, r) => { m[r.status] = (m[r.status] ?? 0) + 1; return m; }, {});
+      const by = results.reduce<Record<string, number>>((m, r) => { const k = `${r.status}:${r.json?.error ?? "ok"}`; m[k] = (m[k] ?? 0) + 1; return m; }, {});
       console.log(`[measured] operator GET /v1/workflows: ${baseline.ms} ms idle, ${loaded.ms} ms during a 400-request burst from ONE worker token; burst statuses ${JSON.stringify(by)}`);
-      expect(by[200]).toBeGreaterThanOrEqual(390); // the per-token bucket (burst 400) admits the whole burst
+      expect(Object.keys(by).every((k) => ["200:ok", "503:worker_api_busy", "429:rate_limited"].includes(k)), JSON.stringify(by)).toBe(true);
       expect(loaded.status).toBe(200);
-      expect(loaded.ms).toBeGreaterThan(baseline.ms);
+      expect(loaded.ms).toBeLessThan(2_000);
     });
   });
 });
