@@ -64,3 +64,9 @@ against the tested layer.
 
 Not verifiable by the operator session: the unlocked live dashboard (no hub token held). No research run exists in production, so panel 6
 has no run to render; its "not enabled for this run" state appears only once a run exists.
+
+## 2026-11-28: collector connect timeout (owner-approved: "I approve adding DATABASE_CONNECT_TIMEOUT_MS=30000 to the collector machine.")
+Cause: the collector machine had no environment settings, so `db-config.ts` used its 3000 ms default; the 06:44 UTC run failed with
+"Connection terminated due to connection timeout" while Fly Postgres was waking. Reproduced locally (8 s connection delay: fails at
+3000 ms, connects at 30000 ms). Change: `fly machine update 8747e47a1501d8 --env DATABASE_CONNECT_TIMEOUT_MS=30000`. Verified after:
+image `185e8251`, schedule `hourly`, command unchanged, the one new env value present. Declared in `deploy/fleet.json`.
