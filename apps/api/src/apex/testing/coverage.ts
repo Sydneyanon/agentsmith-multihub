@@ -21,6 +21,8 @@ export type Coverage = {
   guards: GuardCoverage[]; guardSummary: { total: number; bothSides: number; onlyPassed: number; onlyFailed: number; neverReached: number };
   statements: { total: number; reached: number; unreached: string[] };
   functionsNeverCompleted: string[]; abstentions: string[]; unexplored: string[];
+  /** deep strategy: frontier states not expanded because their layer did not fit its share of the budget (0 for the baseline) */
+  frontierDropped: number;
 };
 
 /** the statements and guards of the code a deployed contract can execute: entry points, modifiers, internal helpers (not constructors) */
@@ -65,7 +67,7 @@ export function abstractKey(n: Node): string {
 }
 
 export class CoverageCollector {
-  sequences = 0; budgetExhausted = false; fixpoint = false; depthReached = 0;
+  sequences = 0; budgetExhausted = false; fixpoint = false; depthReached = 0; frontierDropped = 0;
   readonly concrete = new Set<string>(); readonly abstract = new Set<string>();
   /** distinct `function|abstract pre -> abstract post` transitions */
   readonly transitions = new Set<string>();
@@ -75,7 +77,7 @@ export class CoverageCollector {
 
   static empty(depth: number): Coverage {
     return { functions: [], sequences: 0, distinctStates: 0, abstractStates: 0, depth, depthReached: 0, budgetExhausted: false, fixpoint: false, guards: [],
-      guardSummary: { total: 0, bothSides: 0, onlyPassed: 0, onlyFailed: 0, neverReached: 0 }, statements: { total: 0, reached: 0, unreached: [] }, functionsNeverCompleted: [], abstentions: [], unexplored: [] };
+      guardSummary: { total: 0, bothSides: 0, onlyPassed: 0, onlyFailed: 0, neverReached: 0 }, statements: { total: 0, reached: 0, unreached: [] }, functionsNeverCompleted: [], abstentions: [], unexplored: [], frontierDropped: 0 };
   }
   start(excluded: Map<string, string>): void {
     this.engine.it.guards = new Map(); this.engine.it.reached = new Set();
@@ -111,13 +113,14 @@ export class CoverageCollector {
       ...guards.filter((g) => g.status !== "both-sides").map((g) => `guard ${g.at} (${g.kind}): ${g.status === "never-reached" ? "never reached" : g.status === "only-passed" ? "failing side never taken" : "passing side never taken"}`),
       ...unreached.map((s) => `statement ${s}: never reached`),
       ...(this.budgetExhausted ? [`budget exhausted after ${this.sequences} transitions at depth ${this.depthReached}`] : []),
+      ...(this.frontierDropped ? [`${this.frontierDropped} frontier state(s) not expanded (coverage-guided selection under the budget)`] : []),
       ...(this.fixpoint ? [] : [`sequences longer than ${this.depth} transactions not explored`]),
     ];
     return {
       functions, sequences: this.sequences, distinctStates: this.concrete.size, abstractStates: this.abstract.size, depth: this.depth, depthReached: this.depthReached,
       budgetExhausted: this.budgetExhausted, fixpoint: this.fixpoint, guards,
       guardSummary: { total: guards.length, bothSides: guards.filter((g) => g.status === "both-sides").length, onlyPassed: guards.filter((g) => g.status === "only-passed").length, onlyFailed: guards.filter((g) => g.status === "only-failed").length, neverReached: guards.filter((g) => g.status === "never-reached").length },
-      statements: { total: surface.statements.size, reached: surface.statements.size - unreached.length, unreached }, functionsNeverCompleted: never.map((f) => f.name), abstentions, unexplored,
+      statements: { total: surface.statements.size, reached: surface.statements.size - unreached.length, unreached }, functionsNeverCompleted: never.map((f) => f.name), abstentions, unexplored, frontierDropped: this.frontierDropped,
     };
   }
 }

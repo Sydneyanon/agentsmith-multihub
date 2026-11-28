@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import { compareWithExhaustive } from "./exhaustive.js";
 import { exploreStateInvariants } from "./state-explorer-prototype.js";
 
+const BASELINE = { strategy: "baseline" } as const;
+
 const src = (text: string) => [{ path: "c.sol", text: `pragma solidity ^0.8.20;\n${text}` }];
 
 // T1: a cycle whose closing step needs 4 transactions (deeper than the explorer's default depth)
@@ -30,7 +32,7 @@ const keys = `contract Keys { bool public a; bool public b; bool public done;
 
 describe("PROTOTYPE APEX coverage measurement (§10.2 item 1)", () => {
   it("the explorer reports what it reached and lists every unexplored region", () => {
-    const r = exploreStateInvariants(src(cycle), "Cycle");
+    const r = exploreStateInvariants(src(cycle), "Cycle", BASELINE);
     const h = r.coverage.honest;
     expect(h.functionsNeverCompleted).toEqual(["reset"]);
     expect(h.unexplored.filter((u) => /^function reset: never completed \(all \d+ attempts reverted\)$/.test(u))).toHaveLength(1);
@@ -49,13 +51,13 @@ describe("PROTOTYPE APEX coverage measurement (§10.2 item 1)", () => {
           x = 7;
         }
         x += 1;
-      } }`), "G");
+      } }`), "G", BASELINE);
     expect(r.coverage.honest.statements.unreached).toEqual(["c.sol:5"]);
     expect(r.coverage.honest.unexplored).toContain("guard c.sol:4 (if): passing side never taken");
   });
 
   it("T1 Cycle: a closing step one transaction beyond the depth is missed entirely", () => {
-    const g = compareWithExhaustive(src(cycle), "Cycle");
+    const g = compareWithExhaustive(src(cycle), "Cycle", { explore: BASELINE });
     expect(g.exhaustive.fixpoint).toBe(true);
     expect(g.gap.explorerOnly).toBe(0);
     expect({ states: [g.explorer.states, g.exhaustive.states], abstract: [g.explorer.abstractStates, g.exhaustive.abstractStates], transitions: [g.explorer.transitions, g.exhaustive.transitions] })
@@ -65,7 +67,7 @@ describe("PROTOTYPE APEX coverage measurement (§10.2 item 1)", () => {
   });
 
   it("T2 Caps: a single amount never exercises the zero-amount guard and reaches about two thirds of the states", () => {
-    const g = compareWithExhaustive(src(caps), "Caps");
+    const g = compareWithExhaustive(src(caps), "Caps", { explore: BASELINE });
     expect(g.exhaustive.fixpoint).toBe(true);
     expect(g.gap.explorerOnly).toBe(0);
     expect([g.explorer.states, g.exhaustive.states]).toEqual([18, 28]);
@@ -75,11 +77,39 @@ describe("PROTOTYPE APEX coverage measurement (§10.2 item 1)", () => {
   });
 
   it("T3 Keys: passing only `true` for booleans reaches 5 of 13 states", () => {
-    const g = compareWithExhaustive(src(keys), "Keys");
+    const g = compareWithExhaustive(src(keys), "Keys", { explore: BASELINE });
     expect(g.exhaustive.fixpoint).toBe(true);
     expect(g.gap.explorerOnly).toBe(0);
     expect([g.explorer.states, g.exhaustive.states]).toEqual([5, 13]);
     expect([g.explorer.transitions, g.exhaustive.transitions]).toEqual([9, 42]);
     expect(g.gap.guardSidesMissed).toEqual([]); // every guard side was seen, yet most states were not: guard coverage overstates
   });
+});
+
+// These three contracts MOTIVATED the 38-64% baseline figure; the deep strategy's claim rests on the fresh set (fresh-set.test.ts), not on them.
+describe("PROTOTYPE APEX coverage, deep strategy (§11 priority 1), on the original tiny contracts", () => {
+  it("the unexplored list reflects the deeper search: reset completes, and the zero-amount branch is reached", () => {
+    const h = exploreStateInvariants(src(cycle), "Cycle").coverage.honest;
+    expect(h.functionsNeverCompleted).toEqual([]);
+    expect(h.guardSummary.bothSides).toBe(2);
+    const g = exploreStateInvariants(src(`contract G { uint256 public x; bool public open;
+      function f(uint256 a) external {
+        if (a == 0) {
+          x = 7;
+        }
+        x += 1;
+      } }`), "G").coverage.honest;
+    expect(g.statements.unreached).toEqual([]);
+  }, 60_000);
+
+  it("Cycle 7/8, Caps 28/28, Keys 13/13 of the exhaustive states (baseline 4/8, 18/28, 5/13)", () => {
+    const cy = compareWithExhaustive(src(cycle), "Cycle"); const ca = compareWithExhaustive(src(caps), "Caps"); const ke = compareWithExhaustive(src(keys), "Keys");
+    expect([cy, ca, ke].map((g) => g.exhaustive.fixpoint)).toEqual([true, true, true]);
+    expect([cy, ca, ke].map((g) => [g.gap.stateCoverage * g.exhaustive.states, g.exhaustive.states])).toEqual([[7, 8], [28, 28], [13, 13]]);
+    // the missing Cycle state needs 7 transactions (inc x3, reset, inc x3): one more than the deep search's 6 layers
+    expect(cy.gap.functionsNeverCompletedByExplorer).toEqual([]);
+    // boundary and derived amounts reach states outside the exhaustive domain; they are counted separately, not as coverage
+    expect(ca.gap.explorerOnly).toBeGreaterThan(0);
+    expect(ke.gap.explorerOnly).toBe(0);
+  }, 60_000);
 });

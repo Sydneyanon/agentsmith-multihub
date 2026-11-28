@@ -5,7 +5,8 @@
  * detection quality. Not wired anywhere.
  */
 import type { CoverageCollector } from "./coverage.js";
-import { bfs, Engine, ETHER, EXPLORER_DOMAIN, type Domain } from "./state-explorer-prototype.js";
+import { exploreDeep } from "./deep-explorer.js";
+import { bfs, Engine, ETHER, EXPLORER_DOMAIN, type Domain, type ExploreOptions } from "./state-explorer-prototype.js";
 
 export const EXHAUSTIVE_DOMAIN: Domain = { amounts: [0n, ETHER, 2n * ETHER], values: [0n, ETHER], bools: [false, true], addresses: "actors" };
 
@@ -39,11 +40,19 @@ const side = (u: Union): Side => ({ states: u.concrete.size, abstractStates: u.a
 const minus = <T>(a: Set<T>, b: Set<T>): T[] => [...a].filter((k) => !b.has(k));
 const frac = <T>(x: Set<T>, e: Set<T>): number => (e.size ? [...x].filter((k) => e.has(k)).length / e.size : 1);
 
-export function compareWithExhaustive(sources: ReadonlyArray<{ path: string; text: string }>, contract: string, options: { depth?: number; maxDepth?: number; maxSequences?: number; domain?: Domain } = {}): CoverageGap {
-  const depth = options.depth ?? 3; const maxDepth = options.maxDepth ?? 12; const maxSequences = options.maxSequences ?? 400_000;
+/**
+ * `explore` selects the explorer being measured: by default the deep strategy with its default options (its honest and adversarial
+ * layered searches, exactly as `exploreStateInvariants` runs them); `{ strategy: "baseline" }` measures the baseline's two breadth-first
+ * searches at `depth` (default 3), as before.
+ */
+export function compareWithExhaustive(sources: ReadonlyArray<{ path: string; text: string }>, contract: string, options: { depth?: number; maxDepth?: number; maxSequences?: number; domain?: Domain; explore?: ExploreOptions } = {}): CoverageGap {
+  const maxDepth = options.maxDepth ?? 12; const maxSequences = options.maxSequences ?? 400_000;
   const engine = new Engine(sources, contract); if (!engine.root) throw new Error(`cannot deploy ${contract}: ${engine.abstained}`);
-  // explorer: exactly the two searches whose coverage the explorer reports
-  const x = union([false, true].map((adversarial) => bfs(engine, EXPLORER_DOMAIN(adversarial), depth, maxSequences, () => {})));
+  const baseline = options.explore?.strategy === "baseline";
+  const deep = baseline ? null : exploreDeep(sources, contract, options.explore ?? {});
+  const depth = deep ? (deep.report.search?.acceptingDepth ?? 0) : (options.depth ?? options.explore?.depth ?? 3);
+  // explorer: exactly the searches whose coverage the explorer reports
+  const x = union(deep ? deep.collectors : [false, true].map((adversarial) => bfs(engine, EXPLORER_DOMAIN(adversarial), depth, maxSequences, () => {})));
   const exCol = bfs(engine, options.domain ?? EXHAUSTIVE_DOMAIN, maxDepth, maxSequences, () => {});
   const e = union([exCol]);
   return {

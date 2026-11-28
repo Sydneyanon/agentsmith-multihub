@@ -100,11 +100,20 @@ describe("PROTOTYPE apex state explorer over the bounded interpreter", () => {
     // variables, this contract produced two spurious violations (solvency over a non-ether mapping; a resettable counter as "one-way")
     const r = exploreStateInvariants(src(`contract Big { uint256 public a; uint256 public b; uint256 public c; mapping(address => uint256) public m;
       function f1(uint256 x) external { a += x; } function f2(uint256 x) external { b += x; } function f3(address y) external { m[y] += 1; c++; }
-      function f4() external payable {} function f5(address y, uint256 z) external { m[y] = z; } function f6() external { a = 0; } }`), "Big", { depth: 4 });
+      function f4() external payable {} function f5(address y, uint256 z) external { m[y] = z; } function f6() external { a = 0; } }`), "Big", { depth: 4, strategy: "baseline" });
     expect(kinds(r)).toEqual([]);
     expect(r.coverage.adversarial.budgetExhausted).toBe(false);
     expect(r.coverage.honest.distinctStates).toBeGreaterThan(1000); // state merging keeps this bounded, but growth is exponential in depth
   });
+  it("E under the deep strategy (§11): still no violation; the frontier it could not expand within the budget is counted and reported", () => {
+    const r = exploreStateInvariants(src(`contract Big { uint256 public a; uint256 public b; uint256 public c; mapping(address => uint256) public m;
+      function f1(uint256 x) external { a += x; } function f2(uint256 x) external { b += x; } function f3(address y) external { m[y] += 1; c++; }
+      function f4() external payable {} function f5(address y, uint256 z) external { m[y] = z; } function f6() external { a = 0; } }`), "Big", { depth: 4 });
+    expect(kinds(r)).toEqual([]);
+    expect(r.coverage.honest.frontierDropped).toBeGreaterThan(0);
+    expect(r.coverage.honest.unexplored.some((u) => /frontier state\(s\) not expanded/.test(u))).toBe(true);
+    expect(r.search).toMatchObject({ strategy: "deep", acceptingDepth: 4, extensionDepth: 5 });
+  }, 60_000);
 
   it("reports what it explored and what it could not model (coverage is part of the output)", () => {
     const r = exploreStateInvariants(src(`contract T { uint256 public t; function f() external { t = block.timestamp; } }`), "T", { depth: 2 });

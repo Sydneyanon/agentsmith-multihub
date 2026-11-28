@@ -10,13 +10,17 @@ import { exploreStateInvariants, type ExploreOptions } from "./state-explorer-pr
 
 const src = (text: string) => [{ path: "c.sol", text: `pragma solidity ^0.8.20;\n${text}` }];
 const control = (name: string) => CONTROLS.find((c) => c.contract === name)!;
-const cand = (name: string, id: string, options: ExploreOptions = {}) => exploreStateInvariants(src(control(name).source), name, options).candidates.find((c) => c.id === id)!;
+// the measurements below describe the BASELINE strategy (ae41658); the deep strategy is measured at the end of this file and in fresh-set.test.ts
+const BASELINE = { strategy: "baseline" } as const;
+const cand = (name: string, id: string, options: ExploreOptions = {}) => exploreStateInvariants(src(control(name).source), name, { ...BASELINE, ...options }).candidates.find((c) => c.id === id)!;
 
 describe("PROTOTYPE APEX invariant quality (§10.2 item 2)", () => {
   it("every candidate generated on the controls has a ground-truth label", () => {
+    expect(measureFalseInvariants(BASELINE).unlabelled).toEqual([]);
+    expect(measureFalseInvariants({ ...BASELINE, quality: false }).unlabelled).toEqual([]);
     expect(measureFalseInvariants({}).unlabelled).toEqual([]);
     expect(measureFalseInvariants({ quality: false }).unlabelled).toEqual([]);
-  });
+  }, 60_000);
 
   it("minimum support: a candidate exercised by a single honest transition is not established", () => {
     const c = cand("Seeded", "conservation:totalShares=sum(shares)");
@@ -52,8 +56,8 @@ describe("PROTOTYPE APEX invariant quality (§10.2 item 2)", () => {
   });
 
   it("false-invariant rate on the correct-but-asymmetric controls: 5/10 accepted are false without the rules, 1/5 with them", () => {
-    const before = measureFalseInvariants({ quality: false });
-    const after = measureFalseInvariants({});
+    const before = measureFalseInvariants({ ...BASELINE, quality: false });
+    const after = measureFalseInvariants(BASELINE);
     expect({ falseAccepted: before.falseAccepted, trueAccepted: before.trueAccepted, falseGenerated: before.falseGenerated }).toEqual({ falseAccepted: 5, trueAccepted: 5, falseGenerated: 12 });
     expect(before.falsePositiveHypotheses).toEqual(["Seeded.claim: apex-invariant-conservation", "Bonus.distribute: apex-invariant-conservation"]);
     expect({ falseAccepted: after.falseAccepted, trueAccepted: after.trueAccepted }).toEqual({ falseAccepted: 1, trueAccepted: 4 });
@@ -63,7 +67,7 @@ describe("PROTOTYPE APEX invariant quality (§10.2 item 2)", () => {
     expect(after.falsePositiveHypotheses).toEqual(["Bonus.distribute: apex-invariant-conservation"]);
     // the price: a true invariant exercised by exactly one honest transition is rejected by the minimum-support rule
     expect(after.trueRejected).toEqual(["Seeded:one-way:seeded"]);
-  });
+  }, 60_000);
 
   it("COST: the depth rule also rejects a TRUE bug whose breaking step needs one more transaction than the depth", () => {
     const deepBurn = `contract DeepToken {
@@ -71,11 +75,11 @@ describe("PROTOTYPE APEX invariant quality (§10.2 item 2)", () => {
       constructor() { owner = msg.sender; }
       function mint(address to, uint256 amount) external { require(msg.sender == owner, "owner"); balanceOf[to] += amount; totalSupply += amount; mints += 1; }
       function burn(uint256 amount) external { require(mints >= 3, "early"); balanceOf[msg.sender] -= amount; } }`;
-    const r = exploreStateInvariants(src(deepBurn), "DeepToken");
+    const r = exploreStateInvariants(src(deepBurn), "DeepToken", BASELINE);
     expect(r.hypotheses).toEqual([]);
     expect(r.candidates.find((c) => c.id === "conservation:totalSupply=sum(balanceOf)")!.dropReason).toMatch(/^depth artefact: .*burn breaks it honestly at depth 4/);
     // the same bug IS reported when the depth reaches it
-    expect(exploreStateInvariants(src(deepBurn), "DeepToken", { depth: 4 }).hypotheses.map((h) => h.family)).toEqual(["apex-invariant-conservation"]);
+    expect(exploreStateInvariants(src(deepBurn), "DeepToken", { ...BASELINE, depth: 4 }).hypotheses.map((h) => h.family)).toEqual(["apex-invariant-conservation"]);
   });
 
   it("COST: the randomised rule also rejects a TRUE bug that only appears with amounts the breadth-first phase never uses", () => {
@@ -84,8 +88,52 @@ describe("PROTOTYPE APEX invariant quality (§10.2 item 2)", () => {
       constructor() { owner = msg.sender; }
       function mint(address to, uint256 amount) external { require(msg.sender == owner, "owner"); balanceOf[to] += amount; totalSupply += amount; }
       function burn(uint256 amount) external { balanceOf[msg.sender] -= amount; if (amount < 2 ether) { totalSupply -= amount; } } }`;
-    const r = exploreStateInvariants(src(bigBurn), "BigBurn");
+    const r = exploreStateInvariants(src(bigBurn), "BigBurn", BASELINE);
     expect(r.hypotheses).toEqual([]);
     expect(r.candidates[0]!.dropReason).toMatch(/falsified by a randomised honest sequence: burn breaks it/);
   });
+});
+
+describe("PROTOTYPE APEX invariant quality, deep strategy (§11 priority 2), on the original controls and the motivating cases", () => {
+  it("false-invariant rate on the original controls does not rise: 1/7 (baseline 1/5); the false one moves from Bonus to Rounds", () => {
+    const m = measureFalseInvariants({});
+    expect({ falseAccepted: m.falseAccepted, trueAccepted: m.trueAccepted }).toEqual({ falseAccepted: 1, trueAccepted: 6 });
+    // Rounds' designed reset needs 4 transactions: inside the deep search's accepting depth, so it is now reported (what got worse)
+    expect(m.falseAcceptedIds).toEqual(["Rounds:one-way:round"]);
+    expect(m.falsePositiveHypotheses).toEqual(["Rounds.close: apex-invariant-one-way"]);
+    expect(m.trueRejected).toEqual(["Seeded:one-way:seeded"]);
+    // without the refinement rule the deeper, wider search would accept 4 of 10 false (the rule is what keeps the rate from rising)
+    const noRef = measureFalseInvariants({ quality: { refinement: false } });
+    expect({ falseAccepted: noRef.falseAccepted, trueAccepted: noRef.trueAccepted }).toEqual({ falseAccepted: 4, trueAccepted: 6 });
+  }, 60_000);
+
+  it("refinement: value moved between two tracked pools by design is explained, not reported (GrossVault, Staged, Bonus)", () => {
+    const deep = (name: string, id: string) => exploreStateInvariants(src(control(name).source), name).candidates.find((c) => c.id === id)!;
+    expect(deep("GrossVault", "conservation:totalDeposits=sum(balances)").quality.explainedBy).toBe("totalDeposits == sum(balances) + fees");
+    expect(deep("Staged", "conservation:totalDeposits=sum(balances)").quality.explainedBy).toBe("totalDeposits == sum(balances) + reserve");
+    expect(deep("Bonus", "conservation:totalDeposits=sum(balances)").quality.explainedBy).toBe("totalDeposits == sum(balances) + reserve");
+    // the explanation shape `A = sum(L) + B` is not a precommitted partition shape, so it yields no new candidate
+    expect(exploreStateInvariants(src(control("Bonus").source), "Bonus").candidates.filter((c) => c.kind === "partition")).toEqual([]);
+  }, 60_000);
+
+  it("MOTIVATING cases (not evidence on their own): DeepToken and BigBurn are reported by the deep strategy, with no wrong claim", () => {
+    const deepBurn = `contract DeepToken {
+      address public owner; uint256 public totalSupply; mapping(address => uint256) public balanceOf; uint256 public mints;
+      constructor() { owner = msg.sender; }
+      function mint(address to, uint256 amount) external { require(msg.sender == owner, "owner"); balanceOf[to] += amount; totalSupply += amount; mints += 1; }
+      function burn(uint256 amount) external { require(mints >= 3, "early"); balanceOf[msg.sender] -= amount; } }`;
+    const bigBurn = `contract BigBurn {
+      address public owner; uint256 public totalSupply; mapping(address => uint256) public balanceOf;
+      constructor() { owner = msg.sender; }
+      function mint(address to, uint256 amount) external { require(msg.sender == owner, "owner"); balanceOf[to] += amount; totalSupply += amount; }
+      function burn(uint256 amount) external { balanceOf[msg.sender] -= amount; if (amount < 2 ether) { totalSupply -= amount; } } }`;
+    const d = exploreStateInvariants(src(deepBurn), "DeepToken");
+    expect(d.violations.map((v) => `${v.candidate} by ${v.breakingFunction}`)).toEqual(["conservation:totalSupply=sum(balanceOf) by burn"]);
+    // mint(owner0, 1) moves the counter and the ledger by exactly 1: support through one boundary value is coincidence, not evidence
+    expect(d.candidates.find((c) => c.id === "conservation:mints=sum(balanceOf)")!.dropReason).toMatch(/one specific boundary or derived argument/);
+    const b = exploreStateInvariants(src(bigBurn), "BigBurn");
+    expect(b.violations.map((v) => `${v.candidate} by ${v.breakingFunction}`)).toEqual(["conservation:totalSupply=sum(balanceOf) by burn"]);
+    // the counterexample uses the threshold from the code (2 ether), and is minimised under the same rules as before
+    expect(b.violations[0]!.minimisation!.minimised.at(-1)!.call).toMatch(/^burn\(2e18\)$/);
+  }, 60_000);
 });

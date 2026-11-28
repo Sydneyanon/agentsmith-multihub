@@ -647,9 +647,9 @@ Every result comes from self-authored contracts. It shows the mechanism works. I
 
 | item | status | one-line honest summary |
 |---|---|---|
-| 10.1 semantic-fidelity gate | **implemented, tested (46 tests)** | It abstains on every injected unsupported feature, with file:line. It suppresses every injected approximation. No case produced a hypothesis. It withholds true bugs, and counts each one. |
-| 10.2.1 coverage | **implemented, tested (5 tests)** | It measures states, transitions, guards, statements and unexplored regions. On 3 tiny contracts, the explorer reached 38–64% of the concrete states that exhaustive enumeration reached. |
-| 10.2.2 invariant quality | **implemented, tested (7 tests)** | On the controls, the false-invariant rate fell from 5/10 to 1/5. One true invariant and two true bugs were rejected. These are the rules' measured cost. |
+| 10.1 semantic-fidelity gate | **implemented, tested (46 tests)** | It abstains on every injected unsupported feature, with file:line. It suppresses every injected approximation. No case produced a hypothesis. It withholds true bugs, and counts each one. The 46 tests pass unchanged under the deep strategy (§11.1), whose gate is the same code. |
+| 10.2.1 coverage | **implemented, tested (5 tests, +2 deep)** | It measures states, transitions, guards, statements and unexplored regions. On 3 tiny contracts, the baseline explorer reached 38–64% of the concrete states that exhaustive enumeration reached. The deep strategy reaches 88–100% on them and 92–100% on 4 fresh tiny contracts (§11.1). |
+| 10.2.2 invariant quality | **implemented, tested (7 tests, +3 deep)** | On the controls, the false-invariant rate fell from 5/10 to 1/5. One true invariant and two true bugs were rejected. These are the rules' measured cost. The deep strategy keeps it at 1/7 on these controls, but only because of a new refinement rule (§11.1); the false invariant moves from `Bonus` to `Rounds`. |
 | 10.2.3 actors and permissions | **design note only** (below) | Not implemented. Actors are still the fixed `owner0`, `alice` and `attacker`. |
 | 10.2.4 minimisation | **implemented, tested (5 tests)** | Delta-debugging re-checks the same candidate, the same final function, the same reason and no approximation. It keeps the original and the minimised sequence. |
 | 10.2.5 independent replay | **not started** | Out of scope for this increment. APEX still validates nothing. |
@@ -874,6 +874,149 @@ Each shadow run records:
 - every hypothesis it would have made.
 
 That record decides what the interpreter supports next (§5, increment 7).
+
+### 11.1 Status (2026-11-28): fresh set 1 and the deep strategy (PROTOTYPE only)
+
+Still a prototype: off by default (nothing calls it), imported by nothing outside its own tests, excluded from builds by
+`tsconfig.build.json`. `simulate.ts` and `eval/` are unchanged. Everything below is on self-authored contracts.
+
+**The fresh set was frozen first.** Commit `2c0e4e9` adds `apps/api/src/apex/testing/fresh-set/`:
+- 10 vulnerable contracts that need 3–6 transactions, or boundary or large amounts;
+- a secure twin for each, differing only in the fix;
+- 6 correct-but-asymmetric controls, with per-candidate truth labels;
+- 4 tiny contracts for exhaustive enumeration;
+- the scoring rules (`labels.json`) and a sha256 manifest (`MANIFEST.sha256`).
+
+The labels include a precommitted candidate-id grammar for families that did not exist yet (`partition:…`, `backing:…`), so that new
+candidates could not be labelled after the fact. Only parse and deploy were checked before the freeze.
+
+The baseline was then measured and committed (`95989c2`, `fresh-set-results/baseline.json`) before any explorer change. The test
+`fresh-set-wellformed.test.ts` checks the manifest on every run.
+
+**Caveat on independence.** The same author wrote the set, its labels and the change, and knew the explorer's families and its two known
+misses. The set measures the mechanism on contracts written before the change. It is **not** an independent estimate. Recall 10/10 below
+is not a claim that APEX finds such bugs in other code.
+
+**What changed: `strategy: "deep"` is the default; `strategy: "baseline"` is the explorer as it was at `ae41658`, kept for measurement.**
+The code is in `deep-explorer.ts`. The gate, minimisation and hypothesis drafting are one shared function (`finishReport`), so they are
+literally the same code for both strategies.
+
+1. **Depth.** One layered breadth-first search runs to depth + 1 (default accepting depth 5), under a budget of 6 000 transitions per
+   search.
+   - The last layer is the depth-extension check, run inside the same search. The depth-artefact rule is unchanged: a new honest breaker
+     in that layer rejects the candidate.
+   - At a fixpoint, every layer is accepting.
+2. **Amounts.** Arguments and `msg.value` take these values:
+   - 0, 1 and max−1;
+   - c−1, c and c+1 for every numeric literal and constant in the code;
+   - v−1, v and v+1 for each value in the pre-state: uint scalars and the caller's mapping entries;
+   - both booleans.
+
+   The baseline's own values come first, so its counterexample shapes are found first.
+3. **Coverage-guided selection.** Each layer gets an equal share of the remaining budget. When a frontier does not fit, it is reduced. The
+   order of preference is:
+   - states with an abstract key (numbers as signs) not yet expanded;
+   - then states reached through a new abstract transition;
+   - then states reached with the baseline's arguments.
+
+   Every dropped state is counted (`coverage.frontierDropped`) and listed as unexplored.
+4. **Three invariant-quality rules.** None of them touches the fidelity gate.
+   - **Refinement.** A conservation candidate `A = sum(L)` with honest breakers is refuted when one extra term T (a uint scalar or another
+     ledger) makes `A + T = sum(L)`, `A = sum(L) + T` or `A = sum(L) + sum(M)` hold, in differential form, on every honest transition that
+     touched the candidate, its breakers included. T must move on at least one of the breaking transitions. The two precommitted shapes
+     become candidates (`partition:…`) and go through every rule.
+   - **Direction.** A solvency candidate is refuted when an honest transition moves the ledger and the ether held in strictly opposite
+     directions.
+   - **Coincidence.** Support counts only if it includes a transition with the generic arguments, or two distinct argument signatures.
+     For example, `mint(owner0, 1)` moving a counter and a ledger by 1 each is not evidence. This rule runs before the gate's withheld
+     accounting, so a coincidental candidate is never reported as "withheld by the gate".
+
+**Changes made after the first deep measurement (declared).** The search defaults (depth 5, budget 6 000, value caps) and the refinement
+and direction rules were written before the first deep run and were not changed afterwards. The coincidence rule was added after that run,
+in two steps:
+1. **Generic argument required.** Prompted by a new wrong claim on the motivating case `DeepToken` (`mints=sum(balanceOf)`) and by one gate
+   test that counted that coincidental candidate as "withheld". After this step the gate test passes unchanged.
+2. **Two signatures also accepted.** Prompted by seeing that step 1 rejected a true, unscored `actor-value` candidate on V06, V10 and
+   their twins.
+
+Neither step changed any fresh-set metric.
+
+**Results.** Fresh set 1 uses default options. The baseline was recorded before the change. Both rows are asserted in
+`fresh-set.test.ts`.
+
+| metric (fresh set 1) | baseline | deep |
+|---|---|---|
+| recall (vulnerable detected / 10) | **2/10** (V03, V09) | **10/10** |
+| false negatives | V01 V02 V04 V05 V06 V07 V08 V10 | none |
+| false positives, total | **12** | **9** |
+| wrong claims on vulnerable cases | 2 | 2 (`totalAssets=sum(shares)` by `donate` / `harvest`) |
+| false positives on secure twins | 4 | 2 (S08: yield by design, twice) |
+| false positives on controls | 6 | 5 (Rebate ×2, Seasons, YieldShares ×2) |
+| false-invariant rate on the fresh controls | **7/17 (41%)** | **5/16 (31%)** |
+| coverage vs exhaustive: Toggle, Thresh, Pass, Steps | 6/9, 4/9, 26/38, 4/7 (44–68%) | 9/9, 9/9, 35/38, 7/7 (92–100%) |
+| interpreter transitions, whole set | 6 630 | 275 995 (×42) |
+
+**Ablations**, measured after the change and reported, not used to tune:
+- **Depth.** With the deep search held to depth 3, recall is 7/10; V01, V04 and V05 need more depth.
+- **Refinement.** Without the refinement rule, recall is 9/10 (V07 needs a partition) and there are 13 false positives. The original
+  controls' false-invariant rate rises to 4/10. The deeper, wider search is acceptable **only** with this rule.
+- **Direction.** Without the direction rule, there are 10 false positives and the fresh false-invariant rate is 6/17.
+- **Budget.** At half and at double the budget, recall is unchanged at 10/10, with 7 and 9 false positives respectively.
+
+**Original controls (§10.2.2).** These are not fresh: some rules were written against them.
+- The false-invariant rate is 1/7 (14%), against 1/5 (20%) for the baseline. It did not rise.
+- `GrossVault`, `Staged` and `Bonus` are explained by refinement.
+- `Rounds` is now accepted and reported: a designed reset at 4 transactions now falls inside the accepting depth.
+- `Seeded:one-way:seeded` is still rejected for having a single supporting transition.
+
+**Motivating cases, reported separately and not evidence on their own.**
+- `DeepToken`: missed by the baseline (depth artefact); the deep strategy reports `burn`, with no wrong claim. Without the coincidence
+  rule it also reported `mints=sum(balanceOf)`.
+- `BigBurn`: missed by the baseline (randomised rule); the deep strategy reports `burn`, minimised to `burn(2e18)`. The threshold comes
+  from the `2 ether` in the code.
+
+**What the detections really are.**
+- Every reported counterexample is fully modelled and minimised by the unchanged minimiser: same candidate, same final function, same
+  reason, no approximation.
+- **V03 is weaker than its label.** It is detected, as in the baseline, as `attacker:deposit -> owner0:donate(1 wei) -> attacker:withdraw`:
+  a donation accrues to the only holder. It is not the labelled path, where a victim's deposit rounds to 0 shares. The acceptance rule
+  (breaker `withdraw`, family `actor-value`) is met, and the twin, where donations do not reach `totalAssets`, is clean. The inflation
+  path itself was not shown.
+
+**What got worse.**
+- **Cost.** The whole set takes about 42 times the transitions. The 46 gate tests take about 13 s instead of about 1.4 s.
+- **Rounds.** A designed asymmetry 4 transactions deep is now reported, where the baseline rejected it as a depth artefact. Designed
+  asymmetries 4–5 transactions deep are no longer protected by the depth rule.
+- **Completeness.** On most fresh contracts the search drops 200–2 200 frontier states per search. The accepting layers and the extension
+  layer are complete only over the selected frontier.
+  - The baseline's extension was a complete breadth-first search, or the candidate was rejected as `incomplete`.
+  - The deep extension is never `incomplete`; it is as strong as its selected frontier.
+
+  This weakens the depth-artefact rule's evidence. It is a quality rule, not the gate.
+- **Coverage figures need care.** States outside the reference domain are counted separately (`explorerOnly`: 0, 160, 201 and 10 on the
+  fresh tiny contracts) and never as coverage.
+
+**Remaining limits.**
+- Designed asymmetry inside the accepting depth is still indistinguishable from a bug. The 5 remaining false positives on controls are:
+  - yield earned by design (`YieldShares`, S08);
+  - a privileged grant (`Rebate`; 10.2.3 is still not implemented);
+  - a cyclic reset (`Seasons`, `Rounds`);
+  - `totalAssets` against `shares` (different units).
+- The refinement rule refutes a real bug when a compensating term happens to move consistently on every transition of the candidate,
+  for example a forgotten aggregate whose value is booked, consistently, to another tracked pool. The direction rule refutes a real bug
+  in which paying out increases a liability.
+- The coincidence rule rejects a true candidate whose only support uses one specific non-generic argument.
+- Only linear relations with one extra term are tried. Other relations, such as share price or a three-pool relation, are not.
+- Actors are still `owner0`, `alice` and `attacker`. Re-entry is not explored. Every §3 limit stands.
+- The fresh set is small and self-authored. No real code has been measured. Shadow mode on a real snapshot is still the next step.
+
+**Tests.** There are 84 APEX tests: the earlier 72, 6 for deep counterparts, 3 for fresh-set integrity and 3 for fresh-set
+measurement. The 46 gate tests and the 5 minimisation tests are unchanged.
+- Tests that assert the baseline's own numbers now pin `strategy: "baseline"`; their expectations are unchanged.
+- Deep counterparts were added next to them.
+- The E control has a deep twin. Under the deep strategy it still has no violation, and it reports its dropped frontier.
+
+`npm run typecheck` exits 0. `npm test` ran 77 files: 1137 passed, 1 skipped.
 
 ### The milestone that counts
 APEX finds something genuinely vulnerable that the existing specialists (and Slither) missed, **and** an independent tool (Foundry
