@@ -9,6 +9,7 @@ import { registerDiscoveryRoutes } from "./discovery/api.js";
 import { registerBountyRoutes } from "./bounties/api.js";
 import { registerHubStatic } from "./hub-static.js";
 import { registerHostGuard } from "./host-guard.js";
+import { isWorkerApiRequest, registerWorkerApi, type WorkerApiOptions } from "./worker-api.js";
 import { expectedMigrations, readBuildInfo, registerEngineStatusRoutes, type EngineInfo } from "./engine-status.js";
 
 export type AppOptions = {
@@ -27,6 +28,8 @@ export type AppOptions = {
   engineInfo?: Partial<EngineInfo>;
   /** Bounty collection options (tests inject a fixture transport and disable the public-feed cache). */
   bounties?: { http?: import("./bounties/http.js").HttpGet; publicCacheMs?: number };
+  /** Option D: serve the internal worker API (run-scoped worker tokens). Absent: no such route exists. */
+  workerApi?: WorkerApiOptions;
 };
 
 /** Builds the whole HTTP application without reading the environment or opening a socket, so tests can exercise the real thing. */
@@ -49,7 +52,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerHostGuard(app, options.hubAllowedHosts);
   const trusted = parseCidrList((options.trustedProxyCidrs ?? []).join(","));
   if ("error" in trusted) throw new Error(`Invalid trusted proxy range: ${trusted.error}`);
-  registerBearerAuth(app, options.apiBearerToken, options.limiter, createClientIdentity(trusted.cidrs));
+  registerBearerAuth(app, options.apiBearerToken, options.limiter, createClientIdentity(trusted.cidrs), options.workerApi ? isWorkerApiRequest : undefined);
   const { pool } = options;
   app.get("/health/live", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
   const cacheMs = options.readinessCacheMs ?? 5_000;
@@ -73,6 +76,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerDiscoveryRoutes(app, pool);
   registerBountyRoutes(app, pool, options.bounties ?? {});
   registerEngineStatusRoutes(app, pool, { build: options.engineInfo?.build ?? readBuildInfo(), dataKind: options.engineInfo?.dataKind ?? "unlabelled", expectedMigrations: options.engineInfo?.expectedMigrations !== undefined ? options.engineInfo.expectedMigrations : expectedMigrations() });
+  if (options.workerApi) registerWorkerApi(app, pool, options.workerApi);
   registerHubStatic(app);
   app.addHook("onClose", async () => { await pool?.end(); });
   return app;

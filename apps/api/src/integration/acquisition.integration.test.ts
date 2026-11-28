@@ -318,6 +318,8 @@ describe.skipIf(skipIntegration)("repository acquisition over real Postgres", ()
     expect(migrations[6]).toBe("0007_research_state.sql");
     // Added after 5.2: 5.0's discovery (0008), Workstream A's bounty collection (0011) and the bounty->research bridge link (0012);
     // none creates an acquisition table, and 0008/0012 stay out of the production image until explicitly approved.
-    expect(migrations).toEqual([...migrations.slice(0, 7), "0008_discovery.sql", "0011_bounty_intelligence.sql", "0012_bounty_research_link.sql", "0013_repository_monitor.sql", "0014_repository_mappings.sql"]);
+    expect(migrations).toEqual([...migrations.slice(0, 7), "0008_discovery.sql", "0011_bounty_intelligence.sql", "0012_bounty_research_link.sql", "0013_repository_monitor.sql", "0014_repository_mappings.sql",
+      // option D (D1-D7) and R3a, proposed for the release with the worker API; neither creates an acquisition table
+      "0015_worker_api.sql", "0016_research_independence.sql"]);
   });
 });

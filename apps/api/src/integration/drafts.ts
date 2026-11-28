@@ -23,17 +23,10 @@ export async function applyDrafts(db: TestDatabase): Promise<void> {
 }
 
 /**
- * The R3 draft (db/drafts/r3-evaluator-independence), on top of the T-144 draft. Kept OUT of DRAFTS so the existing draft-dependent
- * suites keep testing the drafts as they are; its own test applies it (with and without A29) and checks its rollback.
+ * The R3b draft (db/drafts/r3b-outcome-independence): the T-144 'confirmed' rule tightened to cross-family. It needs 0016 (a migration)
+ * and the T-144 draft, so it is applied on top of applyDrafts(). It grants nothing of its own (0016's grants cover what it reads).
  */
-export const R3_DRAFT = { dir: "r3-evaluator-independence", file: "0015_evaluator_independence.sql", rollback: "0015_evaluator_independence.rollback.sql" } as const;
-export async function applyR3Draft(db: TestDatabase): Promise<void> {
-  const dir = join(REPO_ROOT, "db", "drafts", R3_DRAFT.dir);
-  await db.ownerPool.query(readFileSync(join(dir, R3_DRAFT.file), "utf8"));
-  if (!db.runtimeRole) return;
-  const overlay = JSON.parse(readFileSync(join(dir, "runtime-grants.draft.json"), "utf8")) as { tables: Record<string, string[]> };
-  for (const [table, privileges] of Object.entries(overlay.tables)) {
-    if (!privileges.every((p) => p === "SELECT")) throw new Error(`the R3 overlay grants more than SELECT on ${table}`);
-    await db.ownerPool.query(`GRANT SELECT ON ${table} TO ${db.runtimeRole}`);
-  }
+export const R3B_DRAFT = { dir: "r3b-outcome-independence", file: "r3b_outcome_independence.sql", rollback: "r3b_outcome_independence.rollback.sql" } as const;
+export async function applyR3bDraft(db: TestDatabase): Promise<void> {
+  await db.ownerPool.query(readFileSync(join(REPO_ROOT, "db", "drafts", R3B_DRAFT.dir, R3B_DRAFT.file), "utf8"));
 }

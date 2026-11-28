@@ -26,6 +26,23 @@ const configSchema = z.object({
   AI_BUDGET_EMERGENCY_STOP: z.enum(["true", "false"]).default("false"),
   /** What the connected database holds, as declared by the operator; shown on the Control Room. Never inferred. */
   HUB_DATA_KIND: z.enum(["production", "synthetic", "test", "unlabelled"]).default("unlabelled"),
+  /** Option D: serve the internal worker API, only on a second listener (WORKER_API_HOST:WORKER_API_PORT, the private 6PN address). Off by default. */
+  WORKER_API_ENABLED: z.enum(["true", "false"]).default("false"),
+  WORKER_API_PORT: z.coerce.number().int().min(1).max(65535).default(8081),
+  WORKER_API_HOST: z.string().min(1).default("fly-local-6pn"),
+  /** D4 per-token quotas and D1/D3 analysis limits (all optional; defaults in worker-quotas.ts and bounded-compute.ts) */
+  WORKER_API_QUOTA_BYTES: z.coerce.number().int().min(1).optional(),
+  WORKER_API_QUOTA_BLOBS: z.coerce.number().int().min(1).optional(),
+  WORKER_API_QUOTA_READ_BYTES: z.coerce.number().int().min(1).optional(),
+  WORKER_API_QUOTA_PROCESSING_MS: z.coerce.number().int().min(1).optional(),
+  WORKER_API_RATE_PER_SECOND: z.coerce.number().int().min(1).optional(),
+  WORKER_API_RATE_BURST: z.coerce.number().int().min(1).optional(),
+  WORKER_API_COMPUTE_CPU_MS: z.coerce.number().int().min(1).optional(),
+  WORKER_API_COMPUTE_WALL_MS: z.coerce.number().int().min(1).optional(),
+  WORKER_API_COMPUTE_HEAP_MB: z.coerce.number().int().min(16).optional(),
+  WORKER_API_MAX_SNAPSHOT_BYTES: z.coerce.number().int().min(1).optional(),
+  /** TESTS ONLY (NODE_ENV=test): a loopback GitHub fake for the API's own verification source; GitHubSource refuses it elsewhere */
+  WORKER_API_GITHUB_TEST_ORIGIN: z.string().url().optional(),
 });
 
 const parsed = configSchema.safeParse(process.env);
@@ -43,4 +60,13 @@ export const config = {
   requireRestrictedDbRole: parsed.data.HUB_REQUIRE_RESTRICTED_DB_ROLE === "true",
   aiBudgetEmergencyStop: parsed.data.AI_BUDGET_EMERGENCY_STOP === "true",
   dataKind: parsed.data.HUB_DATA_KIND,
+  workerApi: {
+    enabled: parsed.data.WORKER_API_ENABLED === "true", port: parsed.data.WORKER_API_PORT, host: parsed.data.WORKER_API_HOST,
+    quotas: { ...(parsed.data.WORKER_API_QUOTA_BYTES ? { maxBytesStored: parsed.data.WORKER_API_QUOTA_BYTES } : {}), ...(parsed.data.WORKER_API_QUOTA_BLOBS ? { maxBlobs: parsed.data.WORKER_API_QUOTA_BLOBS } : {}),
+      ...(parsed.data.WORKER_API_QUOTA_READ_BYTES ? { maxBytesRead: parsed.data.WORKER_API_QUOTA_READ_BYTES } : {}), ...(parsed.data.WORKER_API_QUOTA_PROCESSING_MS ? { maxProcessingMs: parsed.data.WORKER_API_QUOTA_PROCESSING_MS } : {}) },
+    rateLimit: parsed.data.WORKER_API_RATE_PER_SECOND || parsed.data.WORKER_API_RATE_BURST ? { perSecond: parsed.data.WORKER_API_RATE_PER_SECOND ?? 200, burst: parsed.data.WORKER_API_RATE_BURST ?? 400 } : undefined,
+    compute: { ...(parsed.data.WORKER_API_COMPUTE_CPU_MS ? { cpuMs: parsed.data.WORKER_API_COMPUTE_CPU_MS } : {}), ...(parsed.data.WORKER_API_COMPUTE_WALL_MS ? { wallMs: parsed.data.WORKER_API_COMPUTE_WALL_MS } : {}),
+      ...(parsed.data.WORKER_API_COMPUTE_HEAP_MB ? { maxHeapMb: parsed.data.WORKER_API_COMPUTE_HEAP_MB } : {}), ...(parsed.data.WORKER_API_MAX_SNAPSHOT_BYTES ? { maxInputBytes: parsed.data.WORKER_API_MAX_SNAPSHOT_BYTES } : {}) },
+    githubTestOrigin: parsed.data.WORKER_API_GITHUB_TEST_ORIGIN,
+  },
 } as const;

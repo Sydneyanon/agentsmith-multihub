@@ -103,9 +103,15 @@ export function isPublicRequest(method: string, rawUrl: string): boolean {
 export function registerBearerAuth(
   app: FastifyInstance, configuredToken: string | undefined, limiter: AuthFailureLimiter = new AuthFailureLimiter(),
   clientIdentity: (request: FastifyRequest) => string = (request) => `peer:${request.socket.remoteAddress ?? "unknown"}`,
+  /**
+   * Option D (absent by default): requests this predicate claims are authenticated by their own route-level hook instead (the internal
+   * worker API's run-scoped tokens). It must match exact paths of routes that carry that hook, and nothing else.
+   */
+  delegated?: (method: string, rawUrl: string) => boolean,
 ): void {
   app.addHook("onRequest", async (request, reply) => {
     if (isPublicRequest(request.method, request.url)) return;
+    if (delegated?.(request.method, request.url)) return;
     if (!configuredToken) return reply.code(503).send({ error: "api_auth_not_configured" });
     // A valid token is always accepted: only INVALID attempts are throttled, so no amount of failed guessing — from any address,
     // including the operator's own — can lock the legitimate operator out.

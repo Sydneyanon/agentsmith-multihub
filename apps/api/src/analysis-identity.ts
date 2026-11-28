@@ -7,7 +7,7 @@
  * never independent confirmation. Slither reads its own IR (slither-ir); Foundry compiles with solc and executes EVM bytecode
  * (evm-execution).
  *
- * This list is mirrored, row for row, by the seed of the R3 draft migration (db/drafts/r3-evaluator-independence); a unit test keeps
+ * This list is mirrored, row for row, by the seed of migration 0016 (db/migrations/0016_research_independence.sql); a unit test keeps
  * them equal. An id that is not listed has an UNKNOWN family and never counts as independent.
  */
 export type AnalysisRole = "generator" | "evaluator" | "abstention";

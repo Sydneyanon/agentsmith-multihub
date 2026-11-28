@@ -5,10 +5,10 @@ import { ANALYSIS_IDENTITIES, analysisIdentity, evaluationRelation, PARSER_FAMIL
 import { CAPABILITIES } from "./engine/capabilities.js";
 import { SPECIALIST_ID, VALIDATOR_ID } from "./analysis/solidity/pipeline.js";
 
-const seed = readFileSync(join(__dirname, "..", "..", "..", "db", "drafts", "r3-evaluator-independence", "0015_evaluator_independence.sql"), "utf8");
+const seed = readFileSync(join(__dirname, "..", "..", "..", "db", "migrations", "0016_research_independence.sql"), "utf8");
 
 describe("analysis identities (generator and evaluator families)", () => {
-  it("the R3 draft's seed equals the code registry row for row", () => {
+  it("migration 0016's seed (R3a) equals the code registry row for row", () => {
     const block = seed.slice(seed.indexOf("INSERT INTO analysis_identities"), seed.indexOf(";", seed.indexOf("INSERT INTO analysis_identities")));
     const rows = [...block.matchAll(/\('([^']+)', '([^']+)', '([^']+)', '([^']+)'\)/g)].map((m) => ({ id: m[1], role: m[2], analysisFamily: m[3], method: m[4] }));
     expect(rows).toEqual(ANALYSIS_IDENTITIES.map((x) => ({ ...x })));
