@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { FakeSource } from "../acquisition/testing/fake-source.js";
 import { buildGitFixture } from "../acquisition/testing/git-fixture.js";
+import { synthGz } from "../acquisition/testing/synth-archive.js";
 import { WorkerApiClient } from "../worker-api-client.js";
 import { EXIT_REMOTE_CONFIG, EXIT_RUN_CANCELLED, EXIT_TOKEN_REJECTED, remoteWorkerSettings, runRemoteResearchWorker } from "../worker-remote.js";
 import { redactWorkerTokens } from "../worker-tokens.js";
@@ -20,8 +21,10 @@ try { settings = remoteWorkerSettings(process.env); } catch (error) {
 // what a process on this machine could read about us: the kernel's copy of our environment holds no token
 const environ = readFileSync("/proc/self/environ", "utf8");
 log("started", { token_id: settings.tokenId, token_source: settings.tokenSource, token_file_removed: settings.tokenFileRemoved, environ_has_token: environ.includes(settings.token) || /WORKER_API_TOKEN=/.test(environ) });
-const spec = JSON.parse(readFileSync(process.env.REMOTE_CHILD_FIXTURE!, "utf8")) as { owner: string; repo: string; files: Array<{ path: string; content: string }> };
-const fx = buildGitFixture(spec.files, { owner: spec.owner, repo: spec.repo });
+const spec = JSON.parse(readFileSync(process.env.REMOTE_CHILD_FIXTURE!, "utf8")) as { owner: string; repo: string; files: Array<{ path: string; content: string }>; commit?: string };
+const built = buildGitFixture(spec.files, { owner: spec.owner, repo: spec.repo });
+// optional: present the local fixture under a pinned commit id (the APEX shadow rehearsal's approved commit); tree, blobs and archive stay real
+const fx = spec.commit ? (() => { const pinned = { ...built, commitSha: spec.commit!, prefix: `${spec.owner}-${spec.repo}-${spec.commit!.slice(0, 7)}` }; return { ...pinned, tarGz: synthGz(pinned) }; })() : built;
 const controller = new AbortController();
 const deadline = setTimeout(() => controller.abort(), Number(process.env.REMOTE_CHILD_DEADLINE_MS ?? 90_000));
 const pauseBefore = new Set((process.env.REMOTE_CHILD_PAUSE_BEFORE ?? "").split(",").filter(Boolean));

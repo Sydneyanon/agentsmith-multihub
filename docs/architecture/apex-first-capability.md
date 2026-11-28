@@ -1203,6 +1203,65 @@ diamond (`TreasuryDiamond`, facets), LayerZero OFT adapters, bridge gateways and
 
 **Tests.** There are 98 APEX tests: the 91 of `bcf2ea4` plus 7 in `fresh-set-2.test.ts`. `npm run typecheck` exits 0. `npm test` ran 82 files: 1175 passed, 1 skipped.
 
+### 11.3 Status (2026-11-28): the shadow stage for the one approved run (development only; NOT deployed)
+
+The owner approved, as development work, a **measurement-only shadow stage** for exactly one run: USX, `scroll-tech/usx-contracts` at
+`9e972566deb59b4d2c499015c2557c5e5f236e3c`, the official 20-file scope. It is built and tested locally; nothing ran on Fly, nothing was
+fetched, and USX's source was not obtained.
+
+**Where APEX runs.** A new LAST step `apex_shadow` (role `shadow_explorer`), after `build_dossier`, so nothing it does can reach the
+dossier, the leads or the evaluations. The worker (direct or remote) runs APEX in the existing bounded child process
+(`bounded-compute.ts`, new task `apex_shadow`; CPU 300 s, wall 330 s, heap 1 GiB, output 16 MiB by default), with a transition budget
+inside (400 000 requested in total, allocated per contract before it starts; a contract that does not fit is recorded as not started).
+The engine (`apps/api/src/apex/engine/`) is the prototype moved out of `testing/` byte-for-byte; the fidelity gate, the deep strategy,
+the false-positive rules and minimisation are unchanged.
+
+**Enablement.** Off by default; no environment variable enables it. A run gets the step only when created with `apexShadow`
+(`promote-main --programme sherlock:273 --repository scroll-tech/usx-contracts --commit 9e97… --structural --scope-paths … --apex-shadow
+--apex-approved-by <who>`), which records `apex_shadow: {approved_by, approved_commit, approved_at}` on the run and an audit event.
+Creation is refused unless the repository, the pinned commit, the programme, the exact 20 paths and the official page hash are the
+approved ones, structural analysis is on, and the run is new (never a reused or already-linked run).
+
+**Refusals.** The same check runs again when the step runs (on the run's own record, plus the sealed snapshot's commit) and a third time
+in the recorder. A failure is recorded as `refused` with its code (`not_the_approved_commit`, `scope_paths_differ`, `not_requested`,
+`snapshot_commit_differs`, …) and APEX does not run. Only the in-scope `.sol` files of the run's sealed snapshot are read.
+
+**Storage (no migration).** One append-only `audit_events` row per report (`apex_shadow.reported`, entity = the step), with a strict
+schema (`shadow-record.ts`), plus the step's own output (a labelled summary naming that row and its hash). No table the evidence path
+reads is written. The recorder re-checks the lease, the eligibility, the sealed snapshot and every analysed file's digest against the
+snapshot, and derives the overlaps with the run's leads itself; the measurement content is labelled **reported by the worker**.
+
+**Option D.** One new operation, `report_apex_shadow`: allow-listed, valid only for the token's leased `apex_shadow` step, strict schema,
+storage-quota counted (D4), at most 3 records per step. `complete` for the step accepts only `{status: "apex_shadow_finished",
+report_sha256}` (or why nothing could be recorded); the API derives the stored output from the record. `sealed_snapshot` and
+`snapshot_sources` also serve the shadow step.
+
+**Isolation.** A throw, a CPU/wall/heap kill or an invalid result is recorded as a shadow FAILURE and the step succeeds, so the run
+succeeds with its other outputs unchanged. If the report itself cannot be stored, a minimal failure report is stored; if even that fails,
+the step completes saying why. Only a lost lease propagates (as for every step).
+
+**What it records.** Abstentions (contract, function, feature, file, line, phase; located by the interpreter, or at the definition when
+the interpreter names no statement, e.g. constructor parameters it cannot supply); suppressions per kind with examples; withheld
+candidates; coverage with explicit numerators and denominators (contracts, in-scope files, entry points, statements, guard sides, dropped
+frontier states of states reached); every candidate with decision, rule and reason; reclassifications with rule and evidence; what APEX
+would have claimed, labelled "APEX-generated, unvalidated" and never stored as a hypothesis; overlaps (same line, function or file);
+cost (transitions requested and interpreted, wall time, peak RSS of the child); provenance (APEX version and engine, strategy, options,
+limits, snapshot id, commit, manifest digest, input file digests, approver, worker mode).
+
+**Dashboard.** Panel 6 shows the record for a run that has one, every number labelled "APEX shadow: unvalidated, not evidence" and
+basis `worker_reported`; otherwise "experimental, not enabled for this run". Screenshots: `docs/research-runs/screenshots/apex-shadow/`
+(`scripts/operations-rehearsal.ts --apex-shadow`).
+
+**On the self-authored USX-like fixture** (shapes only; not a measurement of USX): 7 of 14 deployable in-scope contracts explored; 7
+abstained at deployment because their constructors take contract-typed parameters; the facets abstain on calls into other contracts, the
+diamond's fallback on `msg.sig`; a narrow-integer path is suppressed (456 counterexamples) and its candidate withheld. Expect most of real
+USX to abstain the same way; the abstention map is the useful output.
+
+**Known limits of the stage.** The transition budget is enforced between contracts, not inside one (a contract may overrun its
+allocation; CPU, wall and heap are hard limits). A worker-API outage during the step fails it like any step (infrastructure, not APEX).
+APEX still validates nothing (§10.2.5 not started). The shadow content is worker-reported: a compromised worker could forge the
+measurement (never evidence, and the analysed files' digests are checked).
+
 ### The milestone that counts
 APEX finds something genuinely vulnerable that the existing specialists (and Slither) missed, **and** an independent tool (Foundry
 against the actual contracts, by a separate test author) reproduces it. Test counts are not that milestone.

@@ -5,7 +5,7 @@ import type { Ctx } from "../src/ctx.js";
 import { parseHash } from "../src/router.js";
 import { renderRoute } from "../src/main.js";
 import { confidenceCard, metricRow, opsBody, outcomeCard, panelCard, percent, renderOperations, systemCard, timelineList } from "../src/view-operations.js";
-import type { Metric, ProgressPanel, RunProgress, TimelineItem } from "../src/types.js";
+import type { ApexShadowView, Metric, ProgressPanel, RunProgress, TimelineItem } from "../src/types.js";
 
 const M = (over: Partial<Metric>): Metric => ({ key: "k", label: "files stored", numerator: 3, denominator: 4, unit: "files", kind: "processing", source: "repo_snapshot_files", measurable: true, basis: "verified", ...over });
 const noIssues = { errors: [], retries: [], expired_leases: [], lease_exhausted: 0, abstentions: [], refusals: { total: 0, quota: 0, by_code: {} }, blockers: [] };
@@ -122,5 +122,66 @@ describe("live operations view: honest numbers", () => {
     expect((el.querySelector("#ops-run") as HTMLSelectElement).value).toBe("r1");
     expect(el.querySelectorAll("#ops-run option")).toHaveLength(1); // only repository_research runs are offered
     expect(renderRoute(ctx, parseHash("#/operations?run=r1")).className).toContain("view-operations");
+  });
+});
+
+describe("APEX panel: shadow results, never evidence", () => {
+  const L = "APEX shadow: unvalidated, not evidence";
+  const cap = <T>(items: T[]) => ({ items, total: items.length, truncated: 0 });
+  const SHADOW: ApexShadowView = {
+    label: L, measurement_only: true, status: "completed", records: 1, refusal: null, failure: null,
+    record: { audit_event_id: "42", at: "2026-11-28T10:00:00Z", reported_by: "worker", via: "worker_api", report_sha256: "e".repeat(64), recorder: { checked: ["lease"], refused_worker_status: null } },
+    provenance: { apex_version: "apex-shadow/1", engine_generator: "apex-state-explorer@0-prototype", strategy: "deep", snapshot_id: "s1", commit_sha: "9e972566deb59b4d2c499015c2557c5e5f236e3c", manifest_sha256: "d".repeat(64), repository: "scroll-tech/usx-contracts",
+      approved_by: "owner", approved_commit: "9e972566deb59b4d2c499015c2557c5e5f236e3c", input_files: [{ path: "src/USX.sol", sha256: "a".repeat(64), bytes: 900 }], worker: { mode: "remote", build_commit: null }, compute_limits: {}, shadow_limits: {} },
+    engine: { generator: "apex-state-explorer@0-prototype", strategy: "deep", options: {} }, cost: { transitions_requested: 45000, transitions_interpreted: 6700, wall_ms: 800, peak_rss_bytes: 1.3e8 },
+    contracts: cap([{ contract: "TreasuryDiamond", file: "src/TreasuryDiamond.sol", status: "explored", reason: null, entry_points: { total: 4, completed: 3 }, statements: { total: 9, reached: 7 }, frontier_dropped: 0 }]),
+    not_deployable: cap([{ contract: "IUSX", file: "src/interfaces/IUSX.sol", kind: "interface" }]),
+    abstentions_by_feature: { "external-call": 1, other: 1 },
+    abstentions: cap([{ contract: "StakedUSXOFT", function: "burnToBridge", feature: "external-call", file: "src/oft/StakedUSXOFT.sol", line: 26, at: "src/oft/StakedUSXOFT.sol:26", why: "a call to a non-actor", phase: "honest", located_by: "interpreter" },
+      { contract: "USXOFT", function: "constructor", feature: "other", file: "src/oft/USXOFT.sol", line: 21, at: "src/oft/USXOFT.sol:21", why: "constructor parameters", phase: "deployment", located_by: "definition" }]),
+    suppressions: { total: 3, by_kind: { "narrow-integer": 3 }, examples: cap([{ contract: "BridgedToken", candidate: "conservation:totalSupply=sum(balanceOf)", phase: "honest", breaking_function: "burnFrom", sequence: [{ actor: "owner0", call: "burnFrom(owner0, 1e18)", value: "0" }], approximations: [{ kind: "narrow-integer", at: "src/BridgedToken.sol:26", what: "uint8 write" }] }]) },
+    withheld: cap([{ contract: "BridgedToken", candidate: "conservation:totalSupply=sum(balanceOf)", why: "only-suppressed-counterexamples", kinds: ["narrow-integer"] }]),
+    candidates: cap([{ contract: "USX", id: "conservation:totalSupply=sum(balanceOf)", kind: "conservation", statement: "s", decision: "accepted", rule: "established", reason: "established: 340 transitions" },
+      { contract: "StakedUSXOFT", id: "conservation:totalSupply=sum(balanceOf)", kind: "conservation", statement: "s", decision: "rejected", rule: "vacuous", reason: "never exercised by honest sequences: vacuous" }]),
+    reclassified: cap([]),
+    would_be_hypotheses: cap([{ contract: "MockAssetManager", label: "APEX-generated, unvalidated", claim: "MockAssetManager.sweep: the sequence owner0:deposit() -> owner0:sweep(1e18) violates the inferred invariant", candidate: "c", breaking_function: "sweep", minimised: [{ actor: "owner0", call: "deposit()", value: "1" }], counterexample: [] }]),
+    overlaps: { summary: { same_line: 0, same_function: 1, same_file: 2 }, leads_considered: 4, note: "neither support nor contradiction", items: [], truncated: 0 },
+    parse_problems: [], in_scope_paths_missing: [],
+  };
+  const metricsOf = [M({ key: "apex_contracts_explored", label: `${L}: deployable in-scope contracts explored`, kind: "coverage", numerator: 7, denominator: 14, unit: "contracts", basis: "worker_reported", note: L }),
+    M({ key: "apex_abstentions", label: `${L}: abstentions (unsupported feature, with file:line)`, kind: "coverage", numerator: 2, denominator: null, measurable: false, unit: "abstentions", basis: "worker_reported", note: L })];
+
+  it("shows coverage num/denom, abstentions by feature with file:line, suppressions, candidates, cost and provenance, all labelled", () => {
+    const el = panelCard(P({ id: "apex", title: "APEX exploration (shadow, measurement only)", state: "recorded", availability: { state: "experimental", reason: `${L}. enabled for this run only`, evidence: "audit_events" }, coverage: [metricsOf[0]!], counts: [metricsOf[1]!], shadow: SHADOW }));
+    const t = el.textContent!;
+    expect(el.classList.contains("ops-apex-shadow")).toBe(true);
+    expect(el.querySelector(".shadow-banner")!.textContent).toBe(L);
+    expect(t).toMatch(/50% 7 \/ 14 contracts/); // coverage with an explicit numerator and denominator
+    for (const row of el.querySelectorAll(".metric")) { expect(row.textContent).toContain(L); expect(row.textContent).toMatch(/reported by the worker/); }
+    expect(t).toMatch(/StakedUSXOFT\.burnToBridge external-call src\/oft\/StakedUSXOFT\.sol:26/);
+    expect(t).toMatch(/located at the definition/);
+    expect(t).toMatch(/suppressed counterexamples 3 \(narrow-integer 3\) · 1 candidates withheld by the gate/);
+    expect(t).toMatch(/candidate invariants rejected, with reasons \(1\).*vacuous never exercised by honest sequences/);
+    expect(t).toMatch(/APEX-generated, unvalidated MockAssetManager\.sweep/);
+    expect(t).toMatch(/not stored as hypotheses/);
+    expect(t).toMatch(/apex-shadow\/1 · engine apex-state-explorer@0-prototype · strategy deep/);
+    expect(t).toMatch(/approvedowner for commit 9e972566deb5/);
+    expect(t).toMatch(/same line 0 · same function 1 · same file 2/);
+    // every section heading carries the label; nothing reads as a finding or a confirmation
+    for (const s of el.querySelectorAll(".shadow-list summary")) expect(s.textContent).toContain(L);
+    expect(t).not.toMatch(/\bconfirmed\b|\bfinding found\b|\bvulnerab/i);
+  });
+
+  it("a refused or failed shadow says so, as a shadow outcome, never as a run failure", () => {
+    const refused = panelCard(P({ id: "apex", state: "recorded", shadow: { ...SHADOW, status: "refused", refusal: { code: "not_the_approved_commit", reason: "the run is pinned to main" } } }));
+    expect(refused.textContent).toMatch(/refused not_the_approved_commit: the run is pinned to main/);
+    const failed = panelCard(P({ id: "apex", state: "recorded", shadow: { ...SHADOW, status: "failed", failure: { code: "wall_limit", message: "the analysis exceeded 330000 ms", wall_ms: 330000 } } }));
+    expect(failed.textContent).toMatch(/shadow failure \(not a run failure\) wall_limit/);
+  });
+
+  it("a run without shadow output shows 'experimental, not enabled for this run' and no number", () => {
+    const el = panelCard(P({ id: "apex", title: "APEX exploration", state: "experimental", availability: { state: "experimental", reason: "experimental, not enabled for this run", evidence: "workflow_steps: 0" } }));
+    expect(el.textContent).toMatch(/Experimental: experimental, not enabled for this run/);
+    expect(el.textContent).not.toMatch(/%/); expect(el.querySelector(".apex-shadow")).toBeNull(); expect(el.querySelector(".metric")).toBeNull();
   });
 });

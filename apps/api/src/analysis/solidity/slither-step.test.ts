@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ENGINE_STEP_KEYS } from "../../engine/steps.js";
 import { intakeStepKeys } from "../../worker-runtime.js";
 import { ANALYSIS_STEP_KEYS, SLITHER_STEP_KEY } from "./keys.js";
+import { APEX_SHADOW_STEP_KEY } from "../../apex/shadow-target.js";
 import { isResearchSlitherStep, slitherScanStepInput } from "./slither-record.js";
 import { SLITHER_SCAN_DEFAULTS, slitherScanClaimable, slitherScanLimits } from "./slither-step.js";
 
@@ -10,17 +11,18 @@ const bins = { AGENTSMITH_SLITHER_BIN: "/opt/slither", AGENTSMITH_SOLC_BIN: "/op
 describe("the optional slither_scan stage of repository_research: claim gate", () => {
   it("default key selection is unchanged: no slither_scan without the explicit switch AND both binaries", () => {
     expect(intakeStepKeys({})).not.toContain(SLITHER_STEP_KEY);
-    expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true" })).toEqual([...intakeStepKeys({}), ...ANALYSIS_STEP_KEYS]);
+    // apex_shadow is claimable with the analysis stages; only a run created for the approved target with a recorded approval has such a step
+    expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true" })).toEqual([...intakeStepKeys({}), ...ANALYSIS_STEP_KEYS, APEX_SHADOW_STEP_KEY]);
     expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", ...bins })).not.toContain(SLITHER_STEP_KEY); // binaries alone: no
     for (const v of ["1", "TRUE", "yes", ""]) expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", SLITHER_SCAN_ENABLED: v, ...bins })).not.toContain(SLITHER_STEP_KEY);
     expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", SLITHER_SCAN_ENABLED: "true" })).not.toContain(SLITHER_STEP_KEY); // switch without binaries: no
     expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", SLITHER_SCAN_ENABLED: "true", AGENTSMITH_SLITHER_BIN: "/opt/slither", AGENTSMITH_SOLC_BIN: " " })).not.toContain(SLITHER_STEP_KEY);
     expect(intakeStepKeys({ SLITHER_SCAN_ENABLED: "true", ...bins })).not.toContain(SLITHER_STEP_KEY); // the analysis switch is still required
-    expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", SLITHER_SCAN_ENABLED: "true", ...bins })).toEqual([...intakeStepKeys({}), ...ANALYSIS_STEP_KEYS, SLITHER_STEP_KEY]);
+    expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", SLITHER_SCAN_ENABLED: "true", ...bins })).toEqual([...intakeStepKeys({}), ...ANALYSIS_STEP_KEYS, SLITHER_STEP_KEY, APEX_SHADOW_STEP_KEY]);
     // with the engine loop on as well the key appears once
     const both = intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", ENGINE_LOOP_ENABLED: "true", SLITHER_SCAN_ENABLED: "true", ...bins });
     expect(both.filter((k) => k === SLITHER_STEP_KEY)).toHaveLength(1);
-    expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", ENGINE_LOOP_ENABLED: "true" })).toEqual([...intakeStepKeys({}), ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS]);
+    expect(intakeStepKeys({ STRUCTURAL_ANALYSIS_ENABLED: "true", ENGINE_LOOP_ENABLED: "true" })).toEqual([...intakeStepKeys({}), ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS, APEX_SHADOW_STEP_KEY]);
     expect(slitherScanClaimable({ SLITHER_SCAN_ENABLED: "true", ...bins })).toBe(true);
   });
   it("a research-run Slither step is told apart from an engine-loop assignment step by its input", () => {

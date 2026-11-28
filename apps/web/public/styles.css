@@ -297,6 +297,13 @@ a.health-chip { text-decoration: none; }
 .stage-succeeded { border-left-color: var(--green); } .stage-running { border-left-color: var(--cyan); box-shadow: inset 0 0 0 1px rgba(43,212,176,.35); }
 .stage-failed, .stage-stalled { border-left-color: var(--red); } .stage-queued { border-left-color: var(--amber); }
 .ops-panel .panel-body { display: grid; gap: .7rem; align-content: start; }
+.ops-grid > .ops-apex.ops-apex-shadow { grid-column: 1 / -1; }
+.shadow-banner { margin: 0; padding: .45rem .7rem; border-radius: 8px; border: 1px dashed rgba(245,165,36,.6); color: #f5c06a; font-size: .85rem; letter-spacing: .02em; }
+.apex-shadow .shadow-list summary { cursor: pointer; }
+.apex-shadow .shadow-list ul { max-height: 420px; overflow: auto; margin: .3rem 0 0; }
+.apex-shadow .mono, .apex-shadow code { overflow-wrap: anywhere; }
+.apex-shadow .kv { display: grid; grid-template-columns: max-content 1fr; gap: .2rem .7rem; margin: 0; }
+.apex-shadow .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .ops-panel.state-running { border-color: rgba(43,212,176,.55); box-shadow: 0 0 22px rgba(43,212,176,.12); }
 .ops-panel.state-failed, .ops-panel.state-stalled { border-color: rgba(255,107,107,.55); }
 .ops-panel.state-unavailable .panel-head h2, .ops-panel.state-experimental .panel-head h2 { color: var(--muted); text-shadow: none; }

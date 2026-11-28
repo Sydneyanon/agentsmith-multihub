@@ -3,6 +3,7 @@ import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext
 import { ANALYSIS_STEP_KEYS, SLITHER_STEP_KEY, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
 import { slitherScanClaimable } from "./analysis/solidity/slither-step.js";
 import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
+import { APEX_SHADOW_STEP_KEY } from "./apex/shadow-target.js";
 import { dispatchEngineStep, ENGINE_LOOP_SWITCH, ENGINE_STEP_KEYS } from "./engine/steps.js";
 import { githubSourceFromEnv, type RepositorySource } from "./acquisition/github-source.js";
 import type { Pool } from "pg";
@@ -1030,6 +1031,9 @@ export function intakeStepKeys(env: Record<string, string | undefined>): readonl
   const keys: string[] = env[ENGINE_LOOP_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS] : [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS];
   // the optional Slither stage additionally needs SLITHER_SCAN_ENABLED=true AND both pinned binaries configured (off by default)
   if (slitherScanClaimable(env) && !keys.includes(SLITHER_STEP_KEY)) keys.push(SLITHER_STEP_KEY);
+  // the APEX shadow stage exists only in a run created for the approved target with an explicit, recorded approval; no switch enables it.
+  // It is claimable wherever the analysis stages are, so such a run never stalls on it; every other run has no such step.
+  keys.push(APEX_SHADOW_STEP_KEY);
   return keys;
 }
 

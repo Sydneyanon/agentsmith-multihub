@@ -23,12 +23,13 @@ import { latestSealedSnapshot } from "./repo-intel.js";
 import { resolveProgrammeRepositories } from "./repo-resolve.js";
 import type { Resolution } from "./resolve.js";
 import type { BountyScope } from "../acquisition/bounty-scope.js";
+import { assertApexShadowRequestAllowed } from "../apex/shadow-target.js";
 
 export type CreateRun = (
   client: Pick<PoolClient, "query">,
   input: { repository: string; ref?: string },
   createdBy: string,
-  options?: { structuralAnalysis?: boolean; bountyScope?: BountyScope },
+  options?: { structuralAnalysis?: boolean; bountyScope?: BountyScope; apexShadow?: { approvedBy: string } },
 ) => Promise<{ runId: string }>;
 
 export type PromoteOptions = {
@@ -42,7 +43,12 @@ export type PromoteOptions = {
    * full commit id, optionally with the official bounty scope. Nothing else is considered. A repository that is not among the
    * programme's resolved or verified repositories is refused, never inferred. Without `target` the bridge behaves exactly as before.
    */
-  target?: { programme: string; repository: string; commit: string; bountyScope?: BountyScope };
+  target?: { programme: string; repository: string; commit: string; bountyScope?: BountyScope;
+    /**
+     * the APEX shadow stage (measurement only), set ONLY by the explicit `--apex-shadow` option with the approver's name. Refused unless the
+     * target is exactly the approved USX run (apex/shadow-target.ts) AND a new run is created for it (never by reuse or an existing link).
+     */
+    apexShadow?: { approvedBy: string } };
 };
 
 export type PromotionAction = {
@@ -82,6 +88,7 @@ export async function promoteEligibleProgrammes(pool: Pool, opts: PromoteOptions
   if (t) {
     if (!/^[0-9a-f]{40}$/.test(t.commit)) throw new Error("a targeted promotion needs a full 40-character commit id");
     if (t.bountyScope && t.bountyScope.programme !== t.programme) throw new Error("the bounty scope belongs to a different programme");
+    if (t.apexShadow) assertApexShadowRequestAllowed({ repository: t.repository, ref: t.commit }, { structuralAnalysis: opts.structuralAnalysis ?? false, bountyScope: t.bountyScope, approvedBy: t.apexShadow.approvedBy });
   }
   const { rows } = t
     ? await pool.query<ProgramRow>(`SELECT id, project_name, resolved, verification, status FROM bounty_programs WHERE merged_into IS NULL AND canonical_key = $1`, [t.programme])
@@ -103,7 +110,7 @@ export async function promoteEligibleProgrammes(pool: Pool, opts: PromoteOptions
     for (const repository of repositories) {
       result.repositories_considered += 1;
       const ref: string | null = t ? t.commit : null; // untargeted: default branch (acquisition pins the commit); targeted: the exact commit
-      const action = await promoteOne(pool, { programId: row.id, project: row.project_name ?? row.id, repository, ref }, { maxNewRuns, createdBy, createRun, structuralAnalysis: opts.structuralAnalysis ?? false, dryRun: opts.dryRun ?? false, ...(t?.bountyScope ? { bountyScope: t.bountyScope } : {}) }, result);
+      const action = await promoteOne(pool, { programId: row.id, project: row.project_name ?? row.id, repository, ref }, { maxNewRuns, createdBy, createRun, structuralAnalysis: opts.structuralAnalysis ?? false, dryRun: opts.dryRun ?? false, ...(t?.bountyScope ? { bountyScope: t.bountyScope } : {}), ...(t?.apexShadow ? { apexShadow: t.apexShadow } : {}) }, result);
       result.actions.push(action);
     }
   }
@@ -113,7 +120,7 @@ export async function promoteEligibleProgrammes(pool: Pool, opts: PromoteOptions
 async function promoteOne(
   pool: Pool,
   target: { programId: string; project: string; repository: string; ref: string | null },
-  cfg: { maxNewRuns: number; createdBy: string; createRun: CreateRun; structuralAnalysis: boolean; dryRun: boolean; bountyScope?: BountyScope },
+  cfg: { maxNewRuns: number; createdBy: string; createRun: CreateRun; structuralAnalysis: boolean; dryRun: boolean; bountyScope?: BountyScope; apexShadow?: { approvedBy: string } },
   result: PromoteResult,
 ): Promise<PromotionAction> {
   const base = { programId: target.programId, project: target.project, repository: target.repository, ref: target.ref };
@@ -122,6 +129,7 @@ async function promoteOne(
   const existing = await pool.query(
     `SELECT workflow_run_id FROM bounty_research_links WHERE bounty_program_id = $1 AND repository = $2 AND ref IS NOT DISTINCT FROM $3 LIMIT 1`,
     [target.programId, target.repository, target.ref]);
+  if (existing.rows[0] && cfg.apexShadow) throw new Error(`an APEX shadow run must be newly created; this programme is already linked to run ${String(existing.rows[0].workflow_run_id)} for ${target.repository} at ${target.ref ?? "the default branch"}`);
   if (existing.rows[0]) { result.already_linked += 1; return { ...base, action: "already_linked", workflowRunId: String(existing.rows[0].workflow_run_id), reason: "this programme is already linked to a run for this repository" }; }
 
   // Another programme already has a (non-failed) run for this repository+ref? Reuse it.
@@ -144,6 +152,7 @@ async function promoteOne(
 
   if (cfg.dryRun) { result.skipped_dry_run += 1; return { ...base, action: "skipped_dry_run", workflowRunId: reuseRunId, reason: reuseRunId ? "would reuse an existing run" : "would create a new run" }; }
 
+  if (reuseRunId && cfg.apexShadow) throw new Error(`an APEX shadow run must be newly created, never a reused run (${reuseRunId})`);
   if (reuseRunId) {
     const via = reusable.rows[0] ? "another programme's run" : "a prior run that already analysed this repository";
     await pool.query(
@@ -159,7 +168,7 @@ async function promoteOne(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { runId } = await cfg.createRun(client, { repository: target.repository, ...(target.ref ? { ref: target.ref } : {}) }, cfg.createdBy, { structuralAnalysis: cfg.structuralAnalysis, ...(cfg.bountyScope ? { bountyScope: cfg.bountyScope } : {}) });
+    const { runId } = await cfg.createRun(client, { repository: target.repository, ...(target.ref ? { ref: target.ref } : {}) }, cfg.createdBy, { structuralAnalysis: cfg.structuralAnalysis, ...(cfg.bountyScope ? { bountyScope: cfg.bountyScope } : {}), ...(cfg.apexShadow ? { apexShadow: cfg.apexShadow } : {}) });
     await client.query(
       `INSERT INTO bounty_research_links (bounty_program_id, repository, ref, workflow_run_id, reason, created_by) VALUES ($1,$2,$3,$4,$5,$6)`,
       [target.programId, target.repository, target.ref, runId, "eligible programme, repository newly resolved", cfg.createdBy]);

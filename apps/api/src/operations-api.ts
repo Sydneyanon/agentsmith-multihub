@@ -14,6 +14,9 @@ import { describeGitHubAuth, redactSecrets } from "./net/github-auth.js";
 import { ResearchStore } from "./research-state.js";
 import { PROGRESS_ACTION } from "./step-progress.js";
 import { redactWorkerTokens } from "./worker-tokens.js";
+import { APEX_SHADOW_LABEL, APEX_SHADOW_STEP_KEY } from "./apex/shadow-target.js";
+import { APEX_SHADOW_ACTION, apexShadowOfRun } from "./apex/shadow-record.js";
+import type { ShadowResult } from "./apex/shadow.js";
 
 /**
  * The live operations dashboard (docs/research-runs/live-operations-dashboard-spec.md). Read-only, behind the operator token like every
@@ -108,6 +111,8 @@ export type Panel = {
   notes: string[];
   /** the tools panel only: one row per capability, with its state in this run and in this environment */
   capabilities?: unknown[];
+  /** the APEX panel only, for a run with a shadow step: the recorded shadow report (APEX shadow: unvalidated, not evidence) */
+  shadow?: Record<string, unknown>;
 };
 const QUOTA_CODES = new Set(["storage_quota_exceeded", "read_quota_exceeded", "processing_budget_exhausted", "processing_limit_exceeded", "rate_limited"]);
 const PANEL_STEP: Record<string, string> = { acquisition: ACQUIRE_STEP_KEY, protocol_analysis: ANALYZE_STEP_KEY, tools: SLITHER_STEP_KEY, validation: CHALLENGE_STEP_KEY, evidence: DOSSIER_STEP_KEY };
@@ -335,13 +340,8 @@ export async function runProgress(pool: Pool, runId: string, env: Record<string,
     analysis.notes.push(basis === "verified" ? "analysis derived by the API on the sealed snapshot (D3)" : "analysis output written by the direct worker (worker-reported)");
   }
 
-  // ------------------------------------------------------------------------------------------------ 6. APEX
-  const apexSteps = stepRows.filter((s) => /^apex/i.test(String(s.step_key)));
-  const apex = panel("apex", "APEX exploration", [], {
-    state: "experimental", state_basis: "APEX is not an assignable stage of repository_research",
-    availability: { state: "experimental", reason: "experimental, off by default, not in the pipeline: only prototypes under apps/api/src/apex/testing exist; no capability declaration and no step key", evidence: `capability registry: ${CAPABILITIES.some((c) => /apex/i.test(c.id)) ? "declared" : "no APEX capability"}; workflow_steps of this run with an apex step key: ${apexSteps.length}` },
-    notes: ["nothing else is shown until APEX is an assignable stage; then: regions explored / regions selected, abstentions and suppressions"],
-  });
+  // ------------------------------------------------------------------------------------------------ 6. APEX (shadow, measurement only)
+  const apex = await apexShadowPanel(pool, runId, stepRows.filter((s) => s.step_key === APEX_SHADOW_STEP_KEY).map(activity), panel);
 
   // ------------------------------------------------------------------------------------------------ 7. specialist and tool execution
   const avail = availability(env);
@@ -466,6 +466,65 @@ export async function runProgress(pool: Pool, runId: string, env: Record<string,
     },
   };
 }
+/**
+ * Panel 6. A run without the shadow step: "experimental, not enabled for this run", nothing else. A run with it: the recorded shadow report,
+ * every number labelled "APEX shadow: unvalidated, not evidence" and basis worker_reported (APEX ran on the worker); nothing here is a
+ * finding, and nothing of it is counted in any other panel, the confidence distribution or the outcome counts.
+ */
+const SHADOW_UNITS: Record<string, string> = { contracts_explored: "contracts", in_scope_files: "files", entry_points_completed: "entry points", statements_reached: "statements", guard_sides_both: "guards", frontier_dropped: "states" };
+async function apexShadowPanel(pool: Pool, runId: string, steps: StepActivity[], panel: (id: string, title: string, steps: StepActivity[], over?: Partial<Panel>) => Panel): Promise<Panel> {
+  const declared = CAPABILITIES.some((c) => /apex/i.test(c.id));
+  if (!steps.length) {
+    return panel("apex", "APEX exploration", [], {
+      state: "experimental", state_basis: "this run has no APEX shadow step (workflow_steps): APEX is off by default and enabled only per run, for the approved target, with a recorded approval",
+      availability: { state: "experimental", reason: "experimental, not enabled for this run", evidence: `workflow_steps of this run with step key ${APEX_SHADOW_STEP_KEY}: 0; capability registry: ${declared ? "declared" : "no APEX capability (APEX is never an evaluator or a producer of leads)"}` },
+      notes: ["nothing is shown: APEX did not run for this run"],
+    });
+  }
+  const sh = await apexShadowOfRun(pool, runId);
+  const p = sh.record?.payload ?? null; const r = (p?.result ?? null) as ShadowResult | null;
+  const st = stepState(steps);
+  const L = APEX_SHADOW_LABEL; const src = sh.record ? `audit_events ${APEX_SHADOW_ACTION} #${sh.record.audit_event_id} (reported by the worker)` : "no shadow record yet";
+  const ratio = (key: string, label: string, x: { numerator: number; denominator: number; meaning: string }, kind: MetricKind = "coverage") =>
+    metric({ key: `apex_${key}`, label: `${L}: ${label}`, numerator: x.numerator, denominator: x.denominator, unit: SHADOW_UNITS[key] ?? "items", kind, source: `${src}: ${x.meaning}`, basis: "worker_reported", note: L });
+  const n = (key: string, label: string, v: number | null, unit: string, kind: MetricKind = "outcome") => count(`apex_${key}`, `${L}: ${label}`, v, unit, kind, src, "worker_reported", L);
+  const out = panel("apex", "APEX exploration (shadow, measurement only)", steps, {
+    state: st.state === "succeeded" ? "recorded" : st.state, state_basis: `${st.basis}; ${sh.record ? `shadow report ${p?.status} recorded ${sh.record.at}` : "no shadow report recorded"}`,
+    availability: { state: "experimental", reason: `${L}. APEX shadow (unvalidated, measurement only): enabled for this run only, approved by ${p?.provenance?.approved_by ?? "?"} for commit ${p?.provenance?.approved_commit ?? "?"}; its output never enters the dossier, the leads, the evaluations or the outcome counts`, evidence: `workflow_runs.input.apex_shadow; ${src}` },
+  });
+  if (!p) { out.notes.push("the shadow step has not recorded a report yet"); return out; }
+  if (p.status === "refused") out.issues.abstentions.push({ code: `apex_shadow_refused:${p.refusal?.code ?? "?"}`, detail: redactText(String(p.refusal?.reason ?? "")).slice(0, 500), source: src });
+  if (p.status === "failed") out.issues.errors.push({ step_key: APEX_SHADOW_STEP_KEY, attempt: null, message: `APEX SHADOW FAILURE (not a run failure): ${p.failure?.code}: ${redactText(String(p.failure?.message ?? "")).slice(0, 400)}`, retryable: null, at: sh.record!.at, source: src });
+  if (r) {
+    const c = r.coverage;
+    out.coverage.push(ratio("contracts_explored", "deployable in-scope contracts explored", c.contracts_explored), ratio("in_scope_files", "in-scope files with a contract explored", c.in_scope_files),
+      ratio("entry_points_completed", "entry points completed at least once", c.entry_points_completed), ratio("statements_reached", "statements reached", c.statements_reached),
+      ratio("guard_sides_both", "guards exercised on both sides (honest search)", c.guard_sides_both), ratio("frontier_dropped", "frontier states dropped (NOT expanded) of states reached", c.frontier_dropped));
+    const ov = p.overlaps?.summary ?? { same_line: 0, same_function: 0, same_file: 0 };
+    out.counts.push(n("abstentions", "abstentions (unsupported feature, with file:line)", r.abstentions.length, "abstentions", "coverage"), n("suppressed", "counterexamples suppressed (approximation on the path)", r.suppressions.total, "counterexamples", "coverage"),
+      n("withheld", "candidates withheld by the fidelity gate", r.withheld.length, "candidates", "coverage"),
+      n("candidates_accepted", "candidate invariants accepted", r.candidates.filter((x) => x.decision === "accepted").length, "candidates"), n("candidates_rejected", "candidate invariants rejected (with reasons)", r.candidates.filter((x) => x.decision === "rejected").length, "candidates"),
+      n("reclassified", "counterexamples reclassified by a rule", r.reclassified.length, "counterexamples"), n("would_be", "hypotheses APEX would have made (APEX-generated, unvalidated; NOT stored as hypotheses)", r.would_be_hypotheses.length, "drafts"),
+      n("overlaps", `overlaps with the run's leads (same line ${ov.same_line}, same function ${ov.same_function}, same file ${ov.same_file}; derived by the recorder)`, ov.same_line + ov.same_function + ov.same_file, "overlaps", "coverage"),
+      n("transitions_requested", "transitions requested", r.cost.transitions_requested, "transitions", "processing"), n("transitions_interpreted", "transitions interpreted (the rest replayed from the memo)", r.cost.transitions_interpreted, "transitions", "processing"),
+      n("wall_ms", "wall time inside the bounded child", r.cost.wall_ms, "ms", "processing"), n("peak_rss_mb", "peak memory of the bounded child", r.cost.peak_rss_bytes === null ? null : Math.round(r.cost.peak_rss_bytes / 1048576), "MiB", "processing"));
+  }
+  const capList = <T>(xs: readonly T[] | undefined, k: number) => ({ items: (xs ?? []).slice(0, k), total: (xs ?? []).length, truncated: Math.max(0, (xs ?? []).length - k) });
+  out.shadow = {
+    label: L, measurement_only: true, status: p.status, refusal: p.refusal ?? null, failure: p.failure ?? null, records: sh.records,
+    record: { audit_event_id: sh.record!.audit_event_id, at: sh.record!.at, reported_by: "worker", via: p.via ?? null, report_sha256: p.report_sha256 ?? null, recorder: p.recorder ?? null },
+    provenance: p.provenance ?? null, engine: r?.engine ?? null, observed: p.observed ?? null, cost: r?.cost ?? null, coverage: r?.coverage ?? null,
+    contracts: capList(r?.contracts.map((x) => ({ contract: x.contract, file: x.file, status: x.status, reason: x.reason, entry_points: x.entry_points, statements: x.statements, frontier_dropped: (x.honest?.frontier_dropped ?? 0) + (x.adversarial?.frontier_dropped ?? 0), cost: x.cost })), 200),
+    not_deployable: capList(r?.not_deployable, 200),
+    abstentions_by_feature: r?.abstentions_by_feature ?? {}, abstentions: capList(r?.abstentions, 500),
+    suppressions: { total: r?.suppressions.total ?? 0, by_kind: r?.suppressions.by_kind ?? {}, examples: capList(r?.suppressions.examples, 50) },
+    withheld: capList(r?.withheld, 200), candidates: capList(r?.candidates, 500), reclassified: capList(r?.reclassified, 200), would_be_hypotheses: capList(r?.would_be_hypotheses, 100),
+    overlaps: p.overlaps ? { ...p.overlaps, items: (p.overlaps.items ?? []).slice(0, 100) } : null, parse_problems: r?.parse_problems ?? [], in_scope_paths_missing: r?.in_scope_paths_missing ?? [],
+  };
+  out.notes.push(`${L}: these numbers describe what APEX could and could not model; none is a finding, none is counted in validation, confidence or outcome`);
+  return out;
+}
+
 function iso(v: unknown): string | null { if (v === null || v === undefined) return null; const d = v instanceof Date ? v : new Date(String(v)); return Number.isNaN(d.getTime()) ? null : d.toISOString(); }
 
 // ------------------------------------------------------------------------------------------------------------------------- timeline
@@ -578,7 +637,10 @@ export async function systemComponents(pool: Pool, opts: { env?: Record<string, 
     { source: "hypothesis_evaluations (foundry-forge)", detail: `${forgeEvals.n} recorded`, at: iso(forgeEvals.at) }] });
   const attended = avail.filter((a) => a.capability.profile.runtime === "attended_session");
   comps.push({ id: "capability:attended", label: "Attended Claude specialists", state: attended.some((a) => a.available) ? "available" : "unavailable", evidence: [{ source: "capability availability (API process environment)", detail: attended.some((a) => a.available) ? "an attended operator is configured (interactive only)" : attended[0]?.reason ?? "none declared" }] });
-  comps.push({ id: "apex", label: "APEX exploration", state: "experimental", evidence: [{ source: "capability registry and step keys", detail: `experimental, off by default, not in the pipeline: ${CAPABILITIES.some((c) => /apex/i.test(c.id)) ? "declared" : "no capability declared"}; prototypes only under apps/api/src/apex/testing` }] });
+  const shadowRuns = (await q(`SELECT count(DISTINCT s.workflow_run_id)::int AS runs, count(a.id)::int AS records, max(a.created_at) AS at FROM workflow_steps s LEFT JOIN audit_events a ON a.entity_type = 'workflow_step' AND a.entity_id = s.id::text AND a.action = $2 WHERE s.step_key = $1`, [APEX_SHADOW_STEP_KEY, APEX_SHADOW_ACTION]))[0]!;
+  comps.push({ id: "apex", label: "APEX exploration (shadow, measurement only)", state: "experimental", evidence: [
+    { source: "capability registry and step keys", detail: `experimental, off by default: a measurement-only shadow stage (${APEX_SHADOW_STEP_KEY}) exists only in a run created for the approved target with a recorded approval; ${CAPABILITIES.some((c) => /apex/i.test(c.id)) ? "declared" : "no capability declared (APEX is never a lead producer or an evaluator)"}` },
+    { source: `workflow_steps ${APEX_SHADOW_STEP_KEY} and audit_events ${APEX_SHADOW_ACTION}`, detail: `${shadowRuns.runs} runs with a shadow step, ${shadowRuns.records} shadow records (${APEX_SHADOW_LABEL})`, at: iso(shadowRuns.at) }] });
   comps.push({ id: "independence", label: "Independence views (0016)", state: hasIndependence ? "operational" : "unavailable", evidence: [{ source: "schema", detail: hasIndependence ? "evaluation_independence and hypothesis_independence exist" : "migration 0016 is not applied" }] });
   comps.push({ id: "discovery", label: "Discovery monitor (0008)", state: hasDiscovery ? "available" : "unavailable", evidence: [{ source: "schema", detail: hasDiscovery ? "discovery tables exist" : "migration 0008 is not applied in this database" }] });
   comps.push({ id: "engine_loop", label: "Engine-loop decisions (0010)", state: hasDecisions ? "available" : "unavailable", evidence: [{ source: "schema", detail: hasDecisions ? "research_decisions exists" : "migration 0010 is not applied (draft)" }] });

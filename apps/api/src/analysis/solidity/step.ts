@@ -11,6 +11,8 @@ import { processResearchSlitherScanStep } from "./slither-step.js";
 import { createHash } from "node:crypto";
 import { readBuildInfo } from "../../engine-status.js";
 import { progressFor } from "../../step-progress.js";
+import { APEX_SHADOW_STEP_KEY } from "../../apex/shadow-target.js";
+import { directShadowSink, processApexShadowStep, type ShadowStepContext } from "../../apex/shadow-step.js";
 
 /**
  * Worker steps that continue a `repository_research` run AFTER acquisition: analyse the sealed snapshot, challenge the leads, build the dossier.
@@ -18,7 +20,9 @@ import { progressFor } from "../../step-progress.js";
  * lease, and read nothing from the network. They exist only in runs created with `structuralAnalysis`, and a worker claims them only when
  * STRUCTURAL_ANALYSIS_ENABLED=true. Passive: nothing from the analysed repository is executed on the host.
  */
-export type AnalysisStepContext = { pool: Pool; worker: WorkflowWorker; workerId: string; heartbeatMs?: number; /** defaults to process.env (read only by the optional Slither stage) */ env?: Record<string, string | undefined> };
+export type AnalysisStepContext = { pool: Pool; worker: WorkflowWorker; workerId: string; heartbeatMs?: number; /** defaults to process.env (read only by the optional Slither stage) */ env?: Record<string, string | undefined>;
+  /** tests only: the APEX shadow stage's compute and limits (apex/shadow-step.ts); production uses the bounded child with its defaults */
+  shadow?: Pick<ShadowStepContext, "compute" | "computeLimits" | "shadowLimits"> };
 
 export async function sealedSnapshot(pool: Pool, store: ResearchStore, runId: string): Promise<{ snapshotId: string; commitSha: string; manifestSha256: string; repository: string }> {
   const r = await pool.query<{ output: Record<string, unknown> }>("SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = $2 AND status = 'succeeded'", [runId, ACQUIRE_STEP_KEY]);
@@ -162,5 +166,13 @@ export async function dispatchAnalysisStep(ctx: AnyAnalysisStepContext, step: Cl
   if (isResearchSlitherStep(step)) { await processResearchSlitherScanStep(ctx, step); return true; } // an engine-loop slither_scan step falls through
   if (step.step_key === CHALLENGE_STEP_KEY) { await processChallengeLeadsStep(ctx, step); return true; }
   if (step.step_key === DOSSIER_STEP_KEY) { await processBuildDossierStep(ctx, step); return true; }
+  if (step.step_key === APEX_SHADOW_STEP_KEY) {
+    // the direct worker: APEX runs in a bounded child; the report is recorded on this connection by the same recorder the API runs
+    if (!("pool" in ctx)) throw new Error("the APEX shadow step needs the direct worker's connection or the remote worker's client");
+    const runInput = (await ctx.pool.query<{ input: Record<string, unknown> }>("SELECT input FROM workflow_runs WHERE id = $1", [step.workflow_run_id])).rows[0]?.input ?? null;
+    const r = researchContext(ctx);
+    await processApexShadowStep({ worker: ctx.worker, workerId: ctx.workerId, ...(ctx.heartbeatMs !== undefined ? { heartbeatMs: ctx.heartbeatMs } : {}), mode: "direct", reads: r.reads, sink: directShadowSink(ctx.pool, ctx.worker, ctx.workerId), runInput, ...(ctx.shadow ?? {}) }, step);
+    return true;
+  }
   return false;
 }
