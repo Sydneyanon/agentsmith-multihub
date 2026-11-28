@@ -6,7 +6,12 @@
  * Screenshots (deviceScaleFactor 2) of the Operations view mid-run, after completion, with the timeline expanded, and the system
  * view; plus the exact progress / timeline / components JSON each screenshot was taken from.
  *
- *   npm run build && TEST_DATABASE_URL=postgres://user@127.0.0.1:5432/postgres npx tsx scripts/operations-rehearsal.ts [outDir]
+ *   npm run build && TEST_DATABASE_URL=postgres://user@127.0.0.1:5432/postgres npx tsx scripts/operations-rehearsal.ts [outDir] [--apex-shadow]
+ *
+ * --apex-shadow: the same rehearsal for the APEX shadow stage: the SELF-AUTHORED USX-like snapshot (apps/api/src/apex/testing/usx-like/,
+ * not USX source) served by the loopback GitHub as scroll-tech/usx-contracts at the approved commit, promoted with --apex-shadow, the shadow
+ * step run by the remote worker in its bounded child and recorded through report_apex_shadow; extra screenshots of panel 6. Every file
+ * name is prefixed "apex-shadow-". Nothing is fetched from the network.
  */
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -16,12 +21,16 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Page } from "playwright-core";
 import { buildGitFixture } from "../apps/api/src/acquisition/testing/git-fixture.js";
+import { APEX_SHADOW_TARGET } from "../apps/api/src/apex/shadow-target.js";
+import { usxLikeFiles, usxLikeGitFixture, usxScope } from "../apps/api/src/apex/testing/usx-like.js";
 import { startLoopbackGitHub } from "../apps/api/src/acquisition/testing/loopback-github.js";
 import { promoteEligibleProgrammes } from "../apps/api/src/bounties/promote.js";
 import { migratedTestDatabase, REPO_ROOT } from "../apps/api/src/integration/harness.js";
 import { launchBrowser } from "./hub-demo.js";
 
-const outDir = resolve(process.argv[2] ?? "docs/research-runs/screenshots");
+const SHADOW = process.argv.includes("--apex-shadow");
+const outDir = resolve(process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "docs/research-runs/screenshots");
+const named = (n: string) => (SHADOW ? `apex-shadow-${n}` : n);
 mkdirSync(outDir, { recursive: true });
 const OPERATOR = randomBytes(36).toString("base64url");
 const GH_TOKEN = "github_pat_" + "11REHEARSAL" + "q".repeat(71); // the API's GitHub credential, shape only: the GitHub here is a loopback fake
@@ -37,7 +46,7 @@ function start(script: string, env: Record<string, string>): Proc {
 
 const corpus = join(REPO_ROOT, "eval", "dev", "contracts");
 const sol = readdirSync(corpus).sort();
-const FILES = [...sol.map((f) => ({ path: `src/${f}`, content: readFileSync(join(corpus, f), "utf8") })), ...sol.slice(0, 3).map((f) => ({ path: `test/${f}`, content: readFileSync(join(corpus, f), "utf8") })), { path: "README.md", content: "# usx-like rehearsal fixture (controlled dev corpus)\n" }];
+const FILES = SHADOW ? usxLikeFiles() : [...sol.map((f) => ({ path: `src/${f}`, content: readFileSync(join(corpus, f), "utf8") })), ...sol.slice(0, 3).map((f) => ({ path: `test/${f}`, content: readFileSync(join(corpus, f), "utf8") })), { path: "README.md", content: "# usx-like rehearsal fixture (controlled dev corpus)\n" }];
 
 const db = await migratedTestDatabase();
 const gh = await startLoopbackGitHub();
@@ -48,15 +57,16 @@ const records: Record<string, unknown> = {};
 try {
   const owner = db.ownerPool;
   // 1. the targeted, scoped promotion (targeted-scoped-run.integration.test.ts pattern)
-  const fx = buildGitFixture(FILES, { owner: "acme", repo: "usx-like" }); gh.add(fx);
+  const fx = SHADOW ? usxLikeGitFixture() : buildGitFixture(FILES, { owner: "acme", repo: "usx-like" }); gh.add(fx);
+  const [KEY, REPO, OWNER, NAME] = SHADOW ? [APEX_SHADOW_TARGET.programme, APEX_SHADOW_TARGET.repository, "scroll-tech", "usx-contracts"] : ["sherlock:9273", "acme/usx-like", "acme", "usx-like"];
   const field = (value: unknown) => ({ value, source: "sherlock", authority: 10, observedAt: "2026-11-28T00:00:00Z", conflicts: [] });
   const resolved = { projectName: field("usx-like"), officialUrl: field("https://audits.sherlock.xyz/bug-bounties/9273"), maxReward: field(100_000), chains: field(["Ethereum"]), technologies: field(["Solidity"]) };
-  const prog = (await owner.query(`INSERT INTO bounty_programs (canonical_key, project_name, name_key, resolved, status, verification) VALUES ('sherlock:9273', 'usx-like', 'usx-like', $1::jsonb, 'active', 'official_confirmed') RETURNING id`, [JSON.stringify(resolved)])).rows[0].id;
+  const prog = (await owner.query(`INSERT INTO bounty_programs (canonical_key, project_name, name_key, resolved, status, verification) VALUES ($2, 'usx-like', 'usx-like', $1::jsonb, 'active', 'official_confirmed') RETURNING id`, [JSON.stringify(resolved), KEY])).rows[0].id;
   await owner.query(`INSERT INTO bounty_repository_mappings (bounty_program_id, repository, source_url, evidence, discovery_method, verification_status, confidence, default_branch, repository_github_id, last_seen_at)
-    VALUES ($1, 'acme/usx-like', 'https://audits.sherlock.xyz/bug-bounties/9273', 'https://github.com/acme/usx-like', 'official_page', 'official_documentation', 'high', 'main', 9273, now())`, [prog]);
+    VALUES ($1, $2, 'https://audits.sherlock.xyz/bug-bounties/9273', 'https://github.com/' || $2, 'official_page', 'official_documentation', 'high', 'main', 9273, now())`, [prog, REPO]);
   const evidence = "docs/research-runs/usx-scope-evidence.md";
-  const scope = { programme: "sherlock:9273", in_scope_paths: sol.map((f) => `src/${f}`), evidence, evidence_sha256: createHash("sha256").update(readFileSync(join(REPO_ROOT, evidence))).digest("hex") };
-  const promoted = await promoteEligibleProgrammes(owner, { createdBy: "operator@rehearsal", structuralAnalysis: true, maxNewRuns: 1, target: { programme: "sherlock:9273", repository: "acme/usx-like", commit: fx.commitSha, bountyScope: scope } });
+  const scope = SHADOW ? usxScope() : { programme: "sherlock:9273", in_scope_paths: sol.map((f) => `src/${f}`), evidence, evidence_sha256: createHash("sha256").update(readFileSync(join(REPO_ROOT, evidence))).digest("hex") };
+  const promoted = await promoteEligibleProgrammes(owner, { createdBy: "operator@rehearsal", structuralAnalysis: true, maxNewRuns: 1, target: { programme: KEY, repository: REPO, commit: fx.commitSha, bountyScope: scope, ...(SHADOW ? { apexShadow: { approvedBy: "owner (rehearsal of the 2026-11-28 approval)" } } : {}) } });
   const runId = promoted.actions[0]!.workflowRunId!;
   console.log(`run ${runId} at commit ${fx.commitSha}`);
 
@@ -72,7 +82,7 @@ try {
 
   // 3. the remote worker: no database credential; token in a file it unlinks; pauses once before challenge_leads
   const tokenFile = join(dir, `token-${randomUUID()}`); writeFileSync(tokenFile, `${minted.token}\n`, { mode: 0o600 });
-  const spec = join(dir, "fixture.json"); writeFileSync(spec, JSON.stringify({ owner: "acme", repo: "usx-like", files: FILES }));
+  const spec = join(dir, "fixture.json"); writeFileSync(spec, JSON.stringify({ owner: OWNER, repo: NAME, files: FILES, ...(SHADOW ? { commit: fx.commitSha } : {}) }));
   const pause = join(dir, "pause");
   const worker = start("apps/api/src/integration/remote-worker-child.ts", { NODE_ENV: "test", WORKER_STORE: "api", WORKER_API_URL: `http://127.0.0.1:${ports.priv}`, WORKER_API_TOKEN_FILE: tokenFile, STRUCTURAL_ANALYSIS_ENABLED: "true",
     REMOTE_CHILD_FIXTURE: spec, REMOTE_CHILD_DEADLINE_MS: "300000", REMOTE_CHILD_PAUSE_BEFORE: "challenge_leads", REMOTE_CHILD_PAUSE_FILE: pause });
@@ -92,9 +102,9 @@ try {
     await p.evaluate(() => { document.querySelectorAll<HTMLElement>(".matrix-rain").forEach((c) => c.style.setProperty("display", "none")); window.scrollTo(0, 0); });
   };
   const shot = async (p: Page, name: string, el?: string) => {
-    const path = join(outDir, `${name}.png`);
+    const path = join(outDir, `${named(name)}.png`);
     if (el) await (await p.$(el))!.screenshot({ path }); else await p.screenshot({ path });
-    console.log(`${name}.png ${Math.round(statSync(path).size / 1024)} KiB`);
+    console.log(`${named(name)}.png ${Math.round(statSync(path).size / 1024)} KiB`);
   };
   const capture = async (label: string) => {
     records[label] = { progress: await getJson(`/v1/research/runs/${runId}/progress`), timeline: await getJson(`/v1/research/timeline?run=${runId}&limit=200`), components: await getJson("/v1/engine/components") };
@@ -138,6 +148,13 @@ try {
   await page.evaluate(() => document.querySelector(".ops-system")?.scrollIntoView({ block: "start" }));
   await shot(page, "operations-d-system", ".ops-system");
 
+  // (f) the APEX shadow panel (shadow mode): its record, every list opened
+  if (SHADOW) {
+    await page.evaluate(`(() => { for (const d of document.querySelectorAll(".apex-shadow details")) d.open = true; document.querySelector(".ops-apex").scrollIntoView({ block: "start" }); })()`);
+    await shot(page, "operations-f-apex-panel", ".ops-apex");
+    await shot(page, "operations-f-apex-panel-viewport");
+  }
+
   // a phone, to show the layout holds at 390 px
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
   await phone.addInitScript((t) => sessionStorage.setItem("agentsmith.hub.token", t), OPERATOR);
@@ -145,13 +162,14 @@ try {
   await open(pp, `#/operations?run=${runId}`);
   await pp.evaluate(() => document.querySelector(".ops-acquisition")?.scrollIntoView({ block: "start" }));
   await shot(pp, "operations-e-phone");
+  if (SHADOW) { await pp.evaluate(() => document.querySelector(".ops-apex")?.scrollIntoView({ block: "start" })); await shot(pp, "operations-e-phone-apex"); }
   await phone.close(); await context.close();
 
   // the exact records behind the screenshots (the token itself never appears: only its id)
   const json = JSON.stringify({ run_id: runId, commit: fx.commitSha, token_id: minted.token_id, captured: records }, null, 1);
   if (json.includes(minted.token) || json.includes(OPERATOR) || json.includes(GH_TOKEN)) throw new Error("a secret appeared in a captured response");
-  writeFileSync(join(outDir, "operations-rehearsal-records.json"), json);
-  console.log(`records in ${join(outDir, "operations-rehearsal-records.json")} (${Math.round(json.length / 1024)} KiB)`);
+  writeFileSync(join(outDir, `${named("operations-rehearsal-records")}.json`), json);
+  console.log(`records in ${join(outDir, `${named("operations-rehearsal-records")}.json`)} (${Math.round(json.length / 1024)} KiB)`);
   console.log(`api log tail: ${api.out().slice(-600)}`);
 } finally {
   for (const p of procs) p.kill();

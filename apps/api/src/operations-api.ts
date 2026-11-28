@@ -471,6 +471,7 @@ export async function runProgress(pool: Pool, runId: string, env: Record<string,
  * every number labelled "APEX shadow: unvalidated, not evidence" and basis worker_reported (APEX ran on the worker); nothing here is a
  * finding, and nothing of it is counted in any other panel, the confidence distribution or the outcome counts.
  */
+const SHADOW_UNITS: Record<string, string> = { contracts_explored: "contracts", in_scope_files: "files", entry_points_completed: "entry points", statements_reached: "statements", guard_sides_both: "guards", frontier_dropped: "states" };
 async function apexShadowPanel(pool: Pool, runId: string, steps: StepActivity[], panel: (id: string, title: string, steps: StepActivity[], over?: Partial<Panel>) => Panel): Promise<Panel> {
   const declared = CAPABILITIES.some((c) => /apex/i.test(c.id));
   if (!steps.length) {
@@ -485,7 +486,7 @@ async function apexShadowPanel(pool: Pool, runId: string, steps: StepActivity[],
   const st = stepState(steps);
   const L = APEX_SHADOW_LABEL; const src = sh.record ? `audit_events ${APEX_SHADOW_ACTION} #${sh.record.audit_event_id} (reported by the worker)` : "no shadow record yet";
   const ratio = (key: string, label: string, x: { numerator: number; denominator: number; meaning: string }, kind: MetricKind = "coverage") =>
-    metric({ key: `apex_${key}`, label: `${L}: ${label}`, numerator: x.numerator, denominator: x.denominator, unit: key === "frontier_dropped" ? "states" : key.replace(/_.*$/, ""), kind, source: `${src}: ${x.meaning}`, basis: "worker_reported", note: L });
+    metric({ key: `apex_${key}`, label: `${L}: ${label}`, numerator: x.numerator, denominator: x.denominator, unit: SHADOW_UNITS[key] ?? "items", kind, source: `${src}: ${x.meaning}`, basis: "worker_reported", note: L });
   const n = (key: string, label: string, v: number | null, unit: string, kind: MetricKind = "outcome") => count(`apex_${key}`, `${L}: ${label}`, v, unit, kind, src, "worker_reported", L);
   const out = panel("apex", "APEX exploration (shadow, measurement only)", steps, {
     state: st.state === "succeeded" ? "recorded" : st.state, state_basis: `${st.basis}; ${sh.record ? `shadow report ${p?.status} recorded ${sh.record.at}` : "no shadow report recorded"}`,
