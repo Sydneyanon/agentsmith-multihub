@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext } from "./acquisition/step.js";
 import { ANALYSIS_STEP_KEYS, SLITHER_STEP_KEY, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
 import { slitherScanClaimable } from "./analysis/solidity/slither-step.js";
-import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
+import { dbResearchReads, dispatchAnalysisStep } from "./analysis/solidity/step.js";
+import { DEPENDENCY_STEP_KEY } from "./acquisition/dependencies.js";
+import { dependencyStepClaimable, processAcquireDependenciesStep } from "./acquisition/dependency-step.js";
+import { ResearchStore } from "./research-state.js";
 import { APEX_SHADOW_STEP_KEY } from "./apex/shadow-target.js";
 import { dispatchEngineStep, ENGINE_LOOP_SWITCH, ENGINE_STEP_KEYS } from "./engine/steps.js";
 import { githubSourceFromEnv, type RepositorySource } from "./acquisition/github-source.js";
@@ -1026,7 +1029,8 @@ const INTAKE_STEP_KEYS = [
 
 /** The step keys a worker claims. The analysis stages are included ONLY when the switch is exactly "true"; otherwise they stay queued and untouched. */
 export function intakeStepKeys(env: Record<string, string | undefined>): readonly string[] {
-  if (env[STRUCTURAL_ANALYSIS_SWITCH] !== "true") return INTAKE_STEP_KEYS;
+  // C3: the optional dependency stage is claimable only with its own switch (exactly "true"); off everywhere by default
+  if (env[STRUCTURAL_ANALYSIS_SWITCH] !== "true") return dependencyStepClaimable(env) ? [...INTAKE_STEP_KEYS, DEPENDENCY_STEP_KEY] : INTAKE_STEP_KEYS;
   // research-loop assignments need BOTH switches (exactly "true"); both are off everywhere by default
   const keys: string[] = env[ENGINE_LOOP_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS] : [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS];
   // the optional Slither stage additionally needs SLITHER_SCAN_ENABLED=true AND both pinned binaries configured (off by default)
@@ -1034,6 +1038,7 @@ export function intakeStepKeys(env: Record<string, string | undefined>): readonl
   // the APEX shadow stage exists only in a run created for the approved target with an explicit, recorded approval; no switch enables it.
   // It is claimable wherever the analysis stages are, so such a run never stalls on it; every other run has no such step.
   keys.push(APEX_SHADOW_STEP_KEY);
+  if (dependencyStepClaimable(env)) keys.push(DEPENDENCY_STEP_KEY);
   return keys;
 }
 
@@ -1047,6 +1052,7 @@ async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: Clai
   else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
   else if (step.step_key === "prepare_research_brief") await processResearchBrief(pool, worker, step);
   else if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ pool, worker, ...acquire }, step);
+  else if (step.step_key === DEPENDENCY_STEP_KEY) await processAcquireDependenciesStep({ worker, workerId: acquire.workerId, source: acquire.source, store: new ResearchStore(pool), reads: dbResearchReads(pool), ...(acquire.heartbeatMs !== undefined ? { heartbeatMs: acquire.heartbeatMs } : {}) }, step);
   else if (step.step_key === MONITOR_STEP_KEY) await processMonitorSourceStep({ pool, worker }, step);
   else if (await dispatchAnalysisStep({ pool, worker, workerId: acquire.workerId }, step)) { /* handled */ }
   else if (await dispatchEngineStep({ pool, worker, workerId: acquire.workerId }, step)) { /* handled */ }

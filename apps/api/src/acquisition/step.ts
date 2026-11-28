@@ -10,6 +10,7 @@ import { AcquisitionError } from "./errors.js";
 import { parseRepositoryName, type RepositorySource } from "./github-source.js";
 import { parseBountyScope, type BountyScope } from "./bounty-scope.js";
 import { acquisitionProgress, progressFor, type ProgressSink } from "../step-progress.js";
+import { insertDependencyStep } from "./dependency-step.js";
 import { APEX_SHADOW_ROLE, APEX_SHADOW_SCOPE, APEX_SHADOW_STEP_KEY, assertApexShadowRequestAllowed, type ApexShadowApproval } from "../apex/shadow-target.js";
 
 export const REPOSITORY_RESEARCH_WORKFLOW = "repository_research";
@@ -39,6 +40,11 @@ export type RepositoryResearchOptions = {
    * target can carry it (any other run is refused at creation), and only with the name of who approved it, recorded on the run.
    */
   apexShadow?: { approvedBy: string };
+  /**
+   * C3: insert the dependency stage (acquire_dependencies) directly after acquisition: submodules at the commits the parent tree pins, as
+   * separate sealed snapshots, plus the declared remappings. OFF by default; every run without it is created exactly as before.
+   */
+  dependencies?: boolean;
 };
 
 export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator", options: RepositoryResearchOptions = {}): Promise<{ runId: string; stepId: string }> {
@@ -78,17 +84,20 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
       `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload)
        VALUES ($1, 'repository_research.created', 'workflow_run', $2, $3, 'Repository acquisition requested (passive reading of a public repository)', jsonb_build_object('repository', $4::text, 'passive_only', true))`,
       [createdBy, run.rows[0]!.id, run.rows[0]!.correlation_id, parsed.repository]);
+  // C3: the optional dependency stage sits at sequence 1; the later stages follow it
+  const shift = options.dependencies === true ? 1 : 0;
+  if (shift) await insertDependencyStep(client, { id: run.rows[0]!.id, correlationId: run.rows[0]!.correlation_id }, 1, createdBy);
   if (options.structuralAnalysis === true) {
     const stages: Array<[string, string, Record<string, unknown>]> = [[ANALYZE_STEP_KEY, "structural_analyst", {}],
       ...(options.slitherScan === true ? [[SLITHER_STEP_KEY, "external_producer", slitherScanStepInput()] as [string, string, Record<string, unknown>]] : []),
       [CHALLENGE_STEP_KEY, "lead_challenger", {}], [DOSSIER_STEP_KEY, "dossier_builder", {}]];
     for (const [i, [key, role, stageInput]] of stages.entries()) {
-      await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, $5::jsonb)`, [run.rows[0]!.id, key, i + 1, role, JSON.stringify(stageInput)]);
+      await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, $5::jsonb)`, [run.rows[0]!.id, key, i + 1 + shift, role, JSON.stringify(stageInput)]);
     }
     if (apex) {
       // the LAST stage: after the dossier is built, so nothing it records can reach the dossier, the leads or the evaluations
       await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, $5::jsonb)`,
-        [run.rows[0]!.id, APEX_SHADOW_STEP_KEY, stages.length + 1, APEX_SHADOW_ROLE, JSON.stringify({ scope: APEX_SHADOW_SCOPE, mode: "measurement_only", repository: parsed.repository, ref: parsed.ref, approval: apex, bounty_scope: scope })]);
+        [run.rows[0]!.id, APEX_SHADOW_STEP_KEY, stages.length + 1 + shift, APEX_SHADOW_ROLE, JSON.stringify({ scope: APEX_SHADOW_SCOPE, mode: "measurement_only", repository: parsed.repository, ref: parsed.ref, approval: apex, bounty_scope: scope })]);
       await client.query(
         `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload)
          VALUES ($1, 'repository_research.apex_shadow_requested', 'workflow_run', $2, $3, 'APEX shadow stage requested for the approved run (measurement only; its output is never evidence)', $4::jsonb)`,
