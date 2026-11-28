@@ -95,7 +95,7 @@ describe.skipIf(skipIntegration)("DRAFT T-144 research-memory migration on throw
 
   it("the migration runner never applies the draft (it is outside db/migrations)", async () => {
     const names = (await db.pool.query<{ name: string }>("SELECT name FROM schema_migrations")).rows.map((r) => r.name);
-    expect(names.some((n) => n.startsWith("0009"))).toBe(false); expect(names.length).toBe(12); // 0001-0008, 0011-0014
+    expect(names.some((n) => n.startsWith("0009"))).toBe(false); expect(names.length).toBe(14); // 0001-0008, 0011-0016
   });
 
   it("leaves every pre-existing record byte-identical and the active-testing scope guard unchanged", async () => {
@@ -124,19 +124,20 @@ describe.skipIf(skipIntegration)("DRAFT T-144 research-memory migration on throw
     });
     it("refuses confirmed when the only supporting evaluation comes from the generator itself", async () => {
       const s = await fx.sealedSnapshot(); const sp = await fx.span(s, 5); const h = await fx.hypothesis(s, [sp]);
-      // same id as the generator (RULE). ResearchStore.recordEvaluation now refuses this itself (IndependenceError), so the row is written
-      // past the store, as the owner, to probe the database rule on its own
+      // same id as the generator (RULE). ResearchStore.recordEvaluation refuses this itself (IndependenceError), and since migration 0016
+      // (R3a) the DATABASE refuses it too, even as the owner past the store: such an evaluation can no longer exist to be cited as a basis
       await expect(fx.evaluate(s, h, "supports", [sp], "rule-reentrancy")).rejects.toThrow(/cannot evaluate its own claim/);
-      const c = await db.ownerPool.connect(); let self: string;
+      const c = await db.ownerPool.connect();
       try {
         await c.query("BEGIN");
         const hr = (await c.query("SELECT workflow_run_id, produced_by_step_id FROM hypotheses WHERE id = $1", [h])).rows[0];
-        self = (await c.query("INSERT INTO hypothesis_evaluations (workflow_run_id, hypothesis_id, produced_by_step_id, evaluator_id, evaluator_version, outcome, rationale, input_sha256) VALUES ($1,$2,$3,'rule-reentrancy','1','supports','self',$4) RETURNING id", [hr.workflow_run_id, h, hr.produced_by_step_id, "d".repeat(64)])).rows[0].id;
-        await c.query("INSERT INTO evaluation_evidence (evaluation_id, span_id, workflow_run_id, produced_by_step_id) VALUES ($1,$2,$3,$4)", [self, sp, hr.workflow_run_id, hr.produced_by_step_id]);
-        await c.query("COMMIT");
-      } finally { c.release(); }
+        await expect(c.query("INSERT INTO hypothesis_evaluations (workflow_run_id, hypothesis_id, produced_by_step_id, evaluator_id, evaluator_version, outcome, rationale, input_sha256) VALUES ($1,$2,$3,'rule-reentrancy','1','supports','self',$4) RETURNING id", [hr.workflow_run_id, h, hr.produced_by_step_id, "d".repeat(64)]))
+          .rejects.toThrow(/cannot be made by the generator of its hypothesis/);
+      } finally { await c.query("ROLLBACK").catch(() => undefined); c.release(); }
+      // the T-144 rule itself still refuses a basis that is not independent: an evaluation by another id that is not a supports
+      const other = await fx.evaluate(s, h, "weakens", [sp], "independent-validator");
       const r = await fx.review(h, "owner", "supports", "disclosed_adjudication");
-      await expect(outcome(rt.pool, h, "confirmed", [self], r)).rejects.toThrow(/independent of the generator/);
+      await expect(outcome(rt.pool, h, "confirmed", [other], r)).rejects.toThrow(/independent of the generator/);
     });
     it("refuses basis records that belong to another hypothesis", async () => {
       const s = await fx.sealedSnapshot(); const sp = await fx.span(s, 5); const h1 = await fx.hypothesis(s, [sp]); const h2 = await fx.hypothesis(s, [sp]);
@@ -210,7 +211,8 @@ describe.skipIf(skipIntegration)("DRAFT T-144 research-memory migration on throw
     await db.pool.query(sql("0009_research_memory.rollback.sql"));
     expect(await fingerprint(db.pool)).toBe(before.schema);
     const now = await dataHashes(db.pool, before.cols);
-    for (const [t, h] of Object.entries(before.data)) if (!["workflow_runs", "workflow_steps", "repo_snapshots", "repo_snapshot_files", "research_blobs", "evidence_spans", "hypotheses", "hypothesis_evidence", "hypothesis_evaluations", "evaluation_evidence", "hypothesis_reviews", "hypothesis_events", "audit_events"].includes(t)) expect(now[t]).toBe(h);
+    for (const [t, h] of Object.entries(before.data)) if (!["workflow_runs", "workflow_steps", "repo_snapshots", "repo_snapshot_files", "research_blobs", "evidence_spans", "hypotheses", "hypothesis_evidence", "hypothesis_evaluations", "evaluation_evidence", "hypothesis_reviews", "hypothesis_events", "audit_events",
+      "hypothesis_evaluation_keys", "evaluation_provenance"].includes(t)) expect(now[t]).toBe(h); // (0015's evaluation keys and provenance grow with evaluations)
     await expect(assertActiveTestingAllowed(db.pool, scope)).resolves.toBeUndefined();
   });
 });

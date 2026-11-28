@@ -16,7 +16,7 @@ describe("runtime grants manifest (reviewable pins)", () => {
   });
   it("lets the runtime INSERT only the tables the application writes", () => {
     expect(withPriv("INSERT")).toEqual([
-      "ai_budget_reservations", "audit_events", "bounty_collection_runs", "bounty_duplicate_candidates", "bounty_imports", "bounty_observations", "bounty_opportunities", "bounty_program_changes", "bounty_programs", "bounty_repository_mappings", "bounty_research_links", "bounty_scores", "bounty_source_checks", "discovery_observations", "discovery_sources", "evaluation_evidence", "evidence_spans", "hypotheses", "hypothesis_evaluations", "hypothesis_events",
+      "ai_budget_reservations", "audit_events", "bounty_collection_runs", "bounty_duplicate_candidates", "bounty_imports", "bounty_observations", "bounty_opportunities", "bounty_program_changes", "bounty_programs", "bounty_repository_mappings", "bounty_research_links", "bounty_scores", "bounty_source_checks", "discovery_observations", "discovery_sources", "evaluation_evidence", "evaluation_provenance", "evidence_spans", "hypotheses", "hypothesis_evaluation_keys", "hypothesis_evaluations", "hypothesis_events",
       "hypothesis_evidence", "hypothesis_reviews", "model_usage_events", "opportunity_events", "repo_snapshot_files", "repo_snapshots", "repository_monitor_checks", "repository_monitors", "research_blobs", "source_snapshots",
       "workflow_runs", "workflow_steps",
     ]);

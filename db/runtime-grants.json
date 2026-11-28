@@ -10,6 +10,9 @@
   "ai_model_prices": [
    "SELECT"
   ],
+  "analysis_identities": [
+   "SELECT"
+  ],
   "approvals": [
    "SELECT"
   ],
@@ -93,6 +96,13 @@
    "SELECT",
    "INSERT"
   ],
+  "evaluation_independence": [
+   "SELECT"
+  ],
+  "evaluation_provenance": [
+   "SELECT",
+   "INSERT"
+  ],
   "evidence_spans": [
    "SELECT",
    "INSERT"
@@ -114,6 +124,10 @@
    "INSERT",
    "UPDATE"
   ],
+  "hypothesis_evaluation_keys": [
+   "SELECT",
+   "INSERT"
+  ],
   "hypothesis_evaluations": [
    "SELECT",
    "INSERT"
@@ -125,6 +139,9 @@
   "hypothesis_evidence": [
    "SELECT",
    "INSERT"
+  ],
+  "hypothesis_independence": [
+   "SELECT"
   ],
   "hypothesis_reviews": [
    "SELECT",
@@ -185,6 +202,9 @@
    "SELECT"
   ],
   "schema_migrations": [],
+  "snapshot_verifications": [
+   "SELECT"
+  ],
   "source_snapshots": [
    "SELECT",
    "INSERT"
@@ -192,6 +212,10 @@
   "verification_reviews": [
    "SELECT"
   ],
+  "worker_api_requests": [],
+  "worker_blob_uploads": [],
+  "worker_capability_tokens": [],
+  "worker_token_usage": [],
   "workflow_runs": [
    "SELECT",
    "INSERT",
@@ -209,7 +233,8 @@
   "repo_snapshot_manifest",
   "research_span_check",
   "research_split_lines",
-  "research_reviewer_saw_valid"
+  "research_reviewer_saw_valid",
+  "analysis_generator_family"
  ],
  "sequences_usable": "all",
  "functions_denied": [
@@ -217,6 +242,8 @@
  ],
  "_notes": {
   "hypotheses UPDATE": "Row-lock only. hypothesis_evidence_guard() runs SELECT ... FOR UPDATE on hypotheses as the invoking role, which needs UPDATE. Any actual UPDATE is rejected by the hypotheses_immutable trigger, which the runtime role cannot disable (it owns nothing and has no TRIGGER privilege).",
-  "bounty_* (0011)": "Bounty collection: no DELETE anywhere (delisted listings are marked, merged programmes keep their row); program changes are append-only; sources are seeded by the migration and only their state columns are updated."
+  "bounty_* (0011)": "Bounty collection: no DELETE anywhere (delisted listings are marked, merged programmes keep their row); program changes are append-only; sources are seeded by the migration and only their state columns are updated.",
+  "worker api (0015)": "Option D: the worker-API tables are written by the API's owner connection only; the runtime role gets nothing on them. hypothesis_evaluation_keys is written by the after-insert trigger on hypothesis_evaluations (as the inserting role), so INSERT is needed wherever evaluations are inserted; evaluation_provenance is written by the direct worker beside its evaluations.",
+  "research independence (0016)": "analysis_identities is a seeded, append-only reference table; the views and analysis_generator_family are read-only."
  }
 }

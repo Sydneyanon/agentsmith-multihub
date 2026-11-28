@@ -1,11 +1,5 @@
--- DRAFT R3 rollback: restores the schema left by 0001-0008 plus the T-144 draft (and the A29 draft, if applied) exactly (tested: catalog
--- fingerprint unchanged). Only valid while analysis_identities holds no rows beyond the seed that must be kept.
-DROP VIEW IF EXISTS hypothesis_independence;
-DROP VIEW IF EXISTS evaluation_independence;
-DROP TRIGGER IF EXISTS hypothesis_evaluations_independence ON hypothesis_evaluations;
-DROP FUNCTION IF EXISTS hypothesis_evaluations_independence();
-DROP FUNCTION IF EXISTS analysis_generator_family(text, text);
-DROP TABLE IF EXISTS analysis_identities;
+-- DRAFT R3b rollback: restores hypothesis_outcome_rules() exactly as 0009_research_memory.sql defines it (tested: the catalog
+-- fingerprint after rollback equals the one before R3b). 0016 (R3a) is not touched.
 -- the T-144 outcome rule exactly as 0009_research_memory.sql defines it
 CREATE OR REPLACE FUNCTION hypothesis_outcome_rules() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 DECLARE gen text; gen_kind text;
