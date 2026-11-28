@@ -4,9 +4,9 @@ import { ResearchStore } from "../../research-state.js";
 import type { ClaimedStep, WorkflowWorker } from "../../worker.js";
 import { ACQUIRE_STEP_KEY } from "../../acquisition/step.js";
 import { ANALYZER_VERSION, ANALYZE_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY } from "./keys.js";
-import { buildDossier, buildStructuralMap, externalLeadsAsStored, pipelineReads, runChallenge, runStructuralAnalysis, SPECIALIST_ID, storedHypothesesFromRecords, type StoredHypothesis } from "./pipeline.js";
+import { buildDossier, buildStructuralMap, computeStructuralAnalysis, externalLeadsAsStored, pipelineReads, runChallenge, SPECIALIST_ID, storedHypothesesFromRecords, writeStructuralAnalysis, type Dossier, type StoredHypothesis, type Validation } from "./pipeline.js";
 import { isResearchSlitherStep, slitherScanOfRun } from "./slither-record.js";
-import type { ResearchReads, ResearchStorePort, StepLifecyclePort } from "../../research-port.js";
+import type { ResearchReads, ResearchStorePort, SealedSnapshotRef, StepLifecyclePort } from "../../research-port.js";
 import { processResearchSlitherScanStep } from "./slither-step.js";
 import { createHash } from "node:crypto";
 import { readBuildInfo } from "../../engine-status.js";
@@ -76,53 +76,72 @@ export async function withHeartbeat<T>(ctx: { worker: Pick<StepLifecyclePort, "h
   try { const r = await f(); if (lost) throw new LeaseLostError("the step lease was lost during analysis"); return r; } finally { clearInterval(beat); }
 }
 
-const passive = { execution_mode: "passive_only", authorization_status: "unverified", active_testing_allowed: false } as const;
+export const passive = { execution_mode: "passive_only", authorization_status: "unverified", active_testing_allowed: false } as const;
+
+/** The analyze_structure step output, from a recorded structural analysis (shared by the direct worker and the API, option D). */
+export function analyzeStepOutput(snap: SealedSnapshotRef, a: Awaited<ReturnType<typeof writeStructuralAnalysis>>, map: ReturnType<typeof buildStructuralMap>): Record<string, unknown> {
+  const mapJson = JSON.stringify(map);
+  return {
+    status: "structure_analyzed", analyzer: ANALYZER_VERSION, analyzer_build: { commit: readBuildInfo().commit, image: readBuildInfo().image }, specialist: SPECIALIST_ID, snapshot_id: snap.snapshotId, repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256,
+    contracts: a.contracts, functions: a.functions, hypotheses: a.stored.length, hypothesis_ids: a.stored.map((h) => h.id), finding_payloads: Object.fromEntries(a.stored.map((h) => [h.id, h.payloadSha256])), problems: a.problems,
+    protocol_model_sha256: a.protocolModel.sha256, protocol_model_stored: a.protocolModel.stored, protocol_model_counts: { components: a.protocolModel.components, functions: a.protocolModel.functions, call_edges: a.protocolModel.callEdges, unknowns: a.protocolModel.unknowns },
+    structural_map_sha256: createHash("sha256").update(mapJson).digest("hex"), structural_map: mapJson.length <= 400_000 ? map : { truncated: true, reason: "map exceeds 400 kB; see structural_map_sha256 and rebuild from the snapshot" }, ...passive,
+  };
+}
 
 export async function processAnalyzeStructureStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   const ctx = researchContext(context); const { store, reads } = ctx; const snap = await reads.sealedSnapshot(step.workflow_run_id);
   await withHeartbeat(ctx, step, async () => {
     const lease = { stepId: step.id, workerId: ctx.workerId };
-    const a = await runStructuralAnalysis(reads, store, lease, snap.snapshotId);
     const sources = await reads.snapshotSources(snap.snapshotId);
-    const map = buildStructuralMap(sources); const mapJson = JSON.stringify(map);
-    await ctx.worker.complete(step.id, {
-      status: "structure_analyzed", analyzer: ANALYZER_VERSION, analyzer_build: { commit: readBuildInfo().commit, image: readBuildInfo().image }, specialist: SPECIALIST_ID, snapshot_id: snap.snapshotId, repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256,
-      contracts: a.contracts, functions: a.functions, hypotheses: a.stored.length, hypothesis_ids: a.stored.map((h) => h.id), finding_payloads: Object.fromEntries(a.stored.map((h) => [h.id, h.payloadSha256])), problems: a.problems,
-      protocol_model_sha256: a.protocolModel.sha256, protocol_model_stored: a.protocolModel.stored, protocol_model_counts: { components: a.protocolModel.components, functions: a.protocolModel.functions, call_edges: a.protocolModel.callEdges, unknowns: a.protocolModel.unknowns },
-      structural_map_sha256: createHash("sha256").update(mapJson).digest("hex"), structural_map: mapJson.length <= 400_000 ? map : { truncated: true, reason: "map exceeds 400 kB; see structural_map_sha256 and rebuild from the snapshot" }, ...passive,
-    });
+    const a = await writeStructuralAnalysis(store, lease, snap.snapshotId, computeStructuralAnalysis(sources));
+    await ctx.worker.complete(step.id, analyzeStepOutput(snap, a, buildStructuralMap(sources)));
   });
+}
+
+/**
+ * What the challenge stage challenges: exactly the hypotheses analyze_structure stored, by id from ITS step output, with their findings
+ * from the stored payloads (the analyzer is not re-run), plus the optional Slither stage's leads (runs created with `slitherScan` only),
+ * challenged by the SAME independent evaluators, never by Slither; only hypotheses that really are Slither's on this snapshot are taken,
+ * and any other id is reported.
+ */
+export type ChallengeInputs = { stored: StoredHypothesis[]; external: StoredHypothesis[]; unmatched: string[]; slither: { exists: boolean; outcome: { status: string } | null } };
+export async function challengeInputs(reads: ResearchReads, runId: string, snapshotId: string): Promise<ChallengeInputs> {
+  const stored = await reads.specialistHypothesesOfRun(runId, snapshotId);
+  const slither = await reads.slitherScanOfRun(runId);
+  let external: StoredHypothesis[] = []; let unmatched: string[] = [];
+  if (slither.outcome?.status === "tool_completed" && slither.outcome.leads.length) {
+    const ids = slither.outcome.leads.map((l) => l.hypothesisId);
+    const ok = new Set(await reads.slitherHypothesisIds(ids, snapshotId));
+    external = await externalLeadsAsStored(reads, `slither@${slither.outcome.version}`, slither.outcome.leads.filter((l) => ok.has(l.hypothesisId)));
+    unmatched = ids.filter((id) => !ok.has(id));
+  }
+  return { stored, external, unmatched, slither };
+}
+export function challengeStepOutput(snap: SealedSnapshotRef, inputs: ChallengeInputs, validations: Validation[]): Record<string, unknown> {
+  const verdicts: Record<string, number> = {}; for (const v of validations) verdicts[v.outcome.verdict] = (verdicts[v.outcome.verdict] ?? 0) + 1;
+  const unresolved = inputs.stored.filter((h) => h.unresolved).map((h) => ({ hypothesis_id: h.id, reason: h.unresolved }));
+  return { status: "leads_challenged", analyzer: ANALYZER_VERSION, snapshot_id: snap.snapshotId, leads: inputs.stored.length, reentrancy_verdicts: verdicts,
+    hypothesis_ids: inputs.stored.map((h) => h.id), unresolved,
+    ...(inputs.slither.exists ? { slither: { status: inputs.slither.outcome?.status ?? "not_recorded", leads_challenged: inputs.external.length, ...(inputs.unmatched.length ? { unmatched_ids: inputs.unmatched } : {}) } } : {}), ...passive };
 }
 
 export async function processChallengeLeadsStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   const ctx = researchContext(context); const { store, reads } = ctx; const snap = await reads.sealedSnapshot(step.workflow_run_id);
   await withHeartbeat(ctx, step, async () => {
-    // exactly the hypotheses analyze_structure stored, by id from ITS step output, with their findings from the stored payloads; the
-    // analyzer is not re-run (a changed analyzer between steps can no longer silently change which leads are challenged)
-    const stored = await reads.specialistHypothesesOfRun(step.workflow_run_id, snap.snapshotId);
-    // the optional Slither stage's leads (runs created with `slitherScan` only): challenged by the SAME independent evaluators, never by
-    // Slither; only hypotheses that really are Slither's on this snapshot are taken from the step output, and any other id is reported
-    const slither = await reads.slitherScanOfRun(step.workflow_run_id);
-    let external: typeof stored = []; let unmatched: string[] = [];
-    if (slither.outcome?.status === "tool_completed" && slither.outcome.leads.length) {
-      const ids = slither.outcome.leads.map((l) => l.hypothesisId);
-      const ok = new Set(await reads.slitherHypothesisIds(ids, snap.snapshotId));
-      external = await externalLeadsAsStored(reads, `slither@${slither.outcome.version}`, slither.outcome.leads.filter((l) => ok.has(l.hypothesisId)));
-      unmatched = ids.filter((id) => !ok.has(id));
-    }
-    const validations = await runChallenge(reads, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, [...stored, ...external]);
-    const verdicts: Record<string, number> = {}; for (const v of validations) verdicts[v.outcome.verdict] = (verdicts[v.outcome.verdict] ?? 0) + 1;
-    const unresolved = stored.filter((h) => h.unresolved).map((h) => ({ hypothesis_id: h.id, reason: h.unresolved }));
-    await ctx.worker.complete(step.id, { status: "leads_challenged", analyzer: ANALYZER_VERSION, snapshot_id: snap.snapshotId, leads: stored.length, reentrancy_verdicts: verdicts,
-      hypothesis_ids: stored.map((h) => h.id), unresolved,
-      ...(slither.exists ? { slither: { status: slither.outcome?.status ?? "not_recorded", leads_challenged: external.length, ...(unmatched.length ? { unmatched_ids: unmatched } : {}) } } : {}), ...passive });
+    const inputs = await challengeInputs(reads, step.workflow_run_id, snap.snapshotId);
+    const validations = await runChallenge(reads, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, [...inputs.stored, ...inputs.external]);
+    await ctx.worker.complete(step.id, challengeStepOutput(snap, inputs, validations));
   });
 }
 
+export function dossierStepOutput(snap: SealedSnapshotRef, d: Dossier): Record<string, unknown> {
+  return { status: "dossier_built", snapshot_id: snap.snapshotId, commit_sha: snap.commitSha, content_sha256: d.content_sha256, leads: d.entries.length, status_counts: d.summary, human_review: "none recorded", limitations: d.limitations, ...passive };
+}
 export async function processBuildDossierStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   const ctx = researchContext(context); const snap = await ctx.reads.sealedSnapshot(step.workflow_run_id);
   const d = await ctx.reads.buildDossier(snap.snapshotId); // fails closed if any cited span cannot be verified
-  await ctx.worker.complete(step.id, { status: "dossier_built", snapshot_id: snap.snapshotId, commit_sha: snap.commitSha, content_sha256: d.content_sha256, leads: d.entries.length, status_counts: d.summary, human_review: "none recorded", limitations: d.limitations, ...passive });
+  await ctx.worker.complete(step.id, dossierStepOutput(snap, d));
 }
 
 export async function dispatchAnalysisStep(ctx: AnyAnalysisStepContext, step: ClaimedStep): Promise<boolean> {

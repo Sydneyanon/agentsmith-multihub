@@ -60,12 +60,26 @@ describe("production build output (compiled with tsconfig.build.json)", () => {
       for (const m of src.matchAll(/^(?:import|export)\s[^"']*?from\s+["']([^."'][^"']*)["']|^import\s+["']([^."'][^"']*)["']/gm)) {
         const spec = m[1] ?? m[2]!;
         if (!allowed.has(spec) && !allowed.has(bare(spec))) offenders.push(`${f} imports ${spec}`);
-        if (/^(node:)?(child_process|worker_threads|vm|cluster)$/.test(spec)) offenders.push(`${f} imports ${spec} (process spawning)`);
+        // ONE reviewed exception (option D, D1/D3): the API's bounded analysis runner starts its OWN Node binary on its OWN compute-child
+        // script, so a hostile snapshot cannot stall the event loop and CPU, wall time and heap are enforceable. It spawns nothing else.
+        if (/^(node:)?(child_process|worker_threads|vm|cluster)$/.test(spec) && !(f === BOUNDED_COMPUTE && spec === "node:child_process")) offenders.push(`${f} imports ${spec} (process spawning)`);
       }
     }
     expect(offenders).toEqual([]);
   });
+
+  it("the one process-spawning module starts only process.execPath on the fixed compute-child script, with a minimal environment", () => {
+    const src = readFileSync(join(out, BOUNDED_COMPUTE), "utf8");
+    const spawns = [...src.matchAll(/\bspawn\(([^,]+),/g)].map((m) => m[1]!.trim());
+    expect(spawns).toEqual(["process.execPath"]);
+    expect(src).toMatch(/env: \{ PATH: "\/usr\/bin:\/bin", NODE_ENV: process\.env\.NODE_ENV \?\? "production" \}/);
+    expect(src).not.toMatch(/\bexec(File|Sync)?\(|shell:\s*true/);
+    expect(files).toContain("apps/api/src/analysis/solidity/compute-child.js");
+    const others = files.filter((f) => f.endsWith(".js") && f !== BOUNDED_COMPUTE && /from\s+["'](node:)?child_process["']/.test(readFileSync(join(out, f), "utf8")));
+    expect(others).toEqual([]);
+  });
 });
+const BOUNDED_COMPUTE = "apps/api/src/analysis/solidity/bounded-compute.js";
 
 describe("production build output: review hardening", () => {
   it("excludes *.spec.ts as well as *.test.ts from the production compile", () => {

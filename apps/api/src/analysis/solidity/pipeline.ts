@@ -86,20 +86,40 @@ export function rejectUncitableFindings(findings: Finding[], sources: ReadonlyAr
   return { kept, problems };
 }
 
-export async function runStructuralAnalysis(pool: PoolOrReads, store: Pick<ResearchStore, "putBlob" | "createEvidenceSpan" | "createHypothesis">, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
-  const sources = await asPipelineReads(pool).snapshotSources(snapshotId);
-  // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
-  const pm = buildProtocolModel(sources); const bytes = Buffer.from(pm.json, "utf8");
-  const storedModel = bytes.length <= MODEL_BLOB_LIMIT ? (await store.putBlob(lease, bytes)).sha256 === pm.sha256 : false;
-  const protocolModel: StoredProtocolModel = { sha256: pm.sha256, stored: storedModel, components: pm.model.components.length, functions: pm.model.functions.length, callEdges: pm.model.callEdges.length, unknowns: pm.model.unknowns.length };
+/**
+ * The structural analysis as a PURE function of the sealed sources: the protocol model, the citable findings, the problems and the
+ * counts. Nothing is written and nothing from the repository is executed (the sources are parsed as text). The API runs exactly this
+ * on the sealed snapshot itself (option D, D3), bounded in CPU, wall time and memory (bounded-compute.ts); the direct worker runs it
+ * in-process. `writeStructuralAnalysis` then records the result.
+ */
+export type ComputedStructure = {
+  protocolModel: { json: string; sha256: string; components: number; functions: number; callEdges: number; unknowns: number };
+  findings: Finding[]; problems: string[]; contracts: number; functions: number;
+};
+export function computeStructuralAnalysis(sources: ReadonlyArray<{ path: string; text: string }>): ComputedStructure {
+  const pm = buildProtocolModel(sources);
   const { findings, index, problems } = analyzeSources(sources);
+  const checked = rejectUncitableFindings(findings, sources);
+  const fns = [...index.contracts.values()].reduce((n, c) => n + c.functions.length, 0);
+  return {
+    protocolModel: { json: pm.json, sha256: pm.sha256, components: pm.model.components.length, functions: pm.model.functions.length, callEdges: pm.model.callEdges.length, unknowns: pm.model.unknowns.length },
+    findings: checked.kept, problems: [...problems, ...checked.problems], contracts: index.contracts.size, functions: fns,
+  };
+}
+
+/** Records a computed structural analysis under the step lease: the protocol model blob, evidence spans, hypotheses and finding payloads. */
+export async function writeStructuralAnalysis(store: Pick<ResearchStore, "putBlob" | "createEvidenceSpan" | "createHypothesis">, lease: StepLease, snapshotId: string, c: ComputedStructure, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
+  // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
+  const bytes = Buffer.from(c.protocolModel.json, "utf8");
+  const storedModel = bytes.length <= MODEL_BLOB_LIMIT ? (await store.putBlob(lease, bytes)).sha256 === c.protocolModel.sha256 : false;
+  const { json: _json, ...counts } = c.protocolModel; void _json;
+  const protocolModel: StoredProtocolModel = { ...counts, stored: storedModel };
   const stored: StoredHypothesis[] = []; const spanCache = new Map<string, string>();
   const span = async (file: string, line: number) => {
     const key = `${file}:${line}`; const have = spanCache.get(key); if (have) return have;
     const id = await store.createEvidenceSpan(lease, { snapshotId, path: file, lineStart: line, lineEnd: line }); spanCache.set(key, id); return id;
   };
-  const checked = rejectUncitableFindings(findings, sources); problems.push(...checked.problems);
-  for (const f of checked.kept) {
+  for (const f of c.findings) {
     if (options.include && !options.include(f)) continue; // an assignment scoped to target components stores only their findings
     const seen = new Set<string>(); const spans: Array<{ spanId: string; role: "primary" | "supporting" | "context" }> = [];
     for (const s of f.spans) { const k = `${s.file}:${s.lineStart}`; if (seen.has(k)) continue; seen.add(k); spans.push({ spanId: await span(s.file, s.lineStart), role: spans.length === 0 ? "primary" : s.role === "primary" ? "supporting" : s.role }); }
@@ -110,8 +130,12 @@ export async function runStructuralAnalysis(pool: PoolOrReads, store: Pick<Resea
     const payload = await store.putBlob(lease, Buffer.from(canonicalJson(findingPayload(made.id, snapshotId, f)), "utf8"));
     stored.push({ id: made.id, finding: f, spanIds: spans.map((s) => s.spanId), payloadSha256: payload.sha256 });
   }
-  const fns = [...index.contracts.values()].reduce((n, c) => n + c.functions.length, 0);
-  return { stored, problems, contracts: index.contracts.size, functions: fns, protocolModel };
+  return { stored, problems: c.problems, contracts: c.contracts, functions: c.functions, protocolModel };
+}
+
+export async function runStructuralAnalysis(pool: PoolOrReads, store: Pick<ResearchStore, "putBlob" | "createEvidenceSpan" | "createHypothesis">, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
+  const sources = await asPipelineReads(pool).snapshotSources(snapshotId);
+  return writeStructuralAnalysis(store, lease, snapshotId, computeStructuralAnalysis(sources), options);
 }
 
 /**
@@ -151,25 +175,39 @@ export function challengeOutcome(c: Pick<ChallengeOutcome, "verdict" | "refutati
 /** the classes `challengeFinding` has a method for (reentrancy has its own validator, below) */
 const CHALLENGED_CLASSES: ReadonlySet<string> = new Set(["access-control", "selfdestruct", "delegatecall", "initializer", "unchecked-call"]);
 
-/** Independent challenge of reentrancy leads by execution; other classes are recorded as inconclusive (no independent validator exists yet). */
-export async function runChallenge(pool: PoolOrReads, store: Pick<ResearchStore, "recordEvaluation">, lease: StepLease, snapshotId: string, stored: StoredHypothesis[]): Promise<Validation[]> {
-  const index = new ProgramIndex(await asPipelineReads(pool).snapshotSources(snapshotId)); const out: Validation[] = [];
+/**
+ * One evaluation a validator produced, before it is recorded. `raw` is the validator's own result (its verdict object, trace and
+ * reason), preserved as the evaluation's provenance blob; identity, version, family and method come from this code, never a request.
+ */
+export type PlannedEvaluation = {
+  hypothesisId: string; evaluatorId: string; evaluatorVersion: string; outcome: "supports" | "weakens" | "contradicts" | "inconclusive";
+  rationale: string; spanIds: string[]; inputSha256: string; raw: unknown; validation?: Validation;
+};
+
+/**
+ * Independent challenge of the stored leads by execution, as a PURE function of the sealed sources and the stored hypotheses (by id):
+ * reentrancy leads by the reentrancy validator, the challenged classes by `challengeFinding`, any other class recorded as "no independent
+ * validator". Nothing from the repository is executed: the validators run a bounded model over the parsed text. The API runs exactly this
+ * itself (option D, D1); the direct worker runs it in-process; `recordChallenge` records the result.
+ */
+export function computeChallenge(sources: ReadonlyArray<{ path: string; text: string }>, stored: readonly StoredHypothesis[]): PlannedEvaluation[] {
+  const index = new ProgramIndex(sources); const out: PlannedEvaluation[] = [];
   for (const h of stored) {
     const primary = h.spanIds[0]!;
     const evaluatorOf = (cls: string) => cls === "reentrancy" ? VALIDATOR_ID : CHALLENGED_CLASSES.has(cls) ? `execution-challenge-${cls}` : "no-independent-validator";
     // a stored hypothesis that cannot be read back as a finding is recorded as inconclusive WITH the reason, never skipped
     if (h.unresolved) {
-      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: evaluatorOf(h.finding.class), evaluatorVersion: h.finding.class === "reentrancy" ? VALIDATOR_VERSION : "1", outcome: "inconclusive",
-        rationale: `Not challenged: ${h.unresolved}.`.slice(0, 7900), spanIds: [], inputSha256: sha256Hex(`${h.id}|unresolved|${h.unresolved}`) });
+      out.push({ hypothesisId: h.id, evaluatorId: evaluatorOf(h.finding.class), evaluatorVersion: h.finding.class === "reentrancy" ? VALIDATOR_VERSION : "1", outcome: "inconclusive",
+        rationale: `Not challenged: ${h.unresolved}.`.slice(0, 7900), spanIds: [], inputSha256: sha256Hex(`${h.id}|unresolved|${h.unresolved}`), raw: { abstained: "unresolved", reason: h.unresolved } });
       continue;
     }
     // the stored hypothesis names a function that the index re-parsed from the sealed snapshot does not contain: recorded, never skipped
     const missing = CHALLENGED_CLASSES.has(h.finding.class) || h.finding.class === "reentrancy" ? !index.findFunctions(h.finding.contract, h.finding.function)[0] : false;
     if (missing) {
       const why = `the stored hypothesis names ${h.finding.contract}.${h.finding.function}, which is not a function of the index re-parsed from the sealed snapshot`;
-      if (h.finding.class === "reentrancy") out.push({ hypothesisId: h.id, outcome: { verdict: "inconclusive", reason: why, trace: [], scenarios: 0, detail: {} } });
-      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: evaluatorOf(h.finding.class), evaluatorVersion: h.finding.class === "reentrancy" ? VALIDATOR_VERSION : "1", outcome: "inconclusive",
-        rationale: `The validator abstained: ${why}; the lead is not challenged.`, spanIds: [], inputSha256: sha256Hex(`${h.finding.claim}|inconclusive|${why}`) });
+      const v: Validation | undefined = h.finding.class === "reentrancy" ? { hypothesisId: h.id, outcome: { verdict: "inconclusive", reason: why, trace: [], scenarios: 0, detail: {} } } : undefined;
+      out.push({ hypothesisId: h.id, evaluatorId: evaluatorOf(h.finding.class), evaluatorVersion: h.finding.class === "reentrancy" ? VALIDATOR_VERSION : "1", outcome: "inconclusive",
+        rationale: `The validator abstained: ${why}; the lead is not challenged.`, spanIds: [], inputSha256: sha256Hex(`${h.finding.claim}|inconclusive|${why}`), raw: { abstained: "function_not_found", reason: why }, ...(v ? { validation: v } : {}) });
       continue;
     }
     if (h.finding.class !== "reentrancy") {
@@ -177,23 +215,52 @@ export async function runChallenge(pool: PoolOrReads, store: Pick<ResearchStore,
       // function cannot be found; for the specialists' own classes this is exactly the previous behaviour
       const c = CHALLENGED_CLASSES.has(h.finding.class) ? challengeFinding(index, h.finding) : null;
       if (!c) {
-        await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive",
-          rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by ${h.producer ?? "the specialist"} and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim) });
+        out.push({ hypothesisId: h.id, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive",
+          rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by ${h.producer ?? "the specialist"} and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim), raw: { abstained: "no_validator", class: h.finding.class } });
         continue;
       }
       const outcome = challengeOutcome(c);
       const text = `${c.method}: ${c.reason}.${c.trace.length ? " Trace: " + c.trace.join(" | ") + "." : ""}${outcome === "contradicts" ? " This CONTRADICTS the lead in the modelled world (an executed counterexample, trace above); it is not a proof for a real deployment, and a refuted outcome still needs a human decision." : outcome === "weakens" ? " This weakens (does not eliminate) the lead: the claimed effect was not observed, but nothing executed contradicts it; the model is a bounded abstraction." : ""}`;
-      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: `execution-challenge-${h.finding.class}`, evaluatorVersion: "1", outcome, rationale: text.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${c.verdict}|${c.reason}`) });
+      out.push({ hypothesisId: h.id, evaluatorId: `execution-challenge-${h.finding.class}`, evaluatorVersion: "1", outcome, rationale: text.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${c.verdict}|${c.reason}`), raw: c });
       continue;
     }
     const fn = index.findFunctions(h.finding.contract, h.finding.function)[0];
     const r = fn ? validateReentrancy(index, fn) : { verdict: "inconclusive" as const, reason: "function not found", trace: [], scenarios: 0, detail: {} };
-    out.push({ hypothesisId: h.id, outcome: r });
     const outcome = r.verdict === "validated" ? "supports" : r.verdict === "refuted" ? "weakens" : "inconclusive";
     const body = r.verdict === "validated" ? `Executed model: ${r.reason}. Trace: ${r.trace.join(" | ")}` : r.verdict === "refuted" ? `Executed model, ${r.scenarios} bounded scenarios: ${r.reason}. This weakens (does not eliminate) the lead: the model is a bounded abstraction.` : `The validator abstained: ${r.reason}`;
-    await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: VALIDATOR_ID, evaluatorVersion: VALIDATOR_VERSION, outcome, rationale: body.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${r.verdict}|${r.reason}`) });
+    out.push({ hypothesisId: h.id, evaluatorId: VALIDATOR_ID, evaluatorVersion: VALIDATOR_VERSION, outcome, rationale: body.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${r.verdict}|${r.reason}`), raw: r, validation: { hypothesisId: h.id, outcome: r } });
   }
   return out;
+}
+
+export const VALIDATOR_OUTPUT_SCHEMA = "agentsmith-validator-output/1";
+/** The provenance blob of one evaluation: identity and family from the registry, the input hash, the snapshot, and the raw result. */
+export function validatorOutputBlob(e: PlannedEvaluation, snapshotId: string, ranBy: string): { output: Buffer; analysisFamily: string; method: string } {
+  const id = analysisIdentity(e.evaluatorId);
+  const analysisFamily = id?.analysisFamily ?? "unknown"; const method = id?.method ?? "unknown";
+  const doc = { schema: VALIDATOR_OUTPUT_SCHEMA, validator_id: e.evaluatorId, validator_version: e.evaluatorVersion, analysis_family: analysisFamily, method, input_sha256: e.inputSha256,
+    snapshot_id: snapshotId, hypothesis_id: e.hypothesisId, ran_by: ranBy, outcome: e.outcome, raw: e.raw ?? null };
+  let output = Buffer.from(canonicalJson(doc), "utf8");
+  if (output.length > MODEL_BLOB_LIMIT) output = Buffer.from(canonicalJson({ ...doc, raw: { truncated: true, raw_sha256: sha256Hex(canonicalJson(e.raw ?? null)) } }), "utf8");
+  return { output, analysisFamily, method };
+}
+
+/** Records planned evaluations under the lease, each with its validator-output provenance blob. Returns the validations (reentrancy). */
+export async function recordChallenge(store: Pick<ResearchStore, "recordEvaluation">, lease: StepLease, snapshotId: string, planned: readonly PlannedEvaluation[], recordedBy: "api" | "direct-worker"): Promise<Validation[]> {
+  const out: Validation[] = [];
+  for (const e of planned) {
+    if (e.validation) out.push(e.validation);
+    const prov = validatorOutputBlob(e, snapshotId, recordedBy);
+    await store.recordEvaluation(lease, { hypothesisId: e.hypothesisId, evaluatorId: e.evaluatorId, evaluatorVersion: e.evaluatorVersion, outcome: e.outcome, rationale: e.rationale, spanIds: e.spanIds, inputSha256: e.inputSha256,
+      provenance: { recordedBy, snapshotId, analysisFamily: prov.analysisFamily, method: prov.method, output: prov.output } });
+  }
+  return out;
+}
+
+/** Independent challenge of the leads by execution (compute, then record), in-process: the direct worker and the engine use this. */
+export async function runChallenge(pool: PoolOrReads, store: Pick<ResearchStore, "recordEvaluation">, lease: StepLease, snapshotId: string, stored: StoredHypothesis[]): Promise<Validation[]> {
+  const sources = await asPipelineReads(pool).snapshotSources(snapshotId);
+  return recordChallenge(store, lease, snapshotId, computeChallenge(sources, stored), "direct-worker");
 }
 
 export type DossierEntry = {
@@ -218,6 +285,19 @@ export type DossierEntry = {
   uncertainty: string[];
   /** present only when the run carries an official bounty scope: whether the lead's primary location is in the selected scope */
   scope_status?: ScopeStatus;
+  /**
+   * Option D (D3): who established each part of this entry. `api_derived`: computed by the API itself on the sealed snapshot;
+   * `worker_reported`: written by a worker (the direct worker, or the optional Slither stage that runs on a remote worker) and taken as
+   * reported. An evaluation is `api_verified` only when the API ran the validator and recorded its provenance.
+   */
+  provenance: { claim: "api_derived" | "worker_reported"; evaluations: Array<{ evaluator: string; outcome: string; recorded_by: "api_verified" | "direct_worker" | "trusted_runner" | "worker_reported"; output_blob_sha256: string | null }> };
+};
+export type DossierProvenance = {
+  snapshot: { status: "api_verified_against_github"; resolved_commit: string; tree_sha: string; files_matched: number; skips_verified: number; skips_unverified: number; verified_at: string; result_blob_sha256: string } | { status: "worker_reported" };
+  analysis: "api_derived" | "worker_reported" | "not_analysed";
+  challenge: "api_derived" | "worker_reported" | "not_run";
+  external_tools: "worker_reported" | "none";
+  note: string;
 };
 export type DossierVerdict = "withdrawn" | "reviewed" | "refuted" | "weakened" | "supported_cross_family" | "corroborated_same_family" | "supported_unknown_family" | "open";
 export type DossierValidator = { evaluator: string; version: string; analysis_family: string | null; method: string | null; relation: EvaluationRelation; outcome: string };
@@ -245,6 +325,8 @@ export type ExternalToolCoverage =
   | { tool: "slither"; pinned_version: string; status: "abstained"; code: string; detail: string };
 export type Dossier = {
   snapshot: { id: string; repository: string; commit_sha: string; file_count: number; manifest_sha256: string; verified: boolean };
+  /** D3: which results the API verified or derived itself, and which are worker-reported observations */
+  provenance: DossierProvenance;
   coverage: AnalysisCoverage;
   /** what produced the analysis, from the analysis step's own record (null fields: not recorded, e.g. builds before structural-solidity/2) */
   analyzer: { version: string | null; build_commit: string | null; image: string | null };
@@ -393,10 +475,27 @@ export function evidenceIntegrity(gen: { kind: string; id: string; version: stri
   };
 }
 
+/** D3: which parts of the dossier the API verified or derived itself, from stored records only. */
+async function dossierProvenance(pool: Pool, snapshotId: string, keyed: boolean, entries: DossierEntry[]): Promise<DossierProvenance> {
+  const v = keyed ? (await pool.query<{ resolved_commit: string; tree_sha: string; files_matched: number; skips_verified: number; skips_unverified: number; verified_at: Date; result_blob_sha256: string }>(
+    "SELECT resolved_commit, tree_sha, files_matched, skips_verified, skips_unverified, verified_at, result_blob_sha256 FROM snapshot_verifications WHERE snapshot_id = $1", [snapshotId])).rows[0] : undefined;
+  const steps = new Map((await pool.query<{ step_key: string; derived_by: string | null; status: string }>(
+    "SELECT st.step_key, st.output->>'derived_by' AS derived_by, st.status FROM repo_snapshots s JOIN workflow_steps st ON st.workflow_run_id = s.workflow_run_id WHERE s.id = $1", [snapshotId])).rows.map((r) => [r.step_key, r]));
+  const by = <N extends string>(key: string, none: N): N | "api_derived" | "worker_reported" => { const r = steps.get(key); return !r || r.status !== "succeeded" ? none : r.derived_by === "api" ? "api_derived" : "worker_reported"; };
+  const external = entries.some((e) => e.generator.startsWith("slither@")) || steps.has("slither_scan") ? "worker_reported" as const : "none" as const;
+  return {
+    snapshot: v ? { status: "api_verified_against_github", resolved_commit: v.resolved_commit, tree_sha: v.tree_sha, files_matched: v.files_matched, skips_verified: v.skips_verified, skips_unverified: v.skips_unverified, verified_at: v.verified_at.toISOString(), result_blob_sha256: v.result_blob_sha256 } : { status: "worker_reported" },
+    analysis: by("analyze_structure", "not_analysed" as const), challenge: by("challenge_leads", "not_run" as const), external_tools: external,
+    note: "api_verified / api_derived: the API checked or computed this itself on the sealed snapshot (content against GitHub; analysis and validators re-run). worker_reported: taken as written by a worker (the direct worker, or a tool that runs on the remote worker); it is an observation, not an API-verified result.",
+  };
+}
+
 /** Builds the dossier ONLY from stored records; spans are re-resolved and re-verified; fails closed if any cited span cannot be verified. */
 export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId: string): Promise<Dossier> {
   const snap = (await pool.query("SELECT id, repository, commit_sha, file_count, manifest_sha256 FROM repo_snapshots WHERE id = $1", [snapshotId])).rows[0];
   const verified = (await store.verifySnapshot(snapshotId)) as { ok?: boolean };
+  // 0015 present: evaluation provenance and the API's GitHub verification are recorded (older schemas: everything is worker-reported)
+  const keyed = (await pool.query<{ t: string | null }>("SELECT to_regclass('public.evaluation_provenance')::text AS t")).rows[0]?.t != null;
   const hs = (await pool.query<{ id: string; family: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown; generator_kind: string; generator_id: string; generator_version: string }>(
     "SELECT id, family, claim, rationale, required_checks, alternative_explanations, generator_kind, generator_id, generator_version FROM hypotheses WHERE snapshot_id = $1 ORDER BY claim COLLATE \"C\"", [snapshotId])).rows;
   const entries: DossierEntry[] = [];
@@ -423,6 +522,9 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
       cited.set(e.id, out);
     }
     const reviews = (await pool.query<{ reviewer_kind: string; reviewer_id: string; review_mode: string; verdict: string }>("SELECT reviewer_kind, reviewer_id, review_mode, verdict FROM hypothesis_reviews WHERE hypothesis_id = $1 ORDER BY created_at, id", [h.id])).rows;
+    const prov = keyed ? new Map((await pool.query<{ evaluation_id: string; recorded_by: string; output_blob_sha256: string }>("SELECT evaluation_id, recorded_by, output_blob_sha256 FROM evaluation_provenance WHERE evaluation_id = ANY($1::uuid[])", [evals.map((e) => e.id)])).rows.map((r) => [r.evaluation_id, r])) : new Map<string, { recorded_by: string; output_blob_sha256: string }>();
+    const claimBy = (await pool.query<{ derived_by: string | null }>("SELECT st.output->>'derived_by' AS derived_by FROM hypotheses x JOIN workflow_steps st ON st.id = x.produced_by_step_id WHERE x.id = $1", [h.id])).rows[0]?.derived_by === "api" ? "api_derived" as const : "worker_reported" as const;
+    const recordedBy = (by: string | undefined) => by === "api" ? "api_verified" as const : by === "direct-worker" ? "direct_worker" as const : by === "trusted-runner" ? "trusted_runner" as const : "worker_reported" as const;
     const st = (await store.getStatus(h.id)) as Record<string, unknown> | null;
     const cls = h.family.replace(/^solidity-/, "");
     const fn = h.generator_id === "slither" ? /^Slither \S+ \([^)]*\) in ([\w$]+(?:\.[\w$]+)?):/.exec(h.claim)?.[1] ?? "" : /^(\w+\.\w+)/.exec(h.claim)?.[1] ?? "";
@@ -431,7 +533,8 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
       generator: `${h.generator_id}@${h.generator_version}`, evidence, evaluations: evals.map((e) => ({ evaluator: e.evaluator_id, outcome: e.outcome, rationale: e.rationale })),
       status, static_outcome: (st?.static_outcome as string) ?? null,
       human_review: reviews.filter((r) => r.reviewer_kind === "human").map((r) => `${r.review_mode} by ${r.reviewer_id}: ${r.verdict}`).join("; ") || "none recorded",
-      ...evidenceIntegrity({ kind: h.generator_kind, id: h.generator_id, version: h.generator_version }, evals, cited, status, h.rationale, reviews.length) });
+      ...evidenceIntegrity({ kind: h.generator_kind, id: h.generator_id, version: h.generator_version }, evals, cited, status, h.rationale, reviews.length),
+      provenance: { claim: claimBy, evaluations: evals.map((e) => ({ evaluator: e.evaluator_id, outcome: e.outcome, recorded_by: recordedBy(prov.get(e.id)?.recorded_by), output_blob_sha256: prov.get(e.id)?.output_blob_sha256 ?? null })) } });
   }
   const summary: Record<string, number> = {};
   for (const e of entries) summary[e.status ?? "unknown"] = (summary[e.status ?? "unknown"] ?? 0) + 1;
@@ -455,15 +558,17 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
     bountyScope = { programme: scope.programme, evidence: scope.evidence, evidence_sha256: scope.evidence_sha256, in_scope_files: scope.in_scope_paths.length, in_scope_leads: inScope, out_of_scope_leads: entries.length - inScope };
     limitations.push(`Bounty scope (${scope.programme}, evidence ${scope.evidence}, sha256 ${scope.evidence_sha256.slice(0, 12)}…): ${scope.in_scope_paths.length} files are in scope. The whole repository was analysed so that interactions are visible, but only leads whose primary location is in scope can be eligible bounty findings; every other lead is labelled OUT OF SCOPE.`);
   }
-  const hashed: unknown[] = [content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer];
+  const provenance = await dossierProvenance(pool, snapshotId, keyed, entries);
+  const hashed: unknown[] = [content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer, provenance, entries.map((e) => [e.provenance.claim, e.provenance.evaluations.map((x) => `${x.evaluator}:${x.outcome}:${x.recorded_by}`)])];
   if (bountyScope) hashed.push(bountyScope, entries.map((e) => [e.hypothesis_id, e.scope_status]));
   const content_sha256 = createHash("sha256").update(JSON.stringify(hashed)).digest("hex");
-  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, coverage, analyzer, summary, entries, architecture, limitations, content_sha256, ...(bountyScope ? { bounty_scope: bountyScope } : {}) };
+  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, provenance, coverage, analyzer, summary, entries, architecture, limitations, content_sha256, ...(bountyScope ? { bounty_scope: bountyScope } : {}) };
 }
 
 export function renderDossierMarkdown(d: Dossier): string {
   const o: string[] = [`# Research dossier: ${d.snapshot.repository} @ ${d.snapshot.commit_sha}\n`,
     `Snapshot ${d.snapshot.id}: ${d.snapshot.file_count} files, manifest \`${d.snapshot.manifest_sha256}\`, database verification ok=${d.snapshot.verified}. Content hash \`${d.content_sha256}\`.\n`,
+    `**Provenance.** Snapshot content: ${d.provenance.snapshot.status === "api_verified_against_github" ? `API-VERIFIED against GitHub (commit ${d.provenance.snapshot.resolved_commit}, tree ${d.provenance.snapshot.tree_sha}, ${d.provenance.snapshot.files_matched} files matched, ${d.provenance.snapshot.skips_unverified} content skips unverified, at ${d.provenance.snapshot.verified_at})` : "WORKER-REPORTED (not verified by the API)"}; analysis: ${d.provenance.analysis.replace("_", " ")}; challenge: ${d.provenance.challenge.replace("_", " ")}${d.provenance.external_tools === "none" ? "" : `; external tool output: ${d.provenance.external_tools.replace("_", " ")}`}.\n`,
     `Analyzer: ${d.analyzer.version ?? "not recorded"}; build commit ${d.analyzer.build_commit ?? "not recorded"}${d.analyzer.image ? ` (image \`${d.analyzer.image}\`)` : ""}.\n`,
     `**Analysis coverage: ${d.coverage.status.toUpperCase().replace("_", " ")}** — ${d.coverage.solidity_files} Solidity files${d.coverage.contracts !== null ? `, ${d.coverage.contracts} contracts, ${d.coverage.functions} functions analysed` : ""}.${d.coverage.status === "complete" ? "" : " This is NOT a complete investigation of the snapshot."}\n`
       + (d.coverage.problems.length ? d.coverage.problems.map((p) => `- ${p}`).join("\n") + "\n" : "")
@@ -484,6 +589,7 @@ export function renderDossierMarkdown(d: Dossier): string {
     o.push(`\n**Contradicting evidence.**` + (e.contradicting_evidence.length ? "\n" + e.contradicting_evidence.map(ev).join("\n") : " none"));
     o.push(`\n**Validators.**` + (e.validators.length ? "\n" + e.validators.map((v) => `- ${v.evaluator}: analysis family ${v.analysis_family ?? "not recorded"}${v.method ? `, method ${v.method}` : ""}; ${rel(v.relation)}; latest outcome **${v.outcome}**`).join("\n") : " none recorded"));
     o.push(`\n**Corroboration.** ${e.corroboration.cross_family} from another family, ${e.corroboration.same_family} from the same family${e.corroboration.unknown_family ? `, ${e.corroboration.unknown_family} from an unknown family` : ""}. ${e.corroboration.note}`);
+    o.push(`\n**Provenance.** Claim ${e.provenance.claim.replace("_", " ")}; evaluations: ${e.provenance.evaluations.map((x) => `${x.evaluator} ${x.outcome} (${x.recorded_by.replace("_", " ")})`).join(", ") || "none"}.`);
     o.push(`\n**Reproduction.** ${e.reproduction === "none" ? "none" : e.reproduction.map((r) => `${r.evaluator}: **${r.outcome}**. ${r.rationale.slice(0, 400)}`).join("; ")}`);
     o.push(`\n**Assessment.** ${e.assessment.text}`);
     o.push(`\n**Uncertainty and limitations.**\n` + e.uncertainty.map((u) => `- ${u}`).join("\n"));
