@@ -126,7 +126,11 @@ describe("a complete acquisition of a real git repository", () => {
     const { store } = await run(new FakeSource(main), new MemoryStore(), request, { events });
     expect(JSON.stringify(events)).not.toContain(SECRET_MARKER);
     expect(JSON.stringify([...store.snapshots.values()][0]!.report)).not.toContain(SECRET_MARKER);
-    expect(events.map((e) => e[0])).toEqual(["resolved", "planned", "archive_verified", "sealed"]);
+    // phases in order (blob and manifest batches repeat their phase with a growing count; the dashboard stores them throttled)
+    expect(events.map((e) => e[0]).filter((e, i, a) => a[i - 1] !== e)).toEqual(["resolved", "planned", "archive_verified", "blobs_stored", "manifest_rows_added", "sealed"]);
+    const last = (name: string) => events.filter((e) => e[0] === name).at(-1)![1] as { done: number; total: number };
+    expect(last("blobs_stored").done).toBe(last("blobs_stored").total);
+    expect(last("manifest_rows_added").done).toBe(last("manifest_rows_added").total);
   });
   it("resolves the ref once and then addresses only the commit id", async () => {
     const source = new FakeSource(main);

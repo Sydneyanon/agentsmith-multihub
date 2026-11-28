@@ -255,8 +255,16 @@ export async function acquireRepository(deps: AcquireDeps, lease: StepLease, req
     try {
       snapshotId = await deps.store.createSnapshot(lease, { repository, commitSha: commit.commitSha, ...(request.ref !== undefined ? { refName: request.ref } : {}), acquisitionReport: report });
       const queue = [...blobs.values()];
-      for (let i = 0; i < queue.length; i += BLOB_CONCURRENCY) await Promise.all(queue.slice(i, i + BLOB_CONCURRENCY).map((content) => deps.store.putBlob(lease, content)));
-      for (let i = 0; i < rows.length; i += BATCH) await deps.store.addSnapshotFiles(lease, snapshotId, rows.slice(i, i + BATCH));
+      progress("blobs_stored", { done: 0, total: queue.length });
+      for (let i = 0; i < queue.length; i += BLOB_CONCURRENCY) {
+        await Promise.all(queue.slice(i, i + BLOB_CONCURRENCY).map((content) => deps.store.putBlob(lease, content)));
+        progress("blobs_stored", { done: Math.min(queue.length, i + BLOB_CONCURRENCY), total: queue.length });
+      }
+      progress("manifest_rows_added", { done: 0, total: rows.length });
+      for (let i = 0; i < rows.length; i += BATCH) {
+        await deps.store.addSnapshotFiles(lease, snapshotId, rows.slice(i, i + BATCH));
+        progress("manifest_rows_added", { done: Math.min(rows.length, i + BATCH), total: rows.length });
+      }
     } catch (error) {
       if (error instanceof ResearchConflictError) throw new AcquisitionError("snapshot_conflict", error.message, false, undefined, { entity: error.entity, differing: error.differing });
       throw error;

@@ -5,6 +5,7 @@ import { ResearchConflictError, type EvaluationOutcome, type GeneratorIdentity, 
 import type { ResearchReads, ResearchStorePort, SealedSnapshotRef, WorkerLoopPort } from "./research-port.js";
 import { LeaseLostError, StepError } from "./step-errors.js";
 import type { ClaimedStep } from "./worker.js";
+import type { StepProgress } from "./step-progress.js";
 import { redactWorkerTokens } from "./worker-tokens.js";
 import { internalApiFetch } from "./net/internal-fetch.js";
 
@@ -125,7 +126,8 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
       if (code === "research_conflict") throw new ResearchConflictError(envelope.entity ?? "record", envelope.identity ?? "", envelope.differing ?? [], message);
       throw new WorkerApiRefusedError(response.status, code, `worker API refused ${operation} (${code}): ${message}`);
     }
-    if (typeof body["step_id"] === "string" && operation !== "heartbeat") this.tainted.add(body["step_id"]);
+    // heartbeats and progress reports are observations: a lost one never blocks completing the step
+    if (typeof body["step_id"] === "string" && operation !== "heartbeat" && operation !== "report_progress") this.tainted.add(body["step_id"]);
     throw new StepError(`worker API unavailable for ${operation} after ${attempts} attempts (${redactWorkerTokens(lastProblem)})`, true);
   }
 
@@ -154,6 +156,10 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
   async complete(stepId: string, output: Record<string, unknown> = {}): Promise<void> {
     if (this.tainted.has(stepId)) throw new StepError("an earlier worker API call for this step failed after its retries; the step is not completed and will be retried", true);
     await this.call("complete", { step_id: stepId, output }, true);
+  }
+  /** Intra-step progress: one plain (not idempotent) call; the API stores it only under the held lease and throttles it again. */
+  reportProgress(stepId: string, progress: StepProgress): Promise<unknown> {
+    return this.call("report_progress", { step_id: stepId, phase: progress.phase, done: progress.done, total: progress.total, unit: progress.unit }, false);
   }
   async fail(stepId: string, reason: string, retryable = true): Promise<void> {
     await this.call("fail", { step_id: stepId, reason: redactWorkerTokens(reason), retryable }, true);

@@ -137,3 +137,35 @@ export type ArchitectureSection =
       components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; state_roles: Array<{ variable: string; status: string; roles: string[] }>; authority: AuthoritySummary | null;
         entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; resolved_callee: string | null; at: string }>; unresolved_calls: Array<{ name: string; at: string }> }> }> };
 export interface DossierBrief { snapshot: { id: string; repository: string; commit_sha: string; verified: boolean }; architecture: ArchitectureSection; content_sha256: string }
+
+/** GET /v1/research/runs/:id/progress (run-progress/1), GET /v1/research/timeline, GET /v1/engine/components. apps/api/src/operations-api.ts is authoritative. */
+export type MetricKind = "processing" | "coverage" | "confidence" | "outcome";
+export interface Metric { key: string; label: string; numerator: number | null; denominator: number | null; unit: string; kind: MetricKind; source: string; measurable: boolean; basis: "verified" | "worker_reported"; note?: string }
+export interface StepActivity {
+  step_id: string; step_key: string; status: string; attempt: number; started_at: string | null; completed_at: string | null; elapsed_seconds: number | null;
+  lease_owner: string | null; lease_expires_at: string | null; lease_live: boolean; running_live: boolean;
+  latest_progress: { phase: string; done: number; total: number | null; unit: string; at: string; reported_by: "worker"; via: string | null } | null; progress_records: number;
+}
+export interface PanelIssues {
+  errors: Array<{ step_key: string; attempt: number | null; message: string; retryable: boolean | null; at: string | null; source: string }>;
+  retries: Array<{ step_key: string; attempt: number }>; expired_leases: Array<{ step_key: string; lease_owner: string | null; lease_expired_at: string | null }>;
+  lease_exhausted: number; abstentions: Array<{ code: string; detail: string; source: string }>;
+  refusals: { total: number; quota: number; by_code: Record<string, number> }; blockers: Array<{ text: string; source: string }>;
+}
+export type ComponentState = "operational" | "available" | "experimental" | "unavailable" | "blocked";
+export interface CapabilityRow { id: string; version: string; kind: string; in_run: boolean; state: string; reason: string; source: string; environment: string }
+export interface ProgressPanel {
+  id: string; title: string; state: string; state_basis: string; availability: { state: ComponentState; reason: string; evidence: string } | null;
+  processing: Metric[]; coverage: Metric[]; counts: Metric[]; activity: StepActivity[]; issues: PanelIssues; notes: string[]; capabilities?: CapabilityRow[];
+}
+export interface RunProgress {
+  version: string; generated_at: string;
+  run: { id: string; workflow_type: string; status: string; repository: string | null; ref: string | null; created_at: string; started_at: string | null; completed_at: string | null; snapshot_id: string | null; bounty_scope: { programme: string; in_scope_paths: number } | null };
+  stages: Array<{ step_key: string; status: string; attempt: number; elapsed_seconds: number | null; lease_live: boolean; started_at: string | null; completed_at: string | null }>;
+  panels: ProgressPanel[];
+  confidence: { available: true; total: number; distribution: Array<{ verdict: string; count: number }>; corroboration: { same_family: Metric; cross_family: Metric }; source: string; note: string } | { available: false; reason: string };
+  outcome: { available: true; counts: Metric[]; no_leads: boolean; note: string } | { available: false; reason: string };
+}
+export interface TimelineItem { id: string; at: string; source: string; category: string; action: string; actor: string; step_key: string | null; step_id: string | null; hypothesis_id: string | null; run_id: string | null; summary: string; reason: string | null; payload: unknown }
+export interface TimelinePage { generated_at?: string; items: TimelineItem[]; limit: number; has_more: boolean; next: { before: string; before_id: string } | null; decisions: { available: boolean; note: string }; sources: string[] }
+export interface SystemComponents { generated_at: string; rules: Record<string, string>; components: Array<{ id: string; label: string; state: ComponentState; evidence: Array<{ source: string; detail: string; at?: string | null }> }> }

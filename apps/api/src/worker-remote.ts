@@ -14,6 +14,7 @@ import { runWorkerLoop, defaultLog, type WorkerLoopOptions } from "./worker-loop
 import { LeaseLostError } from "./step-errors.js";
 import type { ClaimedStep } from "./worker.js";
 import { parseWorkerToken, redactWorkerTokens } from "./worker-tokens.js";
+import { progressFor } from "./step-progress.js";
 
 /**
  * Option D's worker runtime: the same loop (runWorkerLoop) and the same step handlers as the direct worker, with the database replaced
@@ -93,6 +94,8 @@ export async function executeRemoteStep(client: WorkerApiClient, workerId: strin
     else if (isResearchSlitherStep(step)) await processResearchSlitherScanStep({ worker: client, workerId, store: client, reads: client, env, ...beat }, step);
     else if (API_DERIVED[step.step_key]) {
       const snap = await client.sealedSnapshot(step.workflow_run_id);
+      // the worker computes nothing here: it reports only that the API is now deriving the step (one request, no count to report)
+      const progress = progressFor(client, step.id); progress.report("awaiting_api_derivation", 0, 1, "api_requests"); await progress.flush();
       await withHeartbeat({ worker: client, ...beat }, step, () => client.complete(step.id, { status: API_DERIVED[step.step_key]!, snapshot_id: snap.snapshotId }));
     } else throw new Error(`step ${step.step_key} is not served to a remote worker`);
   } finally { client.scopeToStep(null); }
