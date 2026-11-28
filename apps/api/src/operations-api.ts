@@ -396,7 +396,7 @@ export async function runProgress(pool: Pool, runId: string, env: Record<string,
   // ------------------------------------------------------------------------------------------------ 10. evidence and dossier
   const ds = stepsOf(DOSSIER_STEP_KEY).map(activity);
   const evidence = panel("evidence", "Evidence and dossier", ds);
-  if (ds.length) evidence.processing.push(metric({ key: "dossier_built", label: "dossier built", numerator: succeeded(DOSSIER_STEP_KEY) ? 1 : 0, denominator: 1, unit: "dossiers", kind: "processing", source: "build_dossier step status", basis: derivedBasis(DOSSIER_STEP_KEY) }));
+  if (ds.length) evidence.processing.push(metric({ key: "dossier_built", label: "dossier built", numerator: succeeded(DOSSIER_STEP_KEY) ? 1 : 0, denominator: 1, unit: "dossiers", kind: "processing", source: `build_dossier step status${out(DOSSIER_STEP_KEY)?.derived_by === "api" ? " (dossier derived by the API)" : succeeded(DOSSIER_STEP_KEY) ? " (dossier written by the worker)" : ""}`, basis: "verified" }));
   const spanIds = hypIds.length ? (await pool.query<{ id: string }>(
     `SELECT DISTINCT span_id AS id FROM (SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = ANY($1::uuid[])
        UNION SELECT ee.span_id FROM evaluation_evidence ee JOIN hypothesis_evaluations e ON e.id = ee.evaluation_id WHERE e.hypothesis_id = ANY($1::uuid[])) x LIMIT 5001`, [hypIds])).rows.map((r) => r.id) : [];
@@ -504,8 +504,9 @@ export async function runTimeline(pool: Pool, q: { run?: string; limit: number; 
       summary: redactText(summary).slice(0, 300), reason: r.reason ? redactText(String(r.reason)).slice(0, 500) : null, payload: cappedPayload(p) };
   });
   const last = rows.slice(0, q.limit).at(-1);
+  const now = (await pool.query<{ at: Date }>("SELECT now() AS at")).rows[0]!.at;
   return {
-    version: "run-timeline/1", items, limit: q.limit, has_more: rows.length > q.limit,
+    version: "run-timeline/1", generated_at: iso(now), items, limit: q.limit, has_more: rows.length > q.limit,
     next: rows.length > q.limit && last ? { before: last.at_cursor, before_id: last.id } : null,
     decisions: hasDecisions ? { available: true, note: "engine-loop decisions are recorded (research_decisions); they are not merged into this timeline yet" } : { available: false, note: "engine-loop decisions are not recorded in this database: migration 0010 (research_decisions) is not applied, so none can appear here" },
     sources: ["audit_events (run created, step claimed/succeeded/failed/lease_exhausted, worker_api.accepted/refused/replayed, workflow_step.progress)", "hypothesis_events (registered, evaluation_recorded, review_recorded)"],

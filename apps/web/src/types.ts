@@ -167,5 +167,5 @@ export interface RunProgress {
   outcome: { available: true; counts: Metric[]; no_leads: boolean; note: string } | { available: false; reason: string };
 }
 export interface TimelineItem { id: string; at: string; source: string; category: string; action: string; actor: string; step_key: string | null; step_id: string | null; hypothesis_id: string | null; run_id: string | null; summary: string; reason: string | null; payload: unknown }
-export interface TimelinePage { items: TimelineItem[]; limit: number; has_more: boolean; next: { before: string; before_id: string } | null; decisions: { available: boolean; note: string }; sources: string[] }
+export interface TimelinePage { generated_at?: string; items: TimelineItem[]; limit: number; has_more: boolean; next: { before: string; before_id: string } | null; decisions: { available: boolean; note: string }; sources: string[] }
 export interface SystemComponents { generated_at: string; rules: Record<string, string>; components: Array<{ id: string; label: string; state: ComponentState; evidence: Array<{ source: string; detail: string; at?: string | null }> }> }

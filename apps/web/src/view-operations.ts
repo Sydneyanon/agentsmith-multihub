@@ -73,7 +73,7 @@ function activityLine(a: StepActivity): HTMLElement {
   const lease = a.status === "running" ? (a.lease_live ? `live lease held by ${a.lease_owner} until ${exactTime(a.lease_expires_at)}` : `lease EXPIRED at ${exactTime(a.lease_expires_at)}: not running`) : null;
   return h("div", { class: "activity" },
     h("p", { class: "small" }, h("strong", {}, a.step_key), ` · ${a.status}`, a.attempt > 1 ? ` · attempt ${a.attempt}` : "", a.elapsed_seconds !== null ? ` · ${a.status === "running" ? "running for" : "took"} ${duration(a.elapsed_seconds)}` : "", lease ? ` · ${lease}` : ""),
-    p ? h("p", { class: "small" }, "latest progress: ", h("strong", {}, p.phase.replace(/_/g, " ")), ` ${p.done}${p.total === null ? "" : ` of ${p.total}`} ${p.unit.replace(/_/g, " ")} · `, chip("reported by the worker", "amber"), ` · ${relativeTime(p.at)} (${exactTime(p.at)}) · ${a.progress_records} progress records`)
+    p ? h("p", { class: "small" }, a.status === "running" ? "latest progress: " : "last progress report before the step ended: ", h("strong", {}, p.phase.replace(/_/g, " ")), ` ${p.done}${p.total === null ? "" : ` of ${p.total}`} ${p.unit.replace(/_/g, " ")} · `, chip("reported by the worker", "amber"), ` · ${relativeTime(p.at)} (${exactTime(p.at)}) · ${a.progress_records} progress records`)
       : a.status === "running" ? h("p", { class: "small muted" }, `running since ${exactTime(a.started_at)}; no progress reported, so progress is not measurable`) : null);
 }
 
@@ -242,6 +242,6 @@ function timelinePanel(ctx: Ctx, runId: string, open: Set<string>): HTMLElement 
     return h("div", { class: "stack-sm" },
       h("p", { class: "muted small" }, `Merged, newest first, from ${t.sources.join("; ")}. Tap a row to see its stored payload (secrets removed).`),
       h("p", { class: "small muted" }, t.decisions.note), list, more);
-  });
+  }, { generatedAt: (t) => t?.generated_at ?? null });
   return panel("Live timeline", [live], { class: "ops-panel ops-timeline" });
 }
