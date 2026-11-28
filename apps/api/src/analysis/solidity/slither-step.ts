@@ -1,12 +1,11 @@
 import { tmpdir } from "node:os";
-import { ResearchStore } from "../../research-state.js";
 import type { ClaimedStep } from "../../worker.js";
 import { DryRunViolation } from "../../engine/effects.js";
 import { recordSlitherLeads, runSlither } from "../../engine/tools/slither.js";
 import type { ToolFailure } from "../../engine/tools/run-tool.js";
 import { SLITHER_SCAN_SWITCH, SLITHER_VERSION } from "./keys.js";
 import { isResearchSlitherStep } from "./slither-record.js";
-import { sealedSnapshot, withHeartbeat, type AnalysisStepContext } from "./step.js";
+import { researchContext, withHeartbeat, type AnyAnalysisStepContext } from "./step.js";
 
 /**
  * The OPTIONAL `slither_scan` stage of a `repository_research` run (between analyze_structure and challenge_leads). It exists only in
@@ -54,10 +53,11 @@ const passive = { execution_mode: "passive_only", authorization_status: "unverif
 /** the private working directory differs per run; it is never recorded */
 const scrub = (s: string) => s.split(tmpdir()).join("<tmp>").replace(/<tmp>\/agentsmith-tool-[A-Za-z0-9]+/g, "<snapshot>").slice(0, 2000);
 
-export async function processResearchSlitherScanStep(ctx: AnalysisStepContext, step: ClaimedStep): Promise<void> {
+export async function processResearchSlitherScanStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   if (!isResearchSlitherStep(step)) throw new Error("not a repository_research slither_scan step");
+  const ctx = researchContext(context);
   const env = ctx.env ?? process.env;
-  const store = new ResearchStore(ctx.pool); const snap = await sealedSnapshot(ctx.pool, store, step.workflow_run_id);
+  const { store, reads } = ctx; const snap = await reads.sealedSnapshot(step.workflow_run_id);
   const lease = { stepId: step.id, workerId: ctx.workerId };
   const limits = slitherScanLimits(env);
   const base = { producer: "slither", pinned_version: SLITHER_VERSION, snapshot_id: snap.snapshotId, repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256, limits, ...passive };
@@ -73,8 +73,7 @@ export async function processResearchSlitherScanStep(ctx: AnalysisStepContext, s
     const slitherBin = env["AGENTSMITH_SLITHER_BIN"]; const solcBin = env["AGENTSMITH_SOLC_BIN"];
     if (!set(slitherBin) || !set(solcBin)) { await abstain({ code: "tool_unavailable", detail: "AGENTSMITH_SLITHER_BIN or AGENTSMITH_SOLC_BIN is not set on this worker" }, 0); return; }
     // ONLY the sealed snapshot: the stored bytes of its Solidity files (the snapshot was verified above)
-    const files = (await ctx.pool.query<{ path: string; content: Buffer }>(
-      `SELECT f.path, b.content FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256 WHERE f.snapshot_id = $1 AND f.path LIKE '%.sol' ORDER BY f.path COLLATE "C"`, [snap.snapshotId])).rows;
+    const files = await reads.snapshotSolidityFiles(snap.snapshotId);
     let r: Awaited<ReturnType<typeof runSlither>>;
     try {
       r = await runSlither({ files, slitherBin: slitherBin!, solcBin: solcBin!, timeoutMs: limits.timeoutMs, totalTimeoutMs: limits.totalTimeoutMs, maxOutputBytes: limits.maxOutputBytes });

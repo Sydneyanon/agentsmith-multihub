@@ -5,7 +5,7 @@ import { slitherScanStepInput } from "../analysis/solidity/slither-record.js";
 import { LeaseLostError } from "../step-errors.js";
 import { ResearchStore } from "../research-state.js";
 import type { ClaimedStep, WorkflowWorker } from "../worker.js";
-import { acquireRepository, type AcquireRequest, type AcquisitionResult } from "./acquire.js";
+import { acquireRepository, type AcquireRequest, type AcquisitionResult, type AcquisitionStore } from "./acquire.js";
 import { AcquisitionError } from "./errors.js";
 import { parseRepositoryName, type RepositorySource } from "./github-source.js";
 import { parseBountyScope, type BountyScope } from "./bounty-scope.js";
@@ -80,7 +80,9 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
 }
 
 export type AcquireStepContext = {
-  pool: Pool; worker: WorkflowWorker; workerId: string; source: RepositorySource;
+  /** The direct worker's connection. Option D's remote worker passes `store` instead and has no pool. */
+  pool?: Pool; worker: Pick<WorkflowWorker, "heartbeat" | "complete">; workerId: string; source: RepositorySource;
+  store?: AcquisitionStore;
   /** How often the step lease is renewed while the acquisition runs (the worker's lease is 90 s by default). */
   heartbeatMs?: number;
   log?: (message: string, fields?: Record<string, unknown>) => void;
@@ -111,7 +113,8 @@ export async function processAcquireRepositoryStep(context: AcquireStepContext, 
     context.worker.heartbeat(step.id).then((alive) => { if (!alive) { leaseLost = true; controller.abort(); } }, () => { /* a failed beat is retried at the next interval; the lease check on writes is the authority */ });
   }, context.heartbeatMs ?? 30_000);
   try {
-    const store = new ResearchStore(context.pool);
+    const store = context.store ?? (context.pool ? new ResearchStore(context.pool) : null);
+    if (!store) throw new Error("acquisition needs either a database pool or a research store port");
     const result = await acquireRepository({ store, source: context.source, signal: controller.signal, progress: (event, fields) => context.log?.(`acquisition ${event}`, fields) }, { stepId: step.id, workerId: context.workerId }, request);
     await context.worker.complete(step.id, stepOutput(result));
   } catch (error) {
