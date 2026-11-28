@@ -22,12 +22,13 @@ import { verifiedRepositoriesFor } from "./enrich.js";
 import { latestSealedSnapshot } from "./repo-intel.js";
 import { resolveProgrammeRepositories } from "./repo-resolve.js";
 import type { Resolution } from "./resolve.js";
+import type { BountyScope } from "../acquisition/bounty-scope.js";
 
 export type CreateRun = (
   client: Pick<PoolClient, "query">,
   input: { repository: string; ref?: string },
   createdBy: string,
-  options?: { structuralAnalysis?: boolean },
+  options?: { structuralAnalysis?: boolean; bountyScope?: BountyScope },
 ) => Promise<{ runId: string }>;
 
 export type PromoteOptions = {
@@ -36,6 +37,12 @@ export type PromoteOptions = {
   structuralAnalysis?: boolean; // append analysis stages to created runs (default false; acquisition-only otherwise)
   dryRun?: boolean;            // resolve and decide, but create nothing (for reporting)
   createRun?: CreateRun;       // injected for tests; defaults to createRepositoryResearchRunIn
+  /**
+   * A TARGETED promotion: exactly one programme (canonical key, e.g. "sherlock:273") and one of ITS verified repositories, pinned to a
+   * full commit id, optionally with the official bounty scope. Nothing else is considered. A repository that is not among the
+   * programme's resolved or verified repositories is refused, never inferred. Without `target` the bridge behaves exactly as before.
+   */
+  target?: { programme: string; repository: string; commit: string; bountyScope?: BountyScope };
 };
 
 export type PromotionAction = {
@@ -59,6 +66,9 @@ export type PromoteResult = {
   actions: PromotionAction[];
 };
 
+/** A targeted promotion (see PromoteOptions.target). */
+export type PromoteTarget = NonNullable<PromoteOptions["target"]>;
+
 type ProgramRow = { id: string; project_name: string | null; resolved: unknown; verification: string | null; status: string | null };
 
 /** Promote eligible programmes into repository_research runs. Read eligible candidates, resolve repos, de-dup, create/reuse runs. */
@@ -68,23 +78,32 @@ export async function promoteEligibleProgrammes(pool: Pool, opts: PromoteOptions
   const createRun = opts.createRun ?? createRepositoryResearchRunIn;
   const result: PromoteResult = { eligible_programmes: 0, repositories_considered: 0, created: 0, reused: 0, already_linked: 0, skipped_cap: 0, skipped_dry_run: 0, actions: [] };
 
-  const { rows } = await pool.query<ProgramRow>(
-    `SELECT id, project_name, resolved, verification, status FROM bounty_programs WHERE merged_into IS NULL ORDER BY id`);
+  const t = opts.target;
+  if (t) {
+    if (!/^[0-9a-f]{40}$/.test(t.commit)) throw new Error("a targeted promotion needs a full 40-character commit id");
+    if (t.bountyScope && t.bountyScope.programme !== t.programme) throw new Error("the bounty scope belongs to a different programme");
+  }
+  const { rows } = t
+    ? await pool.query<ProgramRow>(`SELECT id, project_name, resolved, verification, status FROM bounty_programs WHERE merged_into IS NULL AND canonical_key = $1`, [t.programme])
+    : await pool.query<ProgramRow>(`SELECT id, project_name, resolved, verification, status FROM bounty_programs WHERE merged_into IS NULL ORDER BY id`);
+  if (t && !rows[0]) throw new Error(`programme ${t.programme} does not exist`);
 
   for (const row of rows) {
     const resolved = (row.resolved ?? {}) as Resolution["resolved"];
     const elig = classifyEligibility({ resolved, verification: row.verification ?? "unverified" } as Resolution);
-    if (elig.tier !== "eligible") continue; // evidence-based: only officially-confirmed, sc-scoped, funded programmes
+    if (elig.tier !== "eligible") { if (t) throw new Error(`programme ${t.programme} is not eligible (${elig.tier})`); continue; } // evidence-based: only officially-confirmed, sc-scoped, funded programmes
     result.eligible_programmes += 1;
     // Repositories come from the collected fields AND from verified enrichment mappings (officially_confirmed/official_documentation
     // only — inferred/unverified never enter research automatically).
     const resolvedRepos = resolveProgrammeRepositories(resolved).repositories;
     const verified = await verifiedRepositoriesFor(pool, row.id);
-    const repositories = [...new Set([...resolvedRepos, ...verified])];
+    const all = [...new Set([...resolvedRepos, ...verified])];
+    if (t && !all.some((r) => r.toLowerCase() === t.repository.toLowerCase())) throw new Error(`${t.repository} is not a resolved or verified repository of ${t.programme}; refusing to infer an association`);
+    const repositories = t ? all.filter((r) => r.toLowerCase() === t.repository.toLowerCase()) : all;
     for (const repository of repositories) {
       result.repositories_considered += 1;
-      const ref: string | null = null; // default branch; acquisition pins the commit
-      const action = await promoteOne(pool, { programId: row.id, project: row.project_name ?? row.id, repository, ref }, { maxNewRuns, createdBy, createRun, structuralAnalysis: opts.structuralAnalysis ?? false, dryRun: opts.dryRun ?? false }, result);
+      const ref: string | null = t ? t.commit : null; // untargeted: default branch (acquisition pins the commit); targeted: the exact commit
+      const action = await promoteOne(pool, { programId: row.id, project: row.project_name ?? row.id, repository, ref }, { maxNewRuns, createdBy, createRun, structuralAnalysis: opts.structuralAnalysis ?? false, dryRun: opts.dryRun ?? false, ...(t?.bountyScope ? { bountyScope: t.bountyScope } : {}) }, result);
       result.actions.push(action);
     }
   }
@@ -94,7 +113,7 @@ export async function promoteEligibleProgrammes(pool: Pool, opts: PromoteOptions
 async function promoteOne(
   pool: Pool,
   target: { programId: string; project: string; repository: string; ref: string | null },
-  cfg: { maxNewRuns: number; createdBy: string; createRun: CreateRun; structuralAnalysis: boolean; dryRun: boolean },
+  cfg: { maxNewRuns: number; createdBy: string; createRun: CreateRun; structuralAnalysis: boolean; dryRun: boolean; bountyScope?: BountyScope },
   result: PromoteResult,
 ): Promise<PromotionAction> {
   const base = { programId: target.programId, project: target.project, repository: target.repository, ref: target.ref };
@@ -114,12 +133,14 @@ async function promoteOne(
   // No bounty link yet, but has this repository already been analysed by ANY run (e.g. a manual intake or an engine run)? If so,
   // reuse that run instead of re-dispatching the same code. Repository intelligence, not a second scan.
   let analysedRunId: string | null = null;
-  if (!reusable.rows[0]) {
+  // A pinned (targeted) promotion never reuses another run by repository alone: that run may have analysed a different commit, or carry
+  // no bounty scope. It creates its own run for exactly this commit.
+  if (!reusable.rows[0] && target.ref === null) {
     const sealed = await latestSealedSnapshot(pool, target.repository);
     if (sealed) analysedRunId = sealed.runId;
   }
 
-  const reuseRunId: string | null = reusable.rows[0] ? String(reusable.rows[0].workflow_run_id) : analysedRunId;
+  const reuseRunId: string | null = reusable.rows[0] && !cfg.bountyScope ? String(reusable.rows[0].workflow_run_id) : analysedRunId;
 
   if (cfg.dryRun) { result.skipped_dry_run += 1; return { ...base, action: "skipped_dry_run", workflowRunId: reuseRunId, reason: reuseRunId ? "would reuse an existing run" : "would create a new run" }; }
 
@@ -138,7 +159,7 @@ async function promoteOne(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { runId } = await cfg.createRun(client, { repository: target.repository, ...(target.ref ? { ref: target.ref } : {}) }, cfg.createdBy, { structuralAnalysis: cfg.structuralAnalysis });
+    const { runId } = await cfg.createRun(client, { repository: target.repository, ...(target.ref ? { ref: target.ref } : {}) }, cfg.createdBy, { structuralAnalysis: cfg.structuralAnalysis, ...(cfg.bountyScope ? { bountyScope: cfg.bountyScope } : {}) });
     await client.query(
       `INSERT INTO bounty_research_links (bounty_program_id, repository, ref, workflow_run_id, reason, created_by) VALUES ($1,$2,$3,$4,$5,$6)`,
       [target.programId, target.repository, target.ref, runId, "eligible programme, repository newly resolved", cfg.createdBy]);

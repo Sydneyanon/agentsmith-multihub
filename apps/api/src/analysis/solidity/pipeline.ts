@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { bountyScopeOfSnapshot, scopeOfPath, type ScopeStatus } from "../../acquisition/bounty-scope.js";
 import type { Pool } from "pg";
 import { ProgramIndex } from "./index.js";
 import { challengeFinding } from "./challenge.js";
@@ -126,6 +127,8 @@ export type DossierEntry = {
   hypothesis_id: string; class: string; function: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown;
   generator: string; evidence: Array<{ path: string; lines: string; role: string; text: string; verified: boolean }>;
   evaluations: Array<{ evaluator: string; outcome: string; rationale: string }>; status: string | null; static_outcome: string | null; human_review: string;
+  /** present only when the run carries an official bounty scope: whether the lead's primary location is in the selected scope */
+  scope_status?: ScopeStatus;
 };
 export type ArchitectureSection =
   | { available: false; reason: string }
@@ -154,6 +157,8 @@ export type Dossier = {
   /** what produced the analysis, from the analysis step's own record (null fields: not recorded, e.g. builds before structural-solidity/2) */
   analyzer: { version: string | null; build_commit: string | null; image: string | null };
   summary: Record<string, number>; entries: DossierEntry[]; architecture: ArchitectureSection; limitations: string[]; content_sha256: string;
+  /** the official bounty scope recorded on the run (null for runs without one): its evidence, and how many leads fall in and out of it */
+  bounty_scope?: { programme: string; evidence: string; evidence_sha256: string; in_scope_files: number; in_scope_leads: number; out_of_scope_leads: number } | null;
 };
 
 async function analysisCoverage(pool: Pool, snapshotId: string): Promise<AnalysisCoverage> {
@@ -283,8 +288,20 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
   const coverage = await analysisCoverage(pool, snapshotId); const analyzer = await analyzerRecord(pool, snapshotId);
   await addSlitherCoverage(pool, snapshotId, coverage, limitations); // no-op unless the run was created with the Slither stage
   const content = entries.map((e) => [e.class, e.function, e.claim, e.evidence.map((x) => `${x.path}:${x.lines}:${x.text}`), e.evaluations.map((x) => `${x.evaluator}:${x.outcome}`), e.status]);
-  const content_sha256 = createHash("sha256").update(JSON.stringify([content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer])).digest("hex");
-  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, coverage, analyzer, summary, entries, architecture, limitations, content_sha256 };
+  // The official bounty scope, when the run carries one: label every lead by its PRIMARY evidence location. Runs without a scope are
+  // unchanged (no field, same content hash as before).
+  const scope = await bountyScopeOfSnapshot(pool, snapshotId);
+  let bountyScope: Dossier["bounty_scope"] = null;
+  if (scope) {
+    for (const e of entries) { const at = e.evidence.find((x) => x.role === "primary") ?? e.evidence[0]; e.scope_status = at ? scopeOfPath(scope, at.path) : "out_of_scope"; }
+    const inScope = entries.filter((e) => e.scope_status === "in_scope").length;
+    bountyScope = { programme: scope.programme, evidence: scope.evidence, evidence_sha256: scope.evidence_sha256, in_scope_files: scope.in_scope_paths.length, in_scope_leads: inScope, out_of_scope_leads: entries.length - inScope };
+    limitations.push(`Bounty scope (${scope.programme}, evidence ${scope.evidence}, sha256 ${scope.evidence_sha256.slice(0, 12)}…): ${scope.in_scope_paths.length} files are in scope. The whole repository was analysed so that interactions are visible, but only leads whose primary location is in scope can be eligible bounty findings; every other lead is labelled OUT OF SCOPE.`);
+  }
+  const hashed: unknown[] = [content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer];
+  if (bountyScope) hashed.push(bountyScope, entries.map((e) => [e.hypothesis_id, e.scope_status]));
+  const content_sha256 = createHash("sha256").update(JSON.stringify(hashed)).digest("hex");
+  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, coverage, analyzer, summary, entries, architecture, limitations, content_sha256, ...(bountyScope ? { bounty_scope: bountyScope } : {}) };
 }
 
 export function renderDossierMarkdown(d: Dossier): string {
@@ -296,10 +313,10 @@ export function renderDossierMarkdown(d: Dossier): string {
       + (d.coverage.external_tools?.length ? d.coverage.external_tools.map((t) => t.status === "completed"
         ? `External tool: **${t.generator}** completed (solc ${t.solc_version}): ${t.leads} leads, ${t.informational_detections} informational detections counted, not stored.`
         : `External tool: **slither ${t.pinned_version} ABSTAINED** (${t.code}): ${t.detail}`).join("\n") + "\n" : ""),
-    `Status counts (derived by the database view): ${Object.entries(d.summary).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}.\n`, "## Leads\n"];
+    `Status counts (derived by the database view): ${Object.entries(d.summary).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}.\n`, ...(d.bounty_scope ? [`**Bounty scope:** ${d.bounty_scope.programme}: ${d.bounty_scope.in_scope_files} files in scope (evidence ${d.bounty_scope.evidence}, sha256 \`${d.bounty_scope.evidence_sha256}\`). Leads: ${d.bounty_scope.in_scope_leads} in scope, ${d.bounty_scope.out_of_scope_leads} OUT OF SCOPE (not eligible bounty findings).\n`] : []), "## Leads\n"];
   if (!d.entries.length) o.push("_No leads were generated. That is NOT evidence that the code is free of vulnerabilities: it means only that this analyzer's patterns did not match (see coverage and limitations)._\n");
   d.entries.forEach((e, i) => {
-    o.push(`### ${i + 1}. ${e.function} - ${e.class} (status: ${e.status})\n**Claim.** ${e.claim}\n`);
+    o.push(`### ${i + 1}. ${e.function} - ${e.class} (status: ${e.status})${e.scope_status === "out_of_scope" ? " — OUT OF BOUNTY SCOPE: not an eligible finding" : e.scope_status === "in_scope" ? " — in bounty scope" : ""}\n**Claim.** ${e.claim}\n`);
     for (const x of e.evidence) o.push(`- evidence (${x.role}) \`${x.path}:${x.lines}\`: \`${x.text.slice(0, 140)}\``);
     o.push(`\n**Challenge.**` + (e.evaluations.length ? "\n" + e.evaluations.map((v) => `- ${v.evaluator}: **${v.outcome}**. ${v.rationale.slice(0, 600)}`).join("\n") : " none recorded"));
     if (!e.evaluations.length || e.evaluations.some((v) => v.outcome === "inconclusive"))

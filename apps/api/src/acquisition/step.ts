@@ -8,6 +8,7 @@ import type { ClaimedStep, WorkflowWorker } from "../worker.js";
 import { acquireRepository, type AcquireRequest, type AcquisitionResult } from "./acquire.js";
 import { AcquisitionError } from "./errors.js";
 import { parseRepositoryName, type RepositorySource } from "./github-source.js";
+import { parseBountyScope, type BountyScope } from "./bounty-scope.js";
 
 export const REPOSITORY_RESEARCH_WORKFLOW = "repository_research";
 export const ACQUIRE_STEP_KEY = "acquire_repository";
@@ -28,6 +29,7 @@ export type RepositoryResearchInput = z.infer<typeof stepInput>;
 export type RepositoryResearchOptions = {
   /** append the analysis stages (analyse, challenge, dossier) after acquisition; OFF by default */ structuralAnalysis?: boolean;
   /** also insert the pinned Slither stage between analyse and challenge; OFF by default; requires structuralAnalysis */ slitherScan?: boolean;
+  /** the official bounty scope, recorded on the run so the dossier labels every lead in or out of scope; absent for most runs */ bountyScope?: BountyScope;
 };
 
 export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator", options: RepositoryResearchOptions = {}): Promise<{ runId: string; stepId: string }> {
@@ -52,7 +54,7 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
   if (options.slitherScan === true && options.structuralAnalysis !== true) throw new Error("slitherScan requires structuralAnalysis (the Slither stage runs between analyse and challenge)");
   const run = await client.query<{ id: string; correlation_id: string }>(
       `INSERT INTO workflow_runs (workflow_type, status, input, created_by) VALUES ($1, 'queued', $2::jsonb, $3) RETURNING id, correlation_id`,
-      [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: parsed.repository, source: "user", ...(parsed.ref ? { ref: parsed.ref } : {}), execution_mode: "passive_only", authorization_status: "unverified" }), createdBy]);
+      [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: parsed.repository, source: "user", ...(parsed.ref ? { ref: parsed.ref } : {}), execution_mode: "passive_only", authorization_status: "unverified", ...(options.bountyScope ? { bounty_scope: parseBountyScope(options.bountyScope) } : {}) }), createdBy]);
     const step = await client.query<{ id: string }>(
       `INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, 0, 'repository_acquirer', $3::jsonb) RETURNING id`,
       [run.rows[0]!.id, ACQUIRE_STEP_KEY, JSON.stringify(parsed)]);
