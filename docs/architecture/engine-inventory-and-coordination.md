@@ -1102,3 +1102,53 @@ carried-over coverage stated.
 
 **Not approved, and not assumed anywhere in this document:** any run in production, any model call, any tool binary in production,
 any RPC or explorer provider, any schema change, any merge to `main`.
+
+---
+
+## Part 7. Status update: C1, C2 and C3 implemented in development (2026-11-28)
+
+**Scope of this update.** Parts 1 to 6 above describe commit `91cbd3f` and are unchanged. This part records what branch `c1-c3`
+(development only; not merged, not released, not deployed) adds. Nothing here ran in production, on Fly or against a real repository.
+No migration was added. Every result below comes from controlled, self-authored fixtures.
+
+| task | status | where | what it is NOT |
+|---|---|---|---|
+| **C1** shared protocol model | *implemented, tested, integrated* (both worker modes) | `analysis/solidity/shared-model.ts`; built in `analyze_structure`; read by hash in `slither-step.ts`, `step.ts` (challenge), `pipeline.ts` (dossier), `apex/shadow-step.ts` | not a replacement of the validators' own parse or of APEX's internal role derivation: those engines still build their in-memory index from the sealed sources (the model holds facts, not syntax trees; the APEX engine is unchanged byte for byte). They read the model to check that their inputs are exactly its inputs and record its hash. The engine loop (drafts 0009/0010) still rebuilds. |
+| **C2** shared lead identity | *implemented, tested, integrated* | `analysis/solidity/lead-identity.ts`; `lead_keys` in the `analyze_structure` and `slither_scan` step outputs; `investigations` in the dossier | no table: cross-run lookup scans step outputs (`db/drafts/c2-lead-identity`). Hypotheses are never merged. |
+| **C3** dependency acquisition | *implemented, tested, integrated* (both worker modes), off by default: only for a run created with `dependencies` (`create-run-main --dependencies`), and claimed only with `DEPENDENCY_ACQUISITION_ENABLED=true` | `acquisition/dependencies.ts`, `acquisition/dependency-step.ts`; step `acquire_dependencies` | git submodules and declared remappings only. Packages are recorded with their lockfile pin and never fetched (`db/drafts/c3-dependency-records`). No remapping is inferred. Tested with local fixtures and a labelled Slither stand-in only: **no real compiler has compiled a project with these dependencies.** |
+
+**Shared model sections** (`agentsmith-shared-protocol-model/1`; it names the unchanged `protocol-model/3` by hash):
+
+| section | status | epistemic status |
+|---|---|---|
+| contracts and relationships | computed (the base model's components and inheritance) | parsed |
+| functions and callers | computed (base functions and call edges; internal callers inverted) | derived |
+| state variables and who writes them | computed | derived |
+| permissions and guards per function; roles | computed; the actor set is `not_computed` | derived |
+| external dependencies: call targets, imports, the dependency set | computed; the dependency set is `not_computed` when the run has no dependency stage | parsed (the dependency set's content identity: verified against git objects) |
+| upgradeability markers (delegatecall, proxy boundary, initializer, implementation pointer) | computed | parsed / derived |
+| unsupported features (the APEX gate's vocabulary, predicted from syntax) | computed; the gate's own abstentions are read beside it from the shadow record, when APEX ran | parsed |
+| unresolved questions | computed | unknown |
+| assets and accounting | `not_computed`, with the reason | — |
+| invariants | `not_computed`, with the reason | — |
+
+**Record changes** (additive; reported for review):
+- `analyze_structure` output: `shared_model_sha256`, `shared_model_stored`, `shared_model_schema`, `shared_model_sections`,
+  `dependency_manifest_digest`, `lead_keys`.
+- `slither_scan` output: `protocol_model`, `lead_keys`, and `dependencies` when the run has a dependency stage; a new abstention code
+  `dependency_unavailable`.
+- `challenge_leads` output: `protocol_model`. `build_dossier` output: `protocol_model`, `investigations`; `leads` now counts
+  investigations (equal to the hypothesis count unless hypotheses share a lead key), with `hypotheses` beside it when they differ.
+- Dossier: `shared_model`, `investigations`, `investigation_summary`; two Markdown sections. `content_sha256` is unchanged for a run
+  with no dependency stage and no shared lead.
+- APEX shadow report: optional `provenance.protocol_model`. The shadow version label is unchanged.
+- Worker API (option D): step key `acquire_dependencies`; operations `snapshot_config_files`, `shared_protocol_model`,
+  `dependency_context`, `dependency_solidity_files`; strict completion schemas extended to match. A defect found on the way: the
+  strict `slither_scan` completion schema could never accept a completed scan (`tool.args` is a list per directory, the schema took a
+  flat list); it now accepts what the stage has always produced.
+
+**Demonstration.** `apps/api/src/integration/c1-c3-coordination.integration.test.ts` (direct and remote modes) and
+`scripts/c1-c3-rehearsal.ts`, with its saved record in `docs/research-runs/c1-c3-rehearsal/`.
+
+**Still required before C3 is used on a real repository:** the owner's approval to fetch submodule repositories (Part 6, item 15), and a
+real compiler in a tools worker (C4). Until then the stage stays off by default.
