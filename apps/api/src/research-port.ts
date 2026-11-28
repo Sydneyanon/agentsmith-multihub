@@ -3,6 +3,8 @@ import type { SlitherScanOutcome } from "./analysis/solidity/slither-record.js";
 import type { ResearchStore } from "./research-state.js";
 import type { ClaimedStep } from "./worker.js";
 import type { StepProgress } from "./step-progress.js";
+import type { ConfigFiles, DependencyManifest } from "./acquisition/dependencies.js";
+import type { SharedModelRef, SharedModelUnavailable } from "./analysis/solidity/shared-model.js";
 
 /**
  * Option D: the port between a `repository_research` worker and the database. Everything such a worker does to the database goes
@@ -55,4 +57,12 @@ export interface ResearchReads {
   specialistHypothesesOfRun(runId: string, snapshotId: string): Promise<StoredHypothesis[]>;
   /** The dossier, built ONLY from stored records (re-verifies every cited span; fails closed). */
   buildDossier(snapshotId: string): Promise<Dossier>;
+  /** C1: the run's shared protocol model as stored, with the hash the analysis step recorded; the READER re-hashes it (verifySharedModel). */
+  sharedProtocolModel(runId: string): Promise<SharedModelRef | SharedModelUnavailable>;
+  /** C3: the resolver's five configuration files of a sealed snapshot of the run (.gitmodules, remappings.txt, foundry.toml, package.json, package-lock.json). */
+  snapshotConfigFiles(snapshotId: string): Promise<ConfigFiles>;
+  /** C3: the run's dependency manifest and each acquired dependency's file paths; null when the run has no (finished) dependency stage. */
+  dependencyContext(runId: string): Promise<{ manifest: DependencyManifest; files: Record<string, string[]> } | null>;
+  /** C3: the Solidity files of the run's ACQUIRED dependencies, each under its dependency path (for a compiler's private directory). */
+  dependencySolidityFiles(runId: string): Promise<Array<{ path: string; content: Buffer }>>;
 }

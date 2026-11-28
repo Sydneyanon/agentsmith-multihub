@@ -199,7 +199,7 @@ export async function runProgress(pool: Pool, runId: string, env: Record<string,
   const derivedBasis = (key: string): MetricBasis => (out(key)?.derived_by === "api" ? "verified" : "worker_reported");
 
   // snapshot and its files
-  const snap = (await pool.query<Row>("SELECT id, sealed_at, file_count, total_bytes, manifest_sha256, commit_sha FROM repo_snapshots WHERE workflow_run_id = $1 ORDER BY created_at DESC LIMIT 1", [runId])).rows[0] ?? null;
+  const snap = (await pool.query<Row>("SELECT id, sealed_at, file_count, total_bytes, manifest_sha256, commit_sha FROM repo_snapshots WHERE workflow_run_id = $1 ORDER BY (acquisition_report ? 'dependency_of'), created_at DESC LIMIT 1", [runId])).rows[0] ?? null; // the analysed snapshot, never a dependency's (C3)
   const files = snap ? (await pool.query<Row>(
     `SELECT count(*)::int AS rows, count(*) FILTER (WHERE blob_sha256 IS NOT NULL)::int AS stored, count(*) FILTER (WHERE blob_sha256 IS NULL)::int AS skipped,
             count(*) FILTER (WHERE blob_sha256 IS NOT NULL AND path LIKE '%.sol')::int AS sol

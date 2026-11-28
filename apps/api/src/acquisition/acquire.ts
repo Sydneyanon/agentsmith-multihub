@@ -23,6 +23,11 @@ export type AcquireRequest = {
   /** What to do when a path cannot be a manifest row. Default "fail". "seal_partial" seals and states `completeness: partial`. */
   onUnrepresentable?: "fail" | "seal_partial";
   limits?: Partial<AcquisitionLimits>;
+  /**
+   * C3: set only when this acquisition is a DEPENDENCY of an analysed snapshot (acquisition/dependency-step.ts). Recorded verbatim in the
+   * dependency snapshot's acquisition report as `dependency_of`, which is the link to its parent; absent for every ordinary acquisition.
+   */
+  dependencyOf?: Record<string, string | number>;
 };
 
 /** The part of ResearchStore the acquisition uses; tests substitute an in-memory recorder to prove failures write nothing. */
@@ -241,6 +246,7 @@ export async function acquireRepository(deps: AcquireDeps, lease: StepLease, req
       submodules: submodules.slice(0, 500).map((i) => ({ path: escapeForReport(i.path, 200), commit_sha: i.gitSha, url: moduleUrls.has(i.path) ? escapeForReport(moduleUrls.get(i.path)!, 300) : null, url_source: moduleUrls.has(i.path) ? ".gitmodules" : null })),
       lfs_pointers: lfsPointers.slice(0, 500).map((p) => ({ path: escapeForReport(p.path, 200), oid: p.oid, size: p.size })),
       verification: { method: "every file's git object id, size and presence checked against the commit's git tree; archive commit id checked", manifest_sha256: manifestHash },
+      ...(request.dependencyOf ? { dependency_of: request.dependencyOf } : {}),
     };
 
     // 6. Database writes. A retry of a building snapshot reuses its stored report, and the fresh content must reproduce its manifest.

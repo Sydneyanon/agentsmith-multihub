@@ -13,6 +13,9 @@ import { readBuildInfo } from "../../engine-status.js";
 import { progressFor } from "../../step-progress.js";
 import { APEX_SHADOW_STEP_KEY } from "../../apex/shadow-target.js";
 import { directShadowSink, processApexShadowStep, type ShadowStepContext } from "../../apex/shadow-step.js";
+import { dependencyContextOfRun, dependencySolidityFilesOfRun, snapshotConfigFiles } from "../../acquisition/dependency-step.js";
+import { leadKeysOf } from "./lead-identity.js";
+import { modelReadRecord, readSharedModelRef, sharedModelRefOfRun, type ModelReadRecord, type SharedModelContext, type SharedModelRead } from "./shared-model.js";
 
 /**
  * Worker steps that continue a `repository_research` run AFTER acquisition: analyse the sealed snapshot, challenge the leads, build the dossier.
@@ -55,7 +58,34 @@ export function dbResearchReads(pool: Pool, store: ResearchStore = new ResearchS
       (await pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE id = ANY($1::uuid[]) AND snapshot_id = $2 AND generator_id = 'slither'", [[...ids], snapshotId])).rows.map((x) => x.id),
     specialistHypothesesOfRun: (runId, snapshotId) => specialistHypothesesOfRun(pool, runId, snapshotId),
     buildDossier: (snapshotId) => buildDossier(pool, store, snapshotId),
+    sharedProtocolModel: (runId) => sharedModelRefOfRun(pool, runId),
+    snapshotConfigFiles: (snapshotId) => snapshotConfigFiles(pool, snapshotId),
+    dependencyContext: (runId) => dependencyContextOfRun(pool, runId),
+    dependencySolidityFiles: (runId) => dependencySolidityFilesOfRun(pool, runId),
   };
+}
+
+/** C1: what the shared model is built from besides the sources: the sealed snapshot's identity and the run's dependency manifest (if any). */
+export async function sharedModelContext(reads: Pick<ResearchReads, "dependencyContext">, snap: SealedSnapshotRef, runId: string): Promise<SharedModelContext> {
+  return { snapshot: { repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256 }, dependencies: await reads.dependencyContext(runId) };
+}
+
+/**
+ * C1 consumer (the challenge stage): the model is read by hash and re-hashed, and the validators run only if the sealed sources they are
+ * about to execute are EXACTLY the inputs the model describes (file by file, by content hash). The record says which model was read and
+ * how many of the challenged leads name a function the model's permission section knows.
+ */
+export type ChallengeModelUse = ModelReadRecord & { inputs_checked?: number; leads?: number; leads_on_modelled_functions?: number };
+export function challengeModelUse(read: SharedModelRead, sources: ReadonlyArray<{ path: string; text: string }>, leads: readonly StoredHypothesis[]): ChallengeModelUse {
+  const rec = modelReadRecord(read, "input identity check before execution; locating the challenged leads' functions");
+  if (!read.available) return rec;
+  const inputs = new Map(read.doc.inputs.map((i) => [i.file, i.sha256]));
+  const differing = sources.filter((s) => inputs.get(s.path) !== createHash("sha256").update(s.text, "utf8").digest("hex")).map((s) => s.path);
+  if (differing.length || inputs.size !== sources.length) throw new Error(`challenge refused: the sealed sources are not the inputs of the shared protocol model ${read.sha256} (${differing.length} files differ, ${inputs.size} model inputs, ${sources.length} sources)`);
+  const perms = read.doc.sections.actors_permissions;
+  const known = perms.status === "computed" ? perms.functions.map((f) => f.function) : [];
+  const located = leads.filter((h) => !h.unresolved && h.finding.contract && h.finding.function && known.some((id) => id.startsWith(`${h.finding.contract}.${h.finding.function.replace(/\(.*$/, "")}(`))).length;
+  return { ...rec, inputs_checked: sources.length, leads: leads.length, leads_on_modelled_functions: located };
 }
 
 /**
@@ -90,7 +120,11 @@ export function analyzeStepOutput(snap: SealedSnapshotRef, a: Awaited<ReturnType
     status: "structure_analyzed", analyzer: ANALYZER_VERSION, analyzer_build: { commit: readBuildInfo().commit, image: readBuildInfo().image }, specialist: SPECIALIST_ID, snapshot_id: snap.snapshotId, repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256,
     contracts: a.contracts, functions: a.functions, hypotheses: a.stored.length, hypothesis_ids: a.stored.map((h) => h.id), finding_payloads: Object.fromEntries(a.stored.map((h) => [h.id, h.payloadSha256])), problems: a.problems,
     protocol_model_sha256: a.protocolModel.sha256, protocol_model_stored: a.protocolModel.stored, protocol_model_counts: { components: a.protocolModel.components, functions: a.protocolModel.functions, call_edges: a.protocolModel.callEdges, unknowns: a.protocolModel.unknowns },
-    structural_map_sha256: createHash("sha256").update(mapJson).digest("hex"), structural_map: mapJson.length <= 400_000 ? map : { truncated: true, reason: "map exceeds 400 kB; see structural_map_sha256 and rebuild from the snapshot" }, ...passive,
+    structural_map_sha256: createHash("sha256").update(mapJson).digest("hex"), structural_map: mapJson.length <= 400_000 ? map : { truncated: true, reason: "map exceeds 400 kB; see structural_map_sha256 and rebuild from the snapshot" },
+    // C1: the shared protocol model every other engine reads by this hash; C2: the lead key of each stored hypothesis
+    ...(a.sharedModel ? { shared_model_sha256: a.sharedModel.sha256, shared_model_stored: a.sharedModel.stored, shared_model_schema: a.sharedModel.schema, shared_model_sections: a.sharedModel.sections, dependency_manifest_digest: a.sharedModel.dependency_manifest_digest,
+      lead_keys: leadKeysOf(snap.repository, a.stored.map((h) => ({ id: h.id, class: h.finding.class, file: h.finding.file, contract: h.finding.contract, function: h.finding.function }))) } : {}),
+    ...passive,
   };
 }
 
@@ -101,7 +135,7 @@ export async function processAnalyzeStructureStep(context: AnyAnalysisStepContex
     const lease = { stepId: step.id, workerId: ctx.workerId };
     const sources = await reads.snapshotSources(snap.snapshotId);
     progress.report("analysing_sources", 0, sources.length, "solidity_files");
-    const a = await writeStructuralAnalysis(store, lease, snap.snapshotId, computeStructuralAnalysis(sources));
+    const a = await writeStructuralAnalysis(store, lease, snap.snapshotId, computeStructuralAnalysis(sources, await sharedModelContext(reads, snap, step.workflow_run_id)));
     progress.report("analysis_recorded", a.stored.length, a.stored.length, "hypotheses");
     await progress.flush();
     await ctx.worker.complete(step.id, analyzeStepOutput(snap, a, buildStructuralMap(sources)));
@@ -127,11 +161,11 @@ export async function challengeInputs(reads: ResearchReads, runId: string, snaps
   }
   return { stored, external, unmatched, slither };
 }
-export function challengeStepOutput(snap: SealedSnapshotRef, inputs: ChallengeInputs, validations: Validation[]): Record<string, unknown> {
+export function challengeStepOutput(snap: SealedSnapshotRef, inputs: ChallengeInputs, validations: Validation[], model?: ChallengeModelUse): Record<string, unknown> {
   const verdicts: Record<string, number> = {}; for (const v of validations) verdicts[v.outcome.verdict] = (verdicts[v.outcome.verdict] ?? 0) + 1;
   const unresolved = inputs.stored.filter((h) => h.unresolved).map((h) => ({ hypothesis_id: h.id, reason: h.unresolved }));
   return { status: "leads_challenged", analyzer: ANALYZER_VERSION, snapshot_id: snap.snapshotId, leads: inputs.stored.length, reentrancy_verdicts: verdicts,
-    hypothesis_ids: inputs.stored.map((h) => h.id), unresolved,
+    hypothesis_ids: inputs.stored.map((h) => h.id), unresolved, ...(model && model.sha256 !== null ? { protocol_model: model } : {}),
     ...(inputs.slither.exists ? { slither: { status: inputs.slither.outcome?.status ?? "not_recorded", leads_challenged: inputs.external.length, ...(inputs.unmatched.length ? { unmatched_ids: inputs.unmatched } : {}) } } : {}), ...passive };
 }
 
@@ -141,15 +175,24 @@ export async function processChallengeLeadsStep(context: AnyAnalysisStepContext,
   await withHeartbeat(ctx, step, async () => {
     const inputs = await challengeInputs(reads, step.workflow_run_id, snap.snapshotId);
     progress.report("challenging_leads", 0, inputs.stored.length + inputs.external.length, "leads");
+    // C1: read the shared model by hash and refuse to execute against sources it does not describe
+    const model = challengeModelUse(readSharedModelRef(await reads.sharedProtocolModel(step.workflow_run_id)), await reads.snapshotSources(snap.snapshotId), [...inputs.stored, ...inputs.external]);
     const validations = await runChallenge(reads, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, [...inputs.stored, ...inputs.external]);
     progress.report("evaluations_recorded", validations.length, validations.length, "evaluations");
     await progress.flush();
-    await ctx.worker.complete(step.id, challengeStepOutput(snap, inputs, validations));
+    await ctx.worker.complete(step.id, challengeStepOutput(snap, inputs, validations, model));
   });
 }
 
 export function dossierStepOutput(snap: SealedSnapshotRef, d: Dossier): Record<string, unknown> {
-  return { status: "dossier_built", snapshot_id: snap.snapshotId, commit_sha: snap.commitSha, content_sha256: d.content_sha256, leads: d.entries.length, status_counts: d.summary, human_review: "none recorded", limitations: d.limitations, ...passive };
+  // C2: `leads` counts each investigation ONCE (equal to the hypothesis count unless several hypotheses share a lead key)
+  const multi = d.investigation_summary.multi_engine > 0 || d.investigation_summary.hypotheses !== d.investigation_summary.investigations;
+  return { status: "dossier_built", snapshot_id: snap.snapshotId, commit_sha: snap.commitSha, content_sha256: d.content_sha256, leads: d.investigation_summary.investigations, status_counts: d.summary, human_review: "none recorded", limitations: d.limitations,
+    ...(multi ? { hypotheses: d.entries.length } : {}),
+    ...(d.shared_model?.sha256 ? { protocol_model: { sha256: d.shared_model.sha256, base_sha256: d.shared_model.base_sha256, schema: d.shared_model.schema, read: "by_hash", verified: "re-hashed on read", used_for: "section status, unresolved imports and open questions of the dossier" },
+      investigations: { ...d.investigation_summary, shared: d.investigations.filter((i) => i.contributions.length > 1 || i.contradictions.length > 0).slice(0, 200).map((i) => ({ lead_key: i.lead_key, anchor: i.anchor, generators: i.generators, generator_families: i.generator_families, hypothesis_ids: i.contributions.map((c) => c.hypothesis_id), assessment: i.assessment,
+        contradictions: i.contradictions.slice(0, 20).map((c) => ({ kind: c.kind, for: c.for, against: c.against })) })) } } : {}),
+    ...passive };
 }
 export async function processBuildDossierStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   const ctx = researchContext(context); const snap = await ctx.reads.sealedSnapshot(step.workflow_run_id);

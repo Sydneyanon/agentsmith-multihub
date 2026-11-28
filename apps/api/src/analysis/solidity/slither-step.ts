@@ -6,6 +6,9 @@ import type { ToolFailure } from "../../engine/tools/run-tool.js";
 import { SLITHER_SCAN_SWITCH, SLITHER_VERSION } from "./keys.js";
 import { isResearchSlitherStep } from "./slither-record.js";
 import { researchContext, withHeartbeat, type AnyAnalysisStepContext } from "./step.js";
+import { usableRemappings } from "../../acquisition/dependencies.js";
+import { leadKeysOf } from "./lead-identity.js";
+import { modelReadRecord, readSharedModelRef } from "./shared-model.js";
 
 /**
  * The OPTIONAL `slither_scan` stage of a `repository_research` run (between analyze_structure and challenge_leads). It exists only in
@@ -74,15 +77,37 @@ export async function processResearchSlitherScanStep(context: AnyAnalysisStepCon
     if (!set(slitherBin) || !set(solcBin)) { await abstain({ code: "tool_unavailable", detail: "AGENTSMITH_SLITHER_BIN or AGENTSMITH_SOLC_BIN is not set on this worker" }, 0); return; }
     // ONLY the sealed snapshot: the stored bytes of its Solidity files (the snapshot was verified above)
     const files = await reads.snapshotSolidityFiles(snap.snapshotId);
+    // C1: the SAME shared protocol model the analysis stored, read by hash and re-hashed. C3: when the run resolved its dependencies, the
+    // model's import facts decide whether the project can compile at all; an import behind an unavailable dependency is an explicit
+    // abstention naming it, never a silent compile attempt. Runs without a dependency stage behave exactly as before.
+    const model = readSharedModelRef(await reads.sharedProtocolModel(step.workflow_run_id));
+    const protocolModel = model.available ? { protocol_model: modelReadRecord(model, "import resolution and dependency availability before compiling") } : {};
+    const deps = await reads.dependencyContext(step.workflow_run_id);
+    let dependencyFiles: Array<{ path: string; content: Buffer }> = []; let remappings: string[] = []; let dependencies: Record<string, unknown> = {};
+    if (deps) {
+      const ext = model.available && model.doc.sections.external_dependencies.status === "computed" ? model.doc.sections.external_dependencies : null;
+      if (ext && ext.dependency_set.status === "computed" && ext.dependency_set.digest !== deps.manifest.digest) throw new Error("the shared protocol model was built from another dependency manifest than the run records; refusing to compile");
+      const unresolved = (ext?.imports ?? []).filter((i) => i.resolution === "unresolved");
+      dependencies = { dependencies: { manifest_digest: deps.manifest.digest, acquired: deps.manifest.dependencies.filter((d) => d.status === "acquired").map((d) => d.path), limitations: deps.manifest.limitations.length, unresolved_imports: unresolved.length } };
+      if (unresolved.length) {
+        const first = unresolved[0]!;
+        const names = [...new Set(unresolved.map((i) => i.dependency ?? i.path))].slice(0, 8).join(", ");
+        await ctx.worker.complete(step.id, { status: "abstained", abstention: { code: "dependency_unavailable", detail: scrub(`cannot compile: dependency ${first.dependency ?? first.path} unavailable (${first.reason ?? "unresolved import"}); ${unresolved.length} import statement(s) of the analysed sources cannot be resolved [${names}]`) },
+          generator: null, hypothesis_ids: [], leads: [], leads_by_class: {}, wall_ms: 0, ...protocolModel, ...dependencies, ...base });
+        return;
+      }
+      dependencyFiles = await reads.dependencySolidityFiles(step.workflow_run_id); remappings = usableRemappings(deps.manifest);
+      dependencies = { dependencies: { ...(dependencies["dependencies"] as object), remappings, dependency_files: dependencyFiles.length } };
+    }
     let r: Awaited<ReturnType<typeof runSlither>>;
     try {
-      r = await runSlither({ files, slitherBin: slitherBin!, solcBin: solcBin!, timeoutMs: limits.timeoutMs, totalTimeoutMs: limits.totalTimeoutMs, maxOutputBytes: limits.maxOutputBytes });
+      r = await runSlither({ files, slitherBin: slitherBin!, solcBin: solcBin!, timeoutMs: limits.timeoutMs, totalTimeoutMs: limits.totalTimeoutMs, maxOutputBytes: limits.maxOutputBytes, ...(deps ? { dependencyFiles, remappings } : {}) });
     } catch (e) {
       if (e instanceof DryRunViolation) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       r = { ok: false, failure: { code: /unsafe snapshot path/.test(msg) ? "input_invalid" : "crashed", detail: msg }, durationMs: Date.now() - started };
     }
-    if (!r.ok) { await abstain(r.failure, r.durationMs); return; }
+    if (!r.ok) { await ctx.worker.complete(step.id, { status: "abstained", abstention: { code: r.failure.code, detail: scrub(r.failure.detail) }, generator: null, hypothesis_ids: [], leads: [], leads_by_class: {}, wall_ms: r.durationMs, ...protocolModel, ...dependencies, ...base }); return; }
     const rawBlob = Buffer.byteLength(r.rawOutput) <= 1_048_576 ? (await store.putBlob(lease, Buffer.from(r.rawOutput, "utf8"))).sha256 : null;
     // the whole snapshot is in scope: every contract Slither reports on, anchored only where the location exists in the snapshot
     const rec = await recordSlitherLeads(store, lease, { snapshotId: snap.snapshotId, run: r, paths: new Set(files.map((f) => f.path)), includeContract: () => true, maxLeads: limits.maxLeads });
@@ -93,7 +118,10 @@ export async function processResearchSlitherScanStep(context: AnyAnalysisStepCon
       tool: { name: "slither", version: r.version, solc_version: r.solcVersion, args: r.args, input_manifest_sha256: r.inputManifestSha256, raw_output_sha256: r.rawOutputSha256, raw_output_blob: rawBlob, exit_codes: r.exitCodes, duration_ms: r.durationMs },
       hypothesis_ids: rec.leads.map((l) => l.hypothesisId), leads: rec.leads, leads_by_class: byClass,
       detections_total: r.detections.length, informational_detections: informational, unmapped_detectors: rec.unmapped, outside_snapshot_contracts: rec.outside, unanchored: rec.unanchored, leads_not_recorded: rec.notRecorded,
-      wall_ms: Date.now() - started, ...base,
+      wall_ms: Date.now() - started,
+      // C2: the lead key of each lead (the same derivation as the specialists'), so the same issue from both engines is ONE investigation
+      ...(model.available ? { lead_keys: leadKeysOf(snap.repository, rec.leads.map((l) => ({ id: l.hypothesisId, class: l.class, file: l.file, contract: l.contract, function: l.function }))) } : {}),
+      ...protocolModel, ...dependencies, ...base,
     });
   });
 }

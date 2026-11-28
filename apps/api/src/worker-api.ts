@@ -20,6 +20,14 @@ import { assertProcessingBudget, chargeProcessing, chargeRead, DEFAULT_QUOTAS, Q
 import { mintWorkerToken, parseWorkerToken, redactWorkerTokens, revokeWorkerToken, secretMatches, WorkerTokenError } from "./worker-tokens.js";
 import { APEX_SHADOW_STEP_KEY } from "./apex/shadow-target.js";
 import { apexShadowStepOutput, MAX_SHADOW_REPORT_BYTES, recordApexShadow, ShadowRecordRefused, shadowReportSchema, type ShadowReport } from "./apex/shadow-record.js";
+import { DEPENDENCY_STEP_KEY, failureOfAcquisition, resolveDependencySet, sourceTree, type DependencyLimits, type DependencyManifest } from "./acquisition/dependencies.js";
+import { parseRepositoryName } from "./acquisition/github-source.js";
+import { resolveLimits } from "./acquisition/limits.js";
+import { buildPlan } from "./acquisition/plan.js";
+import { dependencyStepInputSchema, dependencyStepOutput, manifestBlob, snapshotConfigFiles } from "./acquisition/dependency-step.js";
+import { challengeModelUse, sharedModelContext, type ChallengeModelUse } from "./analysis/solidity/step.js";
+import { leadKeysOf } from "./analysis/solidity/lead-identity.js";
+import { readSharedModelRef } from "./analysis/solidity/shared-model.js";
 
 /**
  * Option D: the internal worker API. A `repository_research` worker that holds NO database credential performs every read and write
@@ -44,8 +52,8 @@ import { apexShadowStepOutput, MAX_SHADOW_REPORT_BYTES, recordApexShadow, Shadow
  * Every accepted and refused call is written to audit_events with the token id (never the token).
  */
 export const WORKER_API_PREFIX = "/internal/worker/v1/";
-export const RESEARCH_STEP_KEYS = [ACQUIRE_STEP_KEY, ANALYZE_STEP_KEY, SLITHER_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY, APEX_SHADOW_STEP_KEY] as const;
-const A = ACQUIRE_STEP_KEY, Z = ANALYZE_STEP_KEY, S = SLITHER_STEP_KEY, C = CHALLENGE_STEP_KEY, D = DOSSIER_STEP_KEY, X = APEX_SHADOW_STEP_KEY;
+export const RESEARCH_STEP_KEYS = [ACQUIRE_STEP_KEY, DEPENDENCY_STEP_KEY, ANALYZE_STEP_KEY, SLITHER_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY, APEX_SHADOW_STEP_KEY] as const;
+const A = ACQUIRE_STEP_KEY, Z = ANALYZE_STEP_KEY, S = SLITHER_STEP_KEY, C = CHALLENGE_STEP_KEY, D = DOSSIER_STEP_KEY, X = APEX_SHADOW_STEP_KEY, P = DEPENDENCY_STEP_KEY;
 
 export type WorkerApiOptions = {
   /** When set, the routes answer only on connections accepted on this local port (the private 6PN listener); others get 404. */
@@ -109,19 +117,26 @@ const passiveFields = { execution_mode: z.literal("passive_only"), authorization
  * "unverified", coverage numbers, problems, hypothesis lists, ...) is refused. The stored output is then derived by the API.
  */
 const leadRef = z.object({ hypothesisId: uuid, class: z.string().min(1).max(100), contract: z.string().max(200), function: z.string().max(200), file: z.string().min(1).max(1024), line: z.number().int().min(0) }).strict();
+/** C1: the record a consumer keeps of the shared protocol model it read by hash */
+const modelRead = z.object({ sha256: hex64, base_sha256: hex64, schema: z.string().max(100), read: z.literal("by_hash"), verified: z.literal("re-hashed on read"), used_for: z.string().max(300) }).strict();
+const slitherDeps = z.object({ manifest_digest: hex64, acquired: z.array(z.string().max(1024)).max(64), limitations: count, unresolved_imports: count, remappings: z.array(z.string().max(900)).max(500).optional(), dependency_files: count.optional() }).strict();
 const slitherBase = {
+  protocol_model: modelRead.optional(), dependencies: slitherDeps.optional(),
   producer: z.literal("slither"), pinned_version: z.string().min(1).max(40), snapshot_id: uuid, repository: z.string().min(3).max(201), commit_sha: sha40, manifest_sha256: hex64,
   limits: z.record(z.union([z.number(), z.array(z.string().max(100)).max(20)])), wall_ms: count, ...passiveFields,
 };
 export const COMPLETE_SCHEMAS: Record<string, z.ZodTypeAny> = {
   [A]: z.object({ status: z.literal("snapshot_sealed"), snapshot_id: uuid, repository: z.string().min(3).max(201), commit_sha: sha40, tree_sha: sha40, manifest_sha256: hex64, file_count: count,
     stored_files: count, stored_bytes: count, skipped_by_reason: z.record(count), completeness: z.enum(["complete", "partial"]), reused: z.enum(["new", "resumed", "sealed"]), ...passiveFields }).strict(),
+  // C3: the worker names the dependency set it reached (by digest) and the acquisition failures it observed; the API re-derives the manifest
+  [P]: z.object({ status: z.literal("dependencies_resolved"), snapshot_id: uuid, dependency_manifest_digest: hex64,
+    failures: z.array(z.object({ path: z.string().min(1).max(1024), code: z.enum(["unavailable", "too_large"]), reason: z.string().max(400) }).strict()).max(64) }).strict(),
   [Z]: z.object({ status: z.literal("structure_analyzed"), snapshot_id: uuid }).strict(),
   [S]: z.union([
     z.object({ status: z.literal("abstained"), abstention: z.object({ code: z.string().min(1).max(40), detail: z.string().max(2000) }).strict(), generator: z.null(), hypothesis_ids: z.array(uuid).max(0), leads: z.array(leadRef).max(0), leads_by_class: z.object({}).strict(), ...slitherBase }).strict(),
     z.object({ status: z.literal("tool_completed"), generator: z.string().regex(/^slither@[0-9A-Za-z.+-]{1,40}$/),
-      tool: z.object({ name: z.literal("slither"), version: z.string().max(40), solc_version: z.string().max(80), args: z.array(z.string().max(300)).max(20), input_manifest_sha256: hex64, raw_output_sha256: hex64, raw_output_blob: hex64.nullable(), exit_codes: z.array(z.number().int().nullable()).max(10), duration_ms: count }).strict(),
-      hypothesis_ids: z.array(uuid).max(5000), leads: z.array(leadRef).max(5000), leads_by_class: z.record(count), detections_total: count, informational_detections: count, unmapped_detectors: z.record(count),
+      tool: z.object({ name: z.literal("slither"), version: z.string().max(40), solc_version: z.string().max(80), args: z.array(z.array(z.string().max(4000)).max(20)).max(500), input_manifest_sha256: hex64, raw_output_sha256: hex64, raw_output_blob: hex64.nullable(), exit_codes: z.array(z.number().int().nullable()).max(500), duration_ms: count }).strict(),
+      hypothesis_ids: z.array(uuid).max(5000), leads: z.array(leadRef).max(5000), leads_by_class: z.record(count), lead_keys: z.array(z.object({ hypothesis_id: uuid, lead_key: hex64 }).strict()).max(5000).optional(), detections_total: count, informational_detections: count, unmapped_detectors: z.record(count),
       outside_snapshot_contracts: count, unanchored: count, leads_not_recorded: count, ...slitherBase }).strict(),
   ]),
   [C]: z.object({ status: z.literal("leads_challenged"), snapshot_id: uuid }).strict(),
@@ -170,8 +185,59 @@ async function bounded<T>(ctx: Ctx, task: "analyze" | "challenge", payload: Reco
 }
 
 type Prepared = { kind: "analyze"; snap: SealedSnapshotRef; structure: ComputedStructure; map: ReturnType<typeof buildStructuralMap> }
-  | { kind: "challenge"; snap: SealedSnapshotRef; inputs: ChallengeInputs; planned: PlannedEvaluation[] }
-  | { kind: "seal"; verification: SnapshotVerification | null };
+  | { kind: "challenge"; snap: SealedSnapshotRef; inputs: ChallengeInputs; planned: PlannedEvaluation[]; model: ChallengeModelUse }
+  | { kind: "dependencies"; snap: SealedSnapshotRef; manifest: DependencyManifest; workerFailures: number }
+  | PreparedSeal;
+
+/**
+ * C3 under option D: the dependency set, re-derived by the API ITSELF. The gitlinks come from the tree the API fetches from GitHub for the
+ * pinned parent commit; the URLs from the parent's stored (already API-verified) .gitmodules. A dependency counts as acquired only when
+ * this run holds a sealed snapshot of exactly that repository and commit which the API verified against GitHub.
+ *
+ * `final` (the stage's completion): for a pinned, allowed dependency with no such snapshot the API asks GitHub ITSELF. A definite refusal
+ * (not found, private, commit unavailable, too many entries) is recorded as the API's own finding. If the API can reach it, the worker
+ * should have acquired it: the completion is refused, unless the worker reports it as too large to download, which the API cannot probe
+ * without downloading and therefore records as worker-reported. `pins` (before sealing one dependency): only the pins are established.
+ */
+async function apiDependencySet(ctx: Ctx, parent: SealedSnapshotRef, limits: DependencyLimits, reported: ReadonlyMap<string, { code: "unavailable" | "too_large"; reason: string }>, mode: "pins" | "final"): Promise<{ manifest: DependencyManifest; pinned: Array<{ repository: string; commitSha: string }>; workerFailures: number }> {
+  const github = ctx.services.github;
+  if (!github) throw new Refusal(503, "github_verification_unavailable", "the API has no GitHub source configured, so it cannot establish the pinned dependencies");
+  const pinned: Array<{ repository: string; commitSha: string }> = []; let workerFailures = 0;
+  const signal = AbortSignal.timeout(120_000);
+  try {
+    const manifest = await resolveDependencySet({
+      tree: (repository, commitSha) => sourceTree(github, repository, commitSha, signal),
+      configFiles: (snapshotId) => snapshotConfigFiles(ctx.db, snapshotId),
+      acquire: async (dep) => {
+        pinned.push({ repository: dep.repository, commitSha: dep.commitSha });
+        const row = (await ctx.db.query<{ id: string; manifest_sha256: string; file_count: number; total_bytes: string; tree_sha: string; completeness: "complete" | "partial" }>(
+          `SELECT s.id, s.manifest_sha256, s.file_count, s.total_bytes, v.tree_sha, v.completeness FROM repo_snapshots s JOIN snapshot_verifications v ON v.snapshot_id = s.id
+            WHERE s.workflow_run_id = $1 AND lower(s.repository) = lower($2) AND s.commit_sha = $3 AND s.sealed_at IS NOT NULL`, [ctx.runId, dep.repository, dep.commitSha])).rows[0];
+        if (row) return { ok: true, snapshotId: row.id, treeSha: row.tree_sha, manifestSha256: row.manifest_sha256, fileCount: row.file_count, storedBytes: Number(row.total_bytes), completeness: row.completeness };
+        if (mode === "pins") return { ok: false, code: "unavailable", reason: "not acquired yet" };
+        try {
+          const { owner, repo } = parseRepositoryName(dep.repository);
+          await github.getRepository(owner, repo, signal);
+          buildPlan((await sourceTree(github, dep.repository, dep.commitSha, signal)).entries, { limits: resolveLimits(), excludePathPrefixes: [] });
+        } catch (error) { const f = failureOfAcquisition(error); if (f) return f; throw error; }
+        const r = reported.get(dep.path);
+        if (r?.code !== "too_large") throw new Refusal(422, "output_rejected", `dependency ${dep.path} (${dep.repository}@${dep.commitSha}) is pinned and GitHub serves it, but this run holds no verified snapshot of it`);
+        workerFailures += 1;
+        return { ok: false, code: "too_large", reason: `reported by the worker (the API cannot check a download size without downloading): ${r.reason}` };
+      },
+    }, parent, limits);
+    return { manifest, pinned, workerFailures };
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    throw new Refusal(503, "github_unavailable", `the API could not establish the pinned dependencies from GitHub: ${error instanceof Error ? error.message.slice(0, 300) : "unknown"}`);
+  }
+}
+const dependencyLimitsOf = (ctx: Ctx): DependencyLimits => {
+  const p = dependencyStepInputSchema.safeParse(ctx.step!.input);
+  if (!p.success) throw new Refusal(422, "output_rejected", "the dependency step's input is invalid");
+  return p.data.limits;
+};
+type PreparedSeal = { kind: "seal"; verification: SnapshotVerification | null };
 
 /** The complete list of operations. Anything not named here does not exist. */
 export const OPERATIONS: Record<string, Operation> = {
@@ -212,7 +278,8 @@ export const OPERATIONS: Record<string, Operation> = {
       if (key === Z) {
         const snap = await sealedOfRun(ctx, String(out["snapshot_id"]));
         const sources = await ctx.reads.snapshotSources(snap.snapshotId);
-        const r = await bounded<{ structure: ComputedStructure; map: ReturnType<typeof buildStructuralMap> }>(ctx, "analyze", { sources });
+        // C1: the shared model is built in the same bounded computation, from the API's own records of the snapshot and its dependencies
+        const r = await bounded<{ structure: ComputedStructure; map: ReturnType<typeof buildStructuralMap> }>(ctx, "analyze", { sources, shared: await sharedModelContext(ctx.reads, snap, ctx.runId) });
         return { kind: "analyze", snap, structure: r.structure, map: r.map };
       }
       if (key === C) {
@@ -220,8 +287,17 @@ export const OPERATIONS: Record<string, Operation> = {
         let inputs: ChallengeInputs;
         try { inputs = await challengeInputs(ctx.reads, ctx.runId, snap.snapshotId); } catch (error) { throw new Refusal(422, "output_rejected", error instanceof Error ? error.message.slice(0, 400) : "challenge inputs"); }
         const sources = await ctx.reads.snapshotSources(snap.snapshotId);
+        // C1: the shared model, read by hash; the validators run only on sources that are exactly its inputs
+        let model: ChallengeModelUse;
+        try { model = challengeModelUse(readSharedModelRef(await ctx.reads.sharedProtocolModel(ctx.runId)), sources, [...inputs.stored, ...inputs.external]); } catch (error) { throw new Refusal(422, "output_rejected", error instanceof Error ? error.message.slice(0, 400) : "shared protocol model"); }
         const r = await bounded<{ planned: PlannedEvaluation[] }>(ctx, "challenge", { sources, stored: [...inputs.stored, ...inputs.external] });
-        return { kind: "challenge", snap, inputs, planned: r.planned };
+        return { kind: "challenge", snap, inputs, planned: r.planned, model };
+      }
+      if (key === P) {
+        const snap = await sealedOfRun(ctx, String(out["snapshot_id"]));
+        const reported = new Map((out["failures"] as Array<{ path: string; code: "unavailable" | "too_large"; reason: string }>).map((f) => [f.path, { code: f.code, reason: f.reason }]));
+        const d = await apiDependencySet(ctx, snap, dependencyLimitsOf(ctx), reported, "final");
+        return { kind: "dependencies", snap, manifest: d.manifest, workerFailures: d.workerFailures };
       }
       return null;
     },
@@ -234,7 +310,13 @@ export const OPERATIONS: Record<string, Operation> = {
         stored = { ...analyzeStepOutput(prepared.snap, a, prepared.map), derived_by: "api" };
       } else if (key === C && prepared?.kind === "challenge") {
         const validations = await recordChallenge(ctx.store, lease(ctx), prepared.snap.snapshotId, prepared.planned, "api");
-        stored = { ...challengeStepOutput(prepared.snap, prepared.inputs, validations), derived_by: "api", evaluations_recorded: prepared.planned.length };
+        stored = { ...challengeStepOutput(prepared.snap, prepared.inputs, validations, prepared.model), derived_by: "api", evaluations_recorded: prepared.planned.length };
+      } else if (key === P && prepared?.kind === "dependencies") {
+        // the API's own manifest is what is stored; the worker's digest must be the same set
+        if (prepared.manifest.digest !== out["dependency_manifest_digest"]) throw new Refusal(422, "output_rejected", "the worker's dependency set differs from the one the API derives from the pinned parent tree and its own verified snapshots");
+        const blob = manifestBlob(prepared.manifest);
+        await ctx.db.query("INSERT INTO research_blobs (content_sha256, size_bytes, content) VALUES ($1, $2, $3) ON CONFLICT (content_sha256) DO NOTHING", [blob.sha256, blob.bytes.length, blob.bytes]);
+        stored = { ...dependencyStepOutput(prepared.snap, prepared.manifest, blob.sha256), derived_by: "api", worker_reported_failures: prepared.workerFailures };
       } else if (key === D) {
         const snap = await sealedOfRun(ctx, String(out["snapshot_id"]));
         const d = await buildDossier(ctx.db as Pool, ctx.store, snap.snapshotId);
@@ -253,14 +335,20 @@ export const OPERATIONS: Record<string, Operation> = {
 
   // ---- acquisition (ResearchStore) ----
   find_snapshot: {
-    kind: "plain", lease: "held", stepKeys: [A], bodyLimit: 4 * KiB,
+    kind: "plain", lease: "held", stepKeys: [A, P], bodyLimit: 4 * KiB,
     schema: z.object({ ...stepId, repository: z.string().min(3).max(201), commit_sha: sha40 }).strict(),
     run: (ctx, a: { repository: string; commit_sha: string }) => ctx.store.findSnapshot(lease(ctx), a.repository, a.commit_sha),
   },
   create_snapshot: {
-    kind: "idempotent", lease: "held", stepKeys: [A], bodyLimit: 2 * MiB,
+    kind: "idempotent", lease: "held", stepKeys: [A, P], bodyLimit: 2 * MiB,
     schema: z.object({ ...stepId, repository: z.string().min(3).max(201), commit_sha: sha40, ref_name: z.string().min(1).max(250).optional(), acquisition_report: z.record(z.unknown()).optional() }).strict(),
     run: (ctx, a: { repository: string; commit_sha: string; ref_name?: string; acquisition_report?: Record<string, unknown> }) => {
+      if (ctx.step!.step_key === P) {
+        // C3: a dependency snapshot is only ever of an exact commit (its ref IS the commit) and says whose dependency it is; whether that
+        // commit is really pinned by the parent tree is checked by the API itself before the snapshot can be sealed (seal_snapshot)
+        if (a.ref_name !== a.commit_sha || !a.acquisition_report || typeof a.acquisition_report["dependency_of"] !== "object") throw new Refusal(403, "dependency_not_pinned", "a dependency snapshot must be of an exact pinned commit and name its parent");
+        return reserveStorage(ctx.db, ctx.tokenId, Buffer.byteLength(JSON.stringify(a.acquisition_report)), ctx.services.quotas, 0).then(() => ctx.store.createSnapshot(lease(ctx), { repository: a.repository, commitSha: a.commit_sha, refName: a.ref_name!, acquisitionReport: a.acquisition_report! }));
+      }
       // the snapshot must be of the repository and ref the operator queued (GitHub's canonical name may differ in case only)
       const input = ctx.step!.input as { repository?: unknown; ref?: unknown };
       if (typeof input.repository !== "string" || input.repository.toLowerCase() !== a.repository.toLowerCase() || (input.ref ?? null) !== (a.ref_name ?? null)) {
@@ -270,7 +358,7 @@ export const OPERATIONS: Record<string, Operation> = {
     },
   },
   put_blob: {
-    kind: "idempotent", lease: "held", stepKeys: [A, S], bodyLimit: Math.ceil(MAX_BLOB_BYTES * 4 / 3) + 4 * KiB,
+    kind: "idempotent", lease: "held", stepKeys: [A, S, P], bodyLimit: Math.ceil(MAX_BLOB_BYTES * 4 / 3) + 4 * KiB,
     schema: z.object({ ...stepId, content_base64: z.string().max(Math.ceil(MAX_BLOB_BYTES * 4 / 3) + 4).regex(/^[A-Za-z0-9+/]*={0,2}$/) }).strict(),
     async run(ctx, a: { content_base64: string }) {
       const content = Buffer.from(a.content_base64, "base64");
@@ -282,7 +370,7 @@ export const OPERATIONS: Record<string, Operation> = {
     },
   },
   add_snapshot_files: {
-    kind: "idempotent", lease: "held", stepKeys: [A], bodyLimit: 3 * MiB,
+    kind: "idempotent", lease: "held", stepKeys: [A, P], bodyLimit: 3 * MiB,
     schema: z.object({ ...stepId, snapshot_id: uuid, files: z.array(fileRow).min(1).max(500) }).strict(),
     async run(ctx, a: { snapshot_id: string; files: Array<Record<string, any>> }) {
       await snapshotInRun(ctx, a.snapshot_id);
@@ -298,13 +386,22 @@ export const OPERATIONS: Record<string, Operation> = {
     },
   },
   seal_snapshot: {
-    kind: "idempotent", lease: "held", stepKeys: [A], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
+    kind: "idempotent", lease: "held", stepKeys: [A, P], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
     async prepare(ctx, a: { snapshot_id: string }): Promise<Prepared> {
       await snapshotInRun(ctx, a.snapshot_id);
-      const snap = (await ctx.db.query<{ commit_sha: string; sealed: boolean }>("SELECT commit_sha, sealed_at IS NOT NULL AS sealed FROM repo_snapshots WHERE id = $1", [a.snapshot_id])).rows[0]!;
+      const snap = (await ctx.db.query<{ commit_sha: string; sealed: boolean; repository: string }>("SELECT commit_sha, sealed_at IS NOT NULL AS sealed, repository FROM repo_snapshots WHERE id = $1", [a.snapshot_id])).rows[0]!;
       if (snap.sealed) return { kind: "seal", verification: null }; // a retry after a lost answer: run() returns the recorded seal
       if (!ctx.services.github) throw new Refusal(503, "github_verification_unavailable", "the API has no GitHub source configured, so it cannot verify the snapshot; refusing to seal");
-      const input = acquireStepInput.parse(ctx.step!.input);
+      let input: z.infer<typeof acquireStepInput>;
+      if (ctx.step!.step_key === P) {
+        // C3: the API establishes the pins ITSELF (the parent tree from GitHub, the URLs from the parent's verified .gitmodules). A snapshot
+        // that is not of a repository and commit pinned there is refused; one that is, is verified against GitHub at exactly that commit.
+        let parent: SealedSnapshotRef;
+        try { parent = await ctx.reads.sealedSnapshot(ctx.runId); } catch (error) { throw new Refusal(422, "output_rejected", error instanceof Error ? error.message : "no sealed snapshot"); }
+        const { pinned } = await apiDependencySet(ctx, parent, dependencyLimitsOf(ctx), new Map(), "pins");
+        if (!pinned.some((p) => p.repository.toLowerCase() === snap.repository.toLowerCase() && p.commitSha === snap.commit_sha)) throw new Refusal(403, "dependency_not_pinned", `${snap.repository}@${snap.commit_sha} is not a dependency the parent commit's tree pins; refusing to seal it`);
+        input = { repository: snap.repository, ref: snap.commit_sha, onUnrepresentable: "seal_partial" };
+      } else input = acquireStepInput.parse(ctx.step!.input);
       await assertProcessingBudget(ctx.db, ctx.tokenId, ctx.services.quotas);
       const started = Date.now();
       try {
@@ -332,12 +429,24 @@ export const OPERATIONS: Record<string, Operation> = {
     },
   },
   verify_snapshot: {
-    kind: "plain", lease: "held", stepKeys: [A], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
+    kind: "plain", lease: "held", stepKeys: [A, P], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
     async run(ctx, a: { snapshot_id: string }) { await snapshotInRun(ctx, a.snapshot_id); return ctx.store.verifySnapshot(a.snapshot_id); },
+  },
+  // ---- C3: the resolver's configuration files of a sealed snapshot of the run (five fixed names, nothing else) ----
+  snapshot_config_files: {
+    kind: "plain", lease: "held", stepKeys: [P], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
+    async run(ctx, a: { snapshot_id: string }) { await snapshotInRun(ctx, a.snapshot_id); return snapshotConfigFiles(ctx.db, a.snapshot_id); },
+  },
+  // ---- C1 / C3: the stored shared protocol model (the worker re-hashes it) and the run's dependency manifest and sources, for the tools ----
+  shared_protocol_model: { kind: "plain", lease: "held", stepKeys: [S, X], bodyLimit: 4 * KiB, schema: z.object(stepId).strict(), run: (ctx) => ctx.reads.sharedProtocolModel(ctx.runId) },
+  dependency_context: { kind: "plain", lease: "held", stepKeys: [S], bodyLimit: 4 * KiB, schema: z.object(stepId).strict(), run: (ctx) => ctx.reads.dependencyContext(ctx.runId) },
+  dependency_solidity_files: {
+    kind: "plain", lease: "held", stepKeys: [S], bodyLimit: 4 * KiB, schema: z.object(stepId).strict(),
+    async run(ctx) { return (await ctx.reads.dependencySolidityFiles(ctx.runId)).map((f) => ({ path: f.path, content_base64: f.content.toString("base64") })); },
   },
 
   // ---- analysis reads (the queries dbResearchReads runs; every answer is charged to the token's read quota) ----
-  sealed_snapshot: { kind: "plain", lease: "held", stepKeys: [Z, S, C, D, X], bodyLimit: 4 * KiB, schema: z.object(stepId).strict(), run: (ctx) => ctx.reads.sealedSnapshot(ctx.runId) },
+  sealed_snapshot: { kind: "plain", lease: "held", stepKeys: [P, Z, S, C, D, X], bodyLimit: 4 * KiB, schema: z.object(stepId).strict(), run: (ctx) => ctx.reads.sealedSnapshot(ctx.runId) },
   snapshot_sources: {
     kind: "plain", lease: "held", stepKeys: [Z, C, X], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
     async run(ctx, a: { snapshot_id: string }) { await snapshotInRun(ctx, a.snapshot_id); return ctx.reads.snapshotSources(a.snapshot_id); },
@@ -469,7 +578,16 @@ async function slitherOutput(ctx: Ctx, out: Record<string, unknown>): Promise<Re
     const n = (await ctx.db.query<{ n: number }>("SELECT count(*)::int AS n FROM hypotheses WHERE id = ANY($1::uuid[]) AND workflow_run_id = $2 AND produced_by_step_id = $3 AND generator_id = 'slither'", [ids, ctx.runId, ctx.step!.id])).rows[0]!.n;
     if (n !== ids.length) throw new Refusal(422, "output_rejected", "the Slither output names hypotheses this step did not record");
   }
-  return { ...out, ...passive, reported_by: "worker" };
+  // C1/C3: a model or dependency manifest the worker says it read must be the one this run's records hold; C2: lead keys are derived by the API
+  const analysis = (await ctx.db.query<{ sha: string | null; digest: string | null }>("SELECT output->>'shared_model_sha256' AS sha, (SELECT d.output->>'dependency_manifest_digest' FROM workflow_steps d WHERE d.workflow_run_id = $1 AND d.step_key = $2 AND d.status = 'succeeded') AS digest FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = 'analyze_structure' AND status = 'succeeded'", [ctx.runId, P])).rows[0];
+  const named = (out["protocol_model"] as { sha256?: string } | undefined)?.sha256;
+  if (named !== undefined && named !== analysis?.sha) throw new Refusal(422, "output_rejected", "the Slither output names a shared protocol model other than the one this run's analysis recorded");
+  const digest = (out["dependencies"] as { manifest_digest?: string } | undefined)?.manifest_digest;
+  if (digest !== undefined && digest !== analysis?.digest) throw new Refusal(422, "output_rejected", "the Slither output names a dependency manifest other than the one this run recorded");
+  const { lead_keys: _claimed, ...rest } = out; void _claimed;
+  const snap = await ctx.reads.sealedSnapshot(ctx.runId);
+  const keys = out["status"] === "tool_completed" && analysis?.sha ? { lead_keys: leadKeysOf(snap.repository, (out["leads"] as Array<{ hypothesisId: string; class: string; contract: string; function: string; file: string }>).map((l) => ({ id: l.hypothesisId, class: l.class, file: l.file, contract: l.contract, function: l.function }))) } : {};
+  return { ...rest, ...keys, ...passive, reported_by: "worker" };
 }
 
 type Auth = { tokenId: string; runId: string; runStatus: string; correlationId: string | null };

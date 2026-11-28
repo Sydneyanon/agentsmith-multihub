@@ -17,6 +17,8 @@ import { parseWorkerToken, redactWorkerTokens } from "./worker-tokens.js";
 import { progressFor } from "./step-progress.js";
 import { APEX_SHADOW_STEP_KEY } from "./apex/shadow-target.js";
 import { processApexShadowStep, type ShadowStepContext } from "./apex/shadow-step.js";
+import { DEPENDENCY_STEP_KEY } from "./acquisition/dependencies.js";
+import { processAcquireDependenciesStep } from "./acquisition/dependency-step.js";
 
 /**
  * Option D's worker runtime: the same loop (runWorkerLoop) and the same step handlers as the direct worker, with the database replaced
@@ -93,6 +95,14 @@ export async function executeRemoteStep(client: WorkerApiClient, workerId: strin
   client.scopeToStep(step.id); client.adoptStep(step);
   try {
     if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ worker: client, workerId, source: options.source, store: client, ...beat }, step);
+    else if (step.step_key === DEPENDENCY_STEP_KEY) {
+      // C3: each dependency is acquired HERE through the same untrusted-archive path as the repository itself, and sealed only after the
+      // API verified it against GitHub and against the pin in the parent tree; the worker reports only the digest it reached and the
+      // failures it observed, and the API re-derives the manifest itself
+      await processAcquireDependenciesStep({ worker: client, workerId, source: options.source, store: client, reads: client, ...beat,
+        completion: (snap, m) => ({ status: "dependencies_resolved", snapshot_id: snap.snapshotId, dependency_manifest_digest: m.digest,
+          failures: m.dependencies.filter((d) => d.status === "unavailable" || d.status === "too_large").map((d) => ({ path: d.path, code: d.status, reason: (d.reason ?? "").slice(0, 400) })) }) }, step);
+    }
     else if (isResearchSlitherStep(step)) await processResearchSlitherScanStep({ worker: client, workerId, store: client, reads: client, env, ...beat }, step);
     else if (step.step_key === APEX_SHADOW_STEP_KEY) {
       // APEX runs HERE, in this worker's own bounded child, on the in-scope files of the sealed snapshot; its report goes through the ONE

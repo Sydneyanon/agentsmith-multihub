@@ -154,7 +154,7 @@ describe("option D: D5 refusal mapping and D1/D3 surface", () => {
   });
   it("D1: record_evaluation exists only to be refused; D3: every research step key has a strict completion schema", async () => {
     await expect(OPERATIONS.record_evaluation!.run({} as never, {}, null)).rejects.toMatchObject({ status: 403, code: "evaluations_are_api_derived" });
-    expect(Object.keys(COMPLETE_SCHEMAS).sort()).toEqual(["acquire_repository", "analyze_structure", "apex_shadow", "build_dossier", "challenge_leads", "slither_scan"]);
+    expect(Object.keys(COMPLETE_SCHEMAS).sort()).toEqual(["acquire_dependencies", "acquire_repository", "analyze_structure", "apex_shadow", "build_dossier", "challenge_leads", "slither_scan"]);
     const snap = "00000000-0000-4000-8000-000000000001";
     for (const key of ["analyze_structure", "challenge_leads", "build_dossier"]) {
       expect(COMPLETE_SCHEMAS[key]!.safeParse({ status: { analyze_structure: "structure_analyzed", challenge_leads: "leads_challenged", build_dossier: "dossier_built" }[key], snapshot_id: snap }).success, key).toBe(true);

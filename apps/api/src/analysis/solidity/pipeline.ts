@@ -12,6 +12,8 @@ import { slitherScanOfSnapshot } from "./slither-record.js";
 import { analysisIdentity, evaluationRelation, type EvaluationRelation } from "../../analysis-identity.js";
 import { SLITHER_VERSION as SLITHER_PINNED } from "./keys.js";
 import type { ResearchReads } from "../../research-port.js";
+import { buildSharedModel, readSharedModelOfRun, sectionStatuses, SHARED_MODEL_BLOB_LIMIT, SHARED_MODEL_SCHEMA, type SharedModelContext } from "./shared-model.js";
+import { investigationsOfSnapshot, summariseInvestigations, type Investigation, type InvestigationSummary } from "./lead-identity.js";
 
 /**
  * Glue between the structural analysis and the durable research state (5.1): findings become evidence-linked hypotheses citing
@@ -43,6 +45,8 @@ export function findingPayload(hypothesisId: string, snapshotId: string, f: Find
 /** research_blobs holds at most 1 MiB per blob; a larger model is not stored (and the step says so) rather than truncated. */
 const MODEL_BLOB_LIMIT = 1_048_576;
 export type StoredProtocolModel = { sha256: string; stored: boolean; components: number; functions: number; callEdges: number; unknowns: number };
+/** C1: the shared protocol model the analysis built beside the base model (shared-model.ts), as recorded by the analysis step. */
+export type StoredSharedModel = { sha256: string; stored: boolean; schema: string; base_sha256: string; sections: Record<string, string>; dependency_manifest_digest: string | null };
 
 export async function readSnapshotSources(pool: Pool, snapshotId: string): Promise<Array<{ path: string; text: string }>> {
   const r = await pool.query<{ path: string; text: string }>(
@@ -95,25 +99,36 @@ export function rejectUncitableFindings(findings: Finding[], sources: ReadonlyAr
 export type ComputedStructure = {
   protocolModel: { json: string; sha256: string; components: number; functions: number; callEdges: number; unknowns: number };
   findings: Finding[]; problems: string[]; contracts: number; functions: number;
+  /** C1: present when the caller gave the snapshot identity (every repository_research analysis step does) */
+  sharedModel?: { json: string; sha256: string; base_sha256: string; sections: Record<string, string>; dependency_manifest_digest: string | null };
 };
-export function computeStructuralAnalysis(sources: ReadonlyArray<{ path: string; text: string }>): ComputedStructure {
+export function computeStructuralAnalysis(sources: ReadonlyArray<{ path: string; text: string }>, shared?: SharedModelContext): ComputedStructure {
   const pm = buildProtocolModel(sources);
+  const sm = shared ? buildSharedModel(sources, pm, shared) : null;
   const { findings, index, problems } = analyzeSources(sources);
   const checked = rejectUncitableFindings(findings, sources);
   const fns = [...index.contracts.values()].reduce((n, c) => n + c.functions.length, 0);
   return {
     protocolModel: { json: pm.json, sha256: pm.sha256, components: pm.model.components.length, functions: pm.model.functions.length, callEdges: pm.model.callEdges.length, unknowns: pm.model.unknowns.length },
     findings: checked.kept, problems: [...problems, ...checked.problems], contracts: index.contracts.size, functions: fns,
+    ...(sm ? { sharedModel: { json: sm.json, sha256: sm.sha256, base_sha256: pm.sha256, sections: sectionStatuses(sm.doc), dependency_manifest_digest: sm.doc.dependency_manifest_digest } } : {}),
   };
 }
 
 /** Records a computed structural analysis under the step lease: the protocol model blob, evidence spans, hypotheses and finding payloads. */
-export async function writeStructuralAnalysis(store: Pick<ResearchStore, "putBlob" | "createEvidenceSpan" | "createHypothesis">, lease: StepLease, snapshotId: string, c: ComputedStructure, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
+export async function writeStructuralAnalysis(store: Pick<ResearchStore, "putBlob" | "createEvidenceSpan" | "createHypothesis">, lease: StepLease, snapshotId: string, c: ComputedStructure, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel; sharedModel?: StoredSharedModel }> {
   // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
   const bytes = Buffer.from(c.protocolModel.json, "utf8");
   const storedModel = bytes.length <= MODEL_BLOB_LIMIT ? (await store.putBlob(lease, bytes)).sha256 === c.protocolModel.sha256 : false;
   const { json: _json, ...counts } = c.protocolModel; void _json;
   const protocolModel: StoredProtocolModel = { ...counts, stored: storedModel };
+  // C1: the shared model is stored content-addressed beside the base model it names; every other engine reads it by this hash
+  let sharedModel: StoredSharedModel | undefined;
+  if (c.sharedModel) {
+    const sb = Buffer.from(c.sharedModel.json, "utf8");
+    const ok = sb.length <= SHARED_MODEL_BLOB_LIMIT ? (await store.putBlob(lease, sb)).sha256 === c.sharedModel.sha256 : false;
+    sharedModel = { sha256: c.sharedModel.sha256, stored: ok && storedModel, schema: SHARED_MODEL_SCHEMA, base_sha256: c.sharedModel.base_sha256, sections: c.sharedModel.sections, dependency_manifest_digest: c.sharedModel.dependency_manifest_digest };
+  }
   const stored: StoredHypothesis[] = []; const spanCache = new Map<string, string>();
   const span = async (file: string, line: number) => {
     const key = `${file}:${line}`; const have = spanCache.get(key); if (have) return have;
@@ -130,7 +145,7 @@ export async function writeStructuralAnalysis(store: Pick<ResearchStore, "putBlo
     const payload = await store.putBlob(lease, Buffer.from(canonicalJson(findingPayload(made.id, snapshotId, f)), "utf8"));
     stored.push({ id: made.id, finding: f, spanIds: spans.map((s) => s.spanId), payloadSha256: payload.sha256 });
   }
-  return { stored, problems: c.problems, contracts: c.contracts, functions: c.functions, protocolModel };
+  return { stored, problems: c.problems, contracts: c.contracts, functions: c.functions, protocolModel, ...(sharedModel ? { sharedModel } : {}) };
 }
 
 export async function runStructuralAnalysis(pool: PoolOrReads, store: Pick<ResearchStore, "putBlob" | "createEvidenceSpan" | "createHypothesis">, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
@@ -331,6 +346,15 @@ export type Dossier = {
   /** what produced the analysis, from the analysis step's own record (null fields: not recorded, e.g. builds before structural-solidity/2) */
   analyzer: { version: string | null; build_commit: string | null; image: string | null };
   summary: Record<string, number>; entries: DossierEntry[]; architecture: ArchitectureSection; limitations: string[]; content_sha256: string;
+  /**
+   * C1: the shared protocol model this dossier read BY HASH (re-hashed on read), with each section's status; absent for a run whose analysis
+   * step recorded none. Sections that are `not_computed` are named with their reason: they are never shown as empty.
+   */
+  shared_model?: { sha256: string; base_sha256: string; schema: string; read: "by_hash"; sections: Record<string, string>; not_computed: Array<{ section: string; reason: string }>;
+    unresolved_imports: number; unresolved_questions: number; dependency_manifest_digest: string | null } | { sha256: null; read: "unavailable"; reason: string };
+  /** C2: the leads grouped by shared lead identity. Each investigation is counted ONCE, with every engine's hypothesis and evidence kept apart. */
+  investigations: Investigation[];
+  investigation_summary: InvestigationSummary;
   /** the official bounty scope recorded on the run (null for runs without one): its evidence, and how many leads fall in and out of it */
   bounty_scope?: { programme: string; evidence: string; evidence_sha256: string; in_scope_files: number; in_scope_leads: number; out_of_scope_leads: number } | null;
 };
@@ -563,10 +587,34 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
     limitations.push(`Bounty scope (${scope.programme}, evidence ${scope.evidence}, sha256 ${scope.evidence_sha256.slice(0, 12)}…): ${scope.in_scope_paths.length} files are in scope. The whole repository was analysed so that interactions are visible, but only leads whose primary location is in scope can be eligible bounty findings; every other lead is labelled OUT OF SCOPE.`);
   }
   const provenance = await dossierProvenance(pool, snapshotId, keyed, entries);
+  // C2: one investigation per lead key (stored records only); C1: the shared model, read by the hash the analysis step recorded
+  const investigations = await investigationsOfSnapshot(pool, snapshotId);
+  const investigation_summary = summariseInvestigations(investigations);
+  const sharedModel = await dossierSharedModel(pool, snapshotId);
   const hashed: unknown[] = [content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer, provenanceDigest(provenance), entries.map((e) => [e.provenance.claim, e.provenance.evaluations.map((x) => `${x.evaluator}:${x.outcome}:${x.recorded_by}`)])];
   if (bountyScope) hashed.push(bountyScope, entries.map((e) => [e.hypothesis_id, e.scope_status]));
+  // hashed only when present, so a dossier of a run without these records keeps the content hash it always had
+  // (the shared model itself is a function of what is hashed already: the base model, the coverage and the snapshot; only a dependency set adds content)
+  if (sharedModel?.sha256 && sharedModel.dependency_manifest_digest) hashed.push(["dependency_manifest", sharedModel.dependency_manifest_digest]);
+  if (investigation_summary.multi_engine > 0) hashed.push(["investigations", investigations.filter((i) => i.contributions.length > 1).map((i) => [i.anchor, i.generators, i.assessment, i.contradictions.map((c) => [c.kind, c.for.engine, c.against.engine, c.against.stance])])]);
   const content_sha256 = createHash("sha256").update(JSON.stringify(hashed)).digest("hex");
-  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, provenance, coverage, analyzer, summary, entries, architecture, limitations, content_sha256, ...(bountyScope ? { bounty_scope: bountyScope } : {}) };
+  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, provenance, coverage, analyzer, summary, entries, architecture, limitations, content_sha256, ...(sharedModel ? { shared_model: sharedModel } : {}), investigations, investigation_summary, ...(bountyScope ? { bounty_scope: bountyScope } : {}) };
+}
+
+/** C1 consumer: what the dossier records about the shared model it read (by hash, re-hashed). Undefined when the analysis recorded none. */
+async function dossierSharedModel(pool: Pool, snapshotId: string): Promise<Dossier["shared_model"]> {
+  const run = (await pool.query<{ workflow_run_id: string }>("SELECT workflow_run_id FROM repo_snapshots WHERE id = $1", [snapshotId])).rows[0];
+  if (!run) return undefined;
+  const recorded = (await pool.query("SELECT 1 FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = 'analyze_structure' AND status = 'succeeded' AND output ? 'shared_model_sha256'", [run.workflow_run_id])).rowCount;
+  if (!recorded) return undefined;
+  const r = await readSharedModelOfRun(pool, run.workflow_run_id); // throws on a hash mismatch: the dossier fails closed, as for the base model
+  if (!r.available) return { sha256: null, read: "unavailable", reason: r.reason };
+  const s = r.doc.sections;
+  const not_computed = (Object.entries(s) as Array<[string, { status: string; reason?: string }]>).filter(([, v]) => v.status === "not_computed").map(([section, v]) => ({ section, reason: v.reason ?? "" }));
+  if (s.external_dependencies.status === "computed" && s.external_dependencies.dependency_set.status === "not_computed") not_computed.push({ section: "external_dependencies.dependency_set", reason: s.external_dependencies.dependency_set.reason });
+  return { sha256: r.sha256, base_sha256: r.base_sha256, schema: r.doc.schema, read: "by_hash", sections: sectionStatuses(r.doc), not_computed,
+    unresolved_imports: s.external_dependencies.status === "computed" ? s.external_dependencies.imports.filter((i) => i.resolution === "unresolved").length : 0,
+    unresolved_questions: s.unresolved_questions.status === "computed" ? s.unresolved_questions.questions.length : 0, dependency_manifest_digest: r.doc.dependency_manifest_digest };
 }
 
 export function renderDossierMarkdown(d: Dossier): string {
@@ -599,6 +647,18 @@ export function renderDossierMarkdown(d: Dossier): string {
     o.push(`\n**Uncertainty and limitations.**\n` + e.uncertainty.map((u) => `- ${u}`).join("\n"));
     o.push(`\n**Required checks.** ${(e.required_checks as string[]).join("; ")}\n**Alternative explanations.** ${(e.alternative_explanations as string[]).join("; ")}\nHuman review: ${e.human_review}.\n`);
   });
+  const shared = d.investigations.filter((i) => i.contributions.length > 1);
+  if (shared.length) {
+    o.push(`## Investigations (shared lead identity)\n`);
+    o.push(`${d.investigation_summary.hypotheses} hypotheses are ${d.investigation_summary.investigations} investigations: ${shared.length} lead(s) were reported by more than one hypothesis and are counted ONCE. Each engine's claim and evidence stays separate; agreement between generators is independent generation, not validation.\n`);
+    for (const i of shared) {
+      o.push(`### ${i.anchor ? `${i.anchor.contract}${i.anchor.function ? `.${i.anchor.function}` : ""} - ${i.anchor.class}` : i.lead_key} (lead key \`${i.lead_key.slice(0, 16)}…\`): ${i.assessment.replace(/_/g, " ").toUpperCase()}`);
+      for (const c of i.contributions) o.push(`- **${c.generator}** (${c.analysis_family ?? "family not recorded"}), hypothesis \`${c.hypothesis_id}\`: cites ${c.evidence.map((e) => `\`${e.path}:${e.lines}\``).join(", ")}; evaluations: ${c.evaluations.map((e) => `${e.evaluator} **${e.outcome}** (${e.relation} to its generator; ${e.relation_to_investigation} to the investigation)`).join("; ") || "none"}`);
+      o.push(`Corroboration at the investigation level: ${i.corroboration.cross_family} from another family than every generator, ${i.corroboration.same_family} sharing a family with a generator.`);
+      if (i.contradictions.length) o.push(`**Contradictions (${i.contradictions.length}, both sides kept):**\n` + i.contradictions.map((c) => `- ${c.kind.replace(/_/g, " ")}: ${c.note}`).join("\n"));
+      o.push("");
+    }
+  }
   o.push("## Architecture (protocol model P1-P3)\n");
   if (!d.architecture.available) o.push(`Not available: ${d.architecture.reason}.\n`);
   else {
@@ -620,6 +680,9 @@ export function renderDossierMarkdown(d: Dossier): string {
     }
     if (d.architecture.unknowns.length) o.push(`Not modelled (${d.architecture.unknowns.length}): ` + d.architecture.unknowns.slice(0, 20).map((u) => `\`${u.at}\` ${u.what}`).join("; ") + (d.architecture.unknowns.length > 20 ? "; ..." : "") + "\n");
   }
+  if (d.shared_model) o.push(d.shared_model.read === "by_hash"
+    ? `## Shared protocol model\n\nRead by hash \`${d.shared_model.sha256}\` (base \`${d.shared_model.base_sha256}\`), re-hashed on read. Section status (parsed is what was read as written, derived is what a rule computed; neither means understood): ${Object.entries(d.shared_model.sections).map(([k, v]) => `${k}=${v}`).join(", ")}. ${d.shared_model.unresolved_imports} unresolved imports; ${d.shared_model.unresolved_questions} open questions.\n${d.shared_model.not_computed.map((n) => `- NOT COMPUTED \`${n.section}\`: ${n.reason}`).join("\n")}\n`
+    : `## Shared protocol model\n\nNot available: ${d.shared_model.reason}.\n`);
   o.push("## Limitations\n" + d.limitations.map((l) => `- ${l}`).join("\n") + "\n");
   return o.join("\n");
 }

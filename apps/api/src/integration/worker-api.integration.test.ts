@@ -377,7 +377,9 @@ describe.skipIf(skipIntegration)("option D: the worker reaches the database only
   it("offers an explicit allow-list with no update, delete, query or non-research operation", () => {
     expect(Object.keys(OPERATIONS).sort()).toEqual(["add_snapshot_files", "build_dossier", "claim", "complete", "create_evidence_span", "create_hypothesis", "create_snapshot", "fail", "find_snapshot",
       "heartbeat", "hypothesis_span_ids", "put_blob", "record_evaluation", "report_apex_shadow", "report_progress", "seal_snapshot", "sealed_snapshot", "slither_hypothesis_ids", "slither_scan_outcome", "snapshot_solidity_files",
-      "snapshot_sources", "specialist_hypotheses_of_run", "specialist_hypothesis_id", "verify_snapshot"].sort());
+      "snapshot_sources", "specialist_hypotheses_of_run", "specialist_hypothesis_id", "verify_snapshot",
+      // C1/C3 reads: the stored shared protocol model, the resolver's configuration files, the dependency manifest and sources
+      "dependency_context", "dependency_solidity_files", "shared_protocol_model", "snapshot_config_files"].sort());
     for (const name of Object.keys(OPERATIONS)) expect(name).not.toMatch(/update|delete|drop|truncate|query|sql|exec|bounty|budget|approval|price|source_|review|withdraw/);
     // the server's own SQL: the only UPDATE is the token's last-use time; no DELETE or TRUNCATE at all
     const src = readFileSync(join(REPO_ROOT, "apps/api/src/worker-api.ts"), "utf8");

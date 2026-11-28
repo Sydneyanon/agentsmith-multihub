@@ -85,6 +85,13 @@ export const shadowReportSchema = z.object({
     approved_by: s(200).nullable(), approved_commit: s(64).nullable(),
     input_files: z.array(z.object({ path: s(1024), sha256: hex64, bytes: n }).strict()).max(2000),
     worker: z.object({ mode: z.enum(["direct", "remote"]), build_commit: s(64).nullable() }).strict(),
+    // C1 (optional; absent in reports of a stage that read no model): the shared protocol model the stage read BY HASH, and how the model's
+    // syntactic prediction of unsupported features compares with what the fidelity gate actually abstained on
+    protocol_model: z.union([
+      z.object({ sha256: hex64, base_sha256: hex64, schema: s(100), read: z.literal("by_hash"), verified: z.literal("re-hashed on read"), used_for: s(300), inputs_total: n, inputs_matched: n, predicted_unsupported: z.record(n),
+        gate_vs_model: z.object({ predicted_and_observed: z.array(s(40)).max(50), observed_not_predicted: z.array(s(40)).max(50), predicted_not_observed: z.array(s(40)).max(50) }).strict().nullable() }).strict(),
+      z.object({ sha256: z.null(), read: z.literal("unavailable"), reason: s(500) }).strict(),
+    ]).optional(),
   }).strict(),
   result: shadowResultSchema.nullable(),
   observed: z.object({ wall_ms: n, cpu_ms: n }).strict().nullable(),
@@ -173,10 +180,16 @@ export async function recordApexShadow(db: Pick<Pool, "query">, input: { stepId:
     if (bad.length) throw new ShadowRecordRefused(422, "provenance_mismatch", `the report's input digests do not match the sealed snapshot (${bad.slice(0, 3).map((f) => f.path).join(", ")})`);
     if (JSON.stringify(report.provenance.input_files) !== JSON.stringify(files)) throw new ShadowRecordRefused(422, "provenance_mismatch", "the provenance input files differ from the result's");
   }
+  // C1: a report that says it read a shared protocol model must name the one this run's analysis step recorded
+  const namedModel = report.provenance.protocol_model?.sha256 ?? null;
+  if (namedModel) {
+    const recorded = (await db.query<{ sha: string | null }>("SELECT output->>'shared_model_sha256' AS sha FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = 'analyze_structure' AND status = 'succeeded'", [st.workflow_run_id])).rows[0]?.sha ?? null;
+    if (recorded !== namedModel) throw new ShadowRecordRefused(422, "provenance_mismatch", "the report names a shared protocol model other than the one this run's analysis recorded");
+  }
   const overlaps = await shadowOverlaps(db, st.workflow_run_id, report.result as ShadowResult | null);
   const sha = reportSha256(report);
   const payload = { ...report, report_sha256: sha, reported_by: "worker", via: input.via, ...(input.tokenId ? { token_id: input.tokenId } : {}), overlaps,
-    recorder: { checked: ["lease", "run eligibility (repository, commit, approval, official scope)", "sealed snapshot", ...(report.status === "completed" ? ["input files in scope with the snapshot's digests"] : [])], refused_worker_status: recorderRefusal ? parsed.data.status : null } };
+    recorder: { checked: ["lease", "run eligibility (repository, commit, approval, official scope)", "sealed snapshot", ...(report.status === "completed" ? ["input files in scope with the snapshot's digests"] : []), ...(namedModel ? ["shared protocol model hash is the one the run's analysis recorded"] : [])], refused_worker_status: recorderRefusal ? parsed.data.status : null } };
   const id = (await db.query<{ id: string }>(
     `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload) VALUES ($1, $2, 'workflow_step', $3, $4, $5, $6::jsonb) RETURNING id::text AS id`,
     [input.actor, APEX_SHADOW_ACTION, input.stepId, st.correlation_id, "APEX shadow (unvalidated, measurement only): not evidence", JSON.stringify(payload)])).rows[0]!.id;
@@ -196,6 +209,7 @@ export async function apexShadowStepOutput(db: Pick<Pool, "query">, stepId: stri
     status: p.status === "completed" ? "apex_shadow_recorded" : p.status === "refused" ? "apex_shadow_refused" : "apex_shadow_failed", ...base,
     report_audit_event_id: row.id, report_sha256: sha, snapshot_id: p.provenance?.snapshot_id ?? null, commit_sha: p.provenance?.commit_sha ?? null,
     refusal: p.refusal ?? null, failure: p.failure ?? null,
+    ...(p.provenance?.protocol_model ? { protocol_model: p.provenance.protocol_model } : {}),
     counts: r ? { contracts_deployable: r.coverage.contracts_explored.denominator, contracts_explored: r.coverage.contracts_explored.numerator, abstentions: r.abstentions.length, suppressed_counterexamples: r.suppressions.total,
       withheld: r.withheld.length, candidates: r.candidates.length, accepted: r.candidates.filter((c) => c.decision === "accepted").length, rejected: r.candidates.filter((c) => c.decision === "rejected").length,
       reclassified: r.reclassified.length, would_be_hypotheses_unvalidated: r.would_be_hypotheses.length, overlaps: (p.overlaps?.summary ? p.overlaps.summary.same_line + p.overlaps.summary.same_function + p.overlaps.summary.same_file : 0) } : null,

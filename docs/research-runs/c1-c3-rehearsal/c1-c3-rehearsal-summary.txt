@@ -1,0 +1,106 @@
+C1-C3 REHEARSAL (controlled fixtures, disposable database)
+fixtures: self-authored, local git repositories served by a loopback GitHub stand-in; nothing fetched from the network; no real project
+slither:  AUTHORED STAND-IN OUTPUT (not Slither's detection): a shell script printing fixed JSON in Slither's shape
+apex:     the unchanged APEX engine on the USX-like fixture; eligible only because the fixture is served as the approved repository, commit and scope (test configuration); measurement only
+run 9b3d699c-aa94-4e61-8935-0fc6dedda620: scroll-tech/usx-contracts@9e972566deb59b4d2c499015c2557c5e5f236e3c -> succeeded
+  0 acquire_repository     succeeded  snapshot_sealed
+  1 acquire_dependencies   succeeded  dependencies_resolved
+  2 analyze_structure      succeeded  structure_analyzed
+  3 slither_scan           succeeded  tool_completed
+  4 challenge_leads        succeeded  leads_challenged
+  5 build_dossier          succeeded  dossier_built
+  6 apex_shadow            succeeded  apex_shadow_recorded
+
+1. THE SHARED PROTOCOL MODEL (built once, by structural analysis)
+   sha256 faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24
+   base (P1-P3, unchanged) 9fc7363fb89ebdc28cb9c448892d2fe6a7be63e4c3dd88ed3b58ec18cf858063
+   schema agentsmith-shared-protocol-model/1
+   contracts              computed:parsed
+   functions              computed:derived
+   state                  computed:derived
+   actors_permissions     computed:derived
+   assets_accounting      not_computed
+   external_dependencies  computed:parsed
+   invariants             not_computed
+   upgradeability         computed:parsed
+   unsupported_features   computed:parsed
+   unresolved_questions   computed:unknown
+   facts: state.variables=54, actors_permissions.functions=56, actors_permissions.roles=15, external_dependencies.external_calls=25, external_dependencies.imports=12, upgradeability.markers=3, unsupported_features.predicted=31, unresolved_questions.questions=9, functions.callers=1
+   NOT COMPUTED assets_accounting: no rule derives assets, share tokens or accounting relations yet (protocol model R5). State-variable roles (ledger, aggregate) are in `state`; they are roles, not accounting relations.
+   NOT COMPUTED invariants: no rule-derived or declared invariants exist. Candidates inferred by state exploration are measurement records, never model facts.
+   NOT COMPUTED actors_permissions.actors: the actor set (deployer, role holders, unprivileged account, attacker contract) is not derived from authority facts yet; exploration still uses a fixed actor set
+   NOT COMPUTED unsupported_features.gate_observations (inside the immutable document): the fidelity gate's abstentions exist only after the APEX shadow stage ran on this snapshot; they are recorded on the shadow step (worker-reported, measurement only), not in this immutable document
+   example fact (state): {"epistemic":"derived","at":[{"file":"src/demo/SharedVault.sol","line_start":11,"line_end":11}],"component":"SharedVault","variable":"balances","type":"mapping ( address => uint256 )","constant":false,"immutable":false,"roles":["ledger (established, strong)"],"writers":[{"function":"SharedVault.deposit()","entry_point":true,"caller_guarded":false},{"function":"SharedVault.withdraw()","entry_point":true,"caller_guarded":false}]}
+
+2-3. THE MODEL HASH EACH ENGINE READ
+   analyze_structure (builds and stores it)   faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24  (built)
+   slither_scan                               faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24  (by_hash)
+   challenge_leads                            faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24  (by_hash) {"inputs_checked":24,"leads":8,"leads_on_modelled_functions":8}
+   build_dossier                              faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24  (by_hash)
+   apex_shadow                                faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24  (by_hash) {"inputs_matched":20,"inputs_total":20,"gate_vs_model":{"observed_not_predicted":["other"],"predicted_and_observed":["array","external-call","other-contract"],"predicted_not_observed":["block","hashing","inline-assembly","proxy","try"]}}
+   all consumers read the same model: true
+   slither stand-in: remappings passed ["vault-lib/=lib/vault-lib/src/","demo/=src/demo/"]; 2 dependency source file(s) written; dependency source on disk: true
+   slither stand-in arguments: script --solc <solc stand-in> --json - --disable-color --solc-remaps vault-lib/=lib/vault-lib/src/ demo/=src/demo/
+   apex shadow: apex_shadow_recorded; label "APEX shadow: unvalidated, not evidence"; report c9405952698e40ac…; hypotheses written by APEX: 0
+
+4-5. ONE SHARED HYPOTHESIS, TWO ENGINES, EVIDENCE KEPT APART
+   lead key 9fb9f31c4a0be9d9a5f168c46cdaa6040fd48d5b94eb78511de2efb55ca927a6
+   anchor {"repository":"scroll-tech/usx-contracts","class":"reentrancy","file":"src/demo/SharedVault.sol","contract":"SharedVault","function":"withdraw"}
+   2 hypotheses, ONE investigation; generator families agentsmith-solidity-parser + slither-ir; independent generation: true; assessment: corroborated_same_family
+   - generator solidity-structural-specialists@1 | family agentsmith-solidity-parser | step analyze_structure | hypothesis ad99a834-3492-4692-92cc-b92e3b66414a
+       cites src/demo/SharedVault.sol:20-20 (primary), src/demo/SharedVault.sol:22-22 (supporting)
+       evaluated by reentrancy-execution-validator@1 | family agentsmith-solidity-parser | supports | same-family to its generator, same-family to the investigation
+   - generator slither@0.11.3 | family slither-ir | step slither_scan | hypothesis bf7f76d2-1501-4710-aa41-8a2013e26b65
+       cites src/demo/SharedVault.sol:17-22 (primary)
+       evaluated by reentrancy-execution-validator@1 | family agentsmith-solidity-parser | supports | cross-family to its generator, same-family to the investigation
+   corroboration: {"same_family":2,"cross_family":0,"unknown_family":0}
+
+5. THE CONTRADICTION CASE (both sides kept)
+   lead key 1e906c33b66d5695d6acd8c8776b788395e47a2eaddafea2578f48394d3cde35
+   anchor {"repository":"scroll-tech/usx-contracts","class":"access-control","file":"src/demo/SharedVault.sol","contract":"SharedVault","function":"configure"}
+   2 hypotheses, ONE investigation; generator families agentsmith-solidity-parser + slither-ir; independent generation: true; assessment: contradicted
+   - generator solidity-structural-specialists@1 | family agentsmith-solidity-parser | step analyze_structure | hypothesis 52d8a9ce-608e-4e5e-9a09-5ba8c5e75598
+       cites src/demo/SharedVault.sol:27-27 (primary), src/demo/SharedVault.sol:25-25 (context)
+       evaluated by execution-challenge-access-control@1 | family agentsmith-solidity-parser | contradicts | same-family to its generator, same-family to the investigation
+   - generator slither@0.11.3 | family slither-ir | step slither_scan | hypothesis 32941679-d1b3-47d9-a831-a6f416e58cfc
+       cites src/demo/SharedVault.sol:25-27 (primary)
+       evaluated by execution-challenge-access-control@1 | family agentsmith-solidity-parser | inconclusive | cross-family to its generator, same-family to the investigation
+   corroboration: {"same_family":0,"cross_family":0,"unknown_family":0}
+   CONTRADICTION refuted_by_another_engine (same-family): solidity-structural-specialists@1 (agentsmith-solidity-parser) asserts  <->  execution-challenge-access-control@1 (agentsmith-solidity-parser) contradicts
+   CONTRADICTION refuted_by_another_engine (cross-family): slither@0.11.3 (slither-ir) asserts  <->  execution-challenge-access-control@1 (agentsmith-solidity-parser) contradicts
+   dossier: 8 hypotheses listed, counted as 6 investigations (step output: leads=6, hypotheses=8)
+   independence (0016, unchanged): refused by the database: an evaluation cannot be made by the generator of its hypothesis (solidity-structural-specialists)
+
+6. LIMITATION RECORDS
+   dependency manifest digest 6bca023a6f5f303f76f672ae584d773d9a7c3726745efa0d507eb70536b0a1c7 (blob f97e344c398a5cd1…)
+   lib/ghost                                unavailable            pin 444444444444… (gitlink_in_parent_tree)
+   lib/gitlab-lib                           disallowed_host        pin 333333333333… (gitlink_in_parent_tree)
+   lib/no-url                               missing_url            pin 555555555555… (gitlink_in_parent_tree)
+   lib/unpinned                             unpinned               pin NONE
+   lib/vault-lib                            acquired               pin fb583025e1a5… (gitlink_in_parent_tree) tree ea9ede7f1aab… manifest 16c4f94f834ec177…
+   lib/vault-lib/lib/nested-lib             acquired               pin 0f0a94bf9445… (gitlink_in_parent_tree) tree e9155d20ab4d… manifest ab627f9810a7d3ec…
+   lib/vault-lib/lib/nested-lib/lib/deeper  nested_depth_exceeded  pin 777777777777… (gitlink_in_parent_tree)
+   LIMITATION unavailable [lib/ghost]: repository_not_found: the repository was not found (it may not exist, or it is not public)
+   LIMITATION disallowed_host [lib/gitlab-lib]: host gitlab.com is not on the acquisition allow-list (github.com only)
+   LIMITATION missing_url [lib/no-url]: the tree pins 5555555555555555555555555555555555555555 at this path, but .gitmodules of scroll-tech/usx-contracts@9e972566deb59b4d2c499015c2557c5e5f236e3c gives no URL for it, so its source is unknown
+   LIMITATION unpinned [lib/unpinned]: .gitmodules declares this submodule, but the tree of scroll-tech/usx-contracts@9e972566deb59b4d2c499015c2557c5e5f236e3c has no gitlink at lib/unpinned: there is no pinned commit, and a branch head is never fetched
+   LIMITATION nested_depth_exceeded [lib/vault-lib/lib/nested-lib/lib/deeper]: nested submodule at depth 3; the limit is 2 (pinned at 7777777777777777777777777777777777777777, not fetched)
+   LIMITATION remapping_target_missing [ghost/=lib/ghost/src/]: the remapping targets lib/ghost, which is unavailable
+   LIMITATION package_not_acquired [@openzeppelin/contracts]: pinned by the lockfile with an integrity hash, but not acquired: no package source is on the acquisition allow-list and no storage exists for a non-git snapshot (db/drafts/c3-dependency-records)
+   package @openzeppelin/contracts: pinned_not_acquired (package-lock.json integrity, 5.0.2)
+   package unpinned-pkg: unavailable
+   unsupported features, predicted by the model (parsed): {"other-contract":8,"external-call":12,"block":2,"proxy":1,"inline-assembly":1,"array":2,"hashing":4,"try":1}
+   unsupported features, observed by APEX's fidelity gate (worker-reported, report c9405952698e40ac…): {"array":1,"other":8,"external-call":1,"other-contract":3}
+   prediction vs gate: both ["array","external-call","other-contract"]; gate only ["other"]; predicted only ["block","hashing","inline-assembly","proxy","try"]
+   APEX ABSTAINED other at src/asset-manager/AssetManager.sol:15 (AssetManager.constructor): deployment not modelled: constructor parameters of AssetManager (abstained(other@unknown))
+   APEX ABSTAINED other-contract at src/facets/AssetManagerAllocatorFacet.sol:10 (AssetManagerAllocatorFacet.allocate): other-contract: call into TreasuryStorage.layout
+   APEX ABSTAINED other-contract at src/facets/AssetManagerAllocatorFacet.sol:17 (AssetManagerAllocatorFacet.deallocate): other-contract: call into TreasuryStorage.layout
+   second project (acme-labs/blocked): slither abstained: {"code":"dependency_unavailable","detail":"cannot compile: dependency lib/ghost unavailable (dependency lib/ghost is unavailable: repository_not_found: the repository was not found (it may not exist, or it is not public)); 2 import statement(s) of the analysed sources cannot be resolved [lib/ghost, lib/unpinned]"}
+   UNRESOLVED IMPORT ghost/Ghost.sol: dependency lib/ghost is unavailable: repository_not_found: the repository was not found (it may not exist, or it is not public)
+   UNRESOLVED IMPORT unpinned/Thing.sol: dependency lib/unpinned is unpinned: .gitmodules declares this submodule, but the tree of acme-labs/blocked@69eb4dd0d9af34229755a0faf8452fec9e99a706 has no gitlink at lib/unpinned: there is no pinned commit, and a branch head is never fetched
+   its dossier coverage: partial
+
+REPRODUCIBILITY AND IDENTITY ACROSS SNAPSHOTS
+   second run of the same parent commit: {"second_run_id":"5fc79c86-9237-470d-8ae3-15335d932bae","dependency_digest_equal":true,"shared_model_sha256_equal":true,"analysed_snapshot_manifest_equal":true}
+   lead 9fb9f31c4a0be9d9… occurs at: 9e972566 by solidity-structural-specialists@1; 9e972566 by slither@0.11.3; 9e972566 by solidity-structural-specialists@1; 9e972566 by slither@0.11.3; aaaaaaaa by solidity-structural-specialists@1; aaaaaaaa by slither@0.11.3
+   the same lead key at two commits of the same repository, from both generators, although the cited lines moved by three

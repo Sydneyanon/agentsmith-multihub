@@ -7,6 +7,8 @@ import type { ClaimedStep } from "../worker.js";
 import { APEX_SHADOW_SCHEMA, DEFAULT_SHADOW_LIMITS, type ShadowLimits, type ShadowResult } from "./shadow.js";
 import { apexShadowStepOutput, recordApexShadow, shadowResultSchema, ShadowRecordRefused, type ShadowReport } from "./shadow-record.js";
 import { APEX_SHADOW_LABEL, APEX_SHADOW_TARGET, APEX_SHADOW_VERSION, apexShadowEligibility } from "./shadow-target.js";
+import { createHash } from "node:crypto";
+import { modelReadRecord, readSharedModelRef } from "../analysis/solidity/shared-model.js";
 
 /**
  * The `apex_shadow` step: the LAST stage of an approved run, after the dossier is built, so nothing it does can reach the dossier, the
@@ -31,7 +33,8 @@ export type ShadowSink = {
 };
 export type ShadowStepContext = {
   worker: Pick<StepLifecyclePort, "heartbeat">; workerId: string; heartbeatMs?: number; mode: "direct" | "remote";
-  reads: Pick<ResearchReads, "sealedSnapshot" | "snapshotSources">; sink: ShadowSink;
+  /** `sharedProtocolModel` (C1) is optional: a context without it records no model, exactly as before */
+  reads: Pick<ResearchReads, "sealedSnapshot" | "snapshotSources"> & Partial<Pick<ResearchReads, "sharedProtocolModel">>; sink: ShadowSink;
   /** the run's recorded input when the worker can read it (direct); the remote worker uses the step input copied at creation */
   runInput?: Record<string, unknown> | null;
   /** injectable for tests: replaces the bounded child (e.g. a throwing or hanging compute) */
@@ -60,13 +63,15 @@ export async function processApexShadowStep(ctx: ShadowStepContext, step: Claime
   const computeLimits: ComputeLimits = { ...DEFAULT_SHADOW_COMPUTE, ...(ctx.computeLimits ?? {}) };
   const shadowLimits: ShadowLimits = { ...DEFAULT_SHADOW_LIMITS, ...(ctx.shadowLimits ?? {}) };
   let snap: SealedSnapshotRef | null = null;
+  // C1: the shared protocol model this stage read by hash (set once the in-scope files are known); part of the report's provenance
+  let protocolModel: NonNullable<ShadowReport["provenance"]["protocol_model"]> | undefined;
   const report = (over: Partial<ShadowReport>, files: ShadowReport["provenance"]["input_files"] = [], engine: string | null = null): ShadowReport => ({
     schema: APEX_SHADOW_SCHEMA, label: APEX_SHADOW_LABEL, version: APEX_SHADOW_VERSION, status: "failed", refusal: null, failure: null, result: null, observed: null,
     provenance: { apex_version: APEX_SHADOW_VERSION, engine_generator: engine, strategy: "deep",
       compute_limits: { cpuMs: computeLimits.cpuMs, wallMs: computeLimits.wallMs, maxHeapMb: computeLimits.maxHeapMb, maxInputBytes: computeLimits.maxInputBytes, maxOutputBytes: computeLimits.maxOutputBytes }, shadow_limits: shadowLimits,
       snapshot_id: snap?.snapshotId ?? null, commit_sha: snap?.commitSha ?? null, manifest_sha256: snap?.manifestSha256 ?? null, repository: snap?.repository ?? null,
       approved_by: typeof approval?.approved_by === "string" ? approval.approved_by.slice(0, 200) : null, approved_commit: typeof approval?.approved_commit === "string" ? approval.approved_commit.slice(0, 64) : null,
-      input_files: files, worker: { mode: ctx.mode, build_commit: readBuildInfo().commit?.slice(0, 64) ?? null } },
+      input_files: files, worker: { mode: ctx.mode, build_commit: readBuildInfo().commit?.slice(0, 64) ?? null }, ...(protocolModel ? { protocol_model: protocolModel } : {}) },
     ...over,
   });
 
@@ -88,6 +93,21 @@ export async function processApexShadowStep(ctx: ShadowStepContext, step: Claime
       const inScope = new Set(APEX_SHADOW_TARGET.inScopePaths);
       const sources = (await ctx.reads.snapshotSources(snap!.snapshotId)).filter((x) => inScope.has(x.path));
       const started = Date.now();
+      // C1: the SAME shared protocol model the analysis stored, read by hash and re-hashed. APEX explores only files whose bytes are the
+      // model's inputs, and the model's syntactic prediction of unsupported features is later compared with what the gate abstained on.
+      let predicted: Record<string, number> = {};
+      if (ctx.reads.sharedProtocolModel) {
+        const model = readSharedModelRef(await ctx.reads.sharedProtocolModel(step.workflow_run_id));
+        const rec = modelReadRecord(model, "input identity check; the model's predicted unsupported features, compared with the fidelity gate's abstentions");
+        if (model.available && rec.sha256 !== null) {
+          const inputs = new Map(model.doc.inputs.map((i) => [i.file, i.sha256]));
+          const matched = sources.filter((x) => inputs.get(x.path) === createHash("sha256").update(x.text, "utf8").digest("hex")).length;
+          const sec = model.doc.sections.unsupported_features;
+          if (sec.status === "computed") for (const p of sec.predicted) if (inScope.has(p.at[0]!.file)) predicted[p.feature] = (predicted[p.feature] ?? 0) + 1;
+          protocolModel = { ...rec, inputs_total: sources.length, inputs_matched: matched, predicted_unsupported: predicted, gate_vs_model: null };
+          if (matched !== sources.length) throw new Error(`the in-scope sources are not the inputs of the shared protocol model ${model.sha256} (${matched} of ${sources.length} match)`);
+        } else if (rec.sha256 === null) protocolModel = { sha256: null, read: "unavailable", reason: rec.reason.slice(0, 500) };
+      }
       // 3. the bounded child
       try {
         const payload = { sources, in_scope_paths: [...APEX_SHADOW_TARGET.inScopePaths], limits: shadowLimits };
@@ -96,6 +116,10 @@ export async function processApexShadowStep(ctx: ShadowStepContext, step: Claime
         if (!valid.success) r = report({ status: "failed", failure: { code: "invalid_result", message: `the APEX result does not have its schema (${valid.error.issues[0]?.path.join(".") ?? ""}: ${valid.error.issues[0]?.message ?? "invalid"})`.slice(0, 1000), wall_ms: out.wallMs } });
         else {
           const result = valid.data as ShadowResult;
+          if (protocolModel && protocolModel.sha256 !== null) {
+            const o = new Set(Object.keys(result.abstentions_by_feature)); const p = new Set(Object.keys(predicted));
+            protocolModel = { ...protocolModel, gate_vs_model: { predicted_and_observed: [...o].filter((f) => p.has(f)).sort(), observed_not_predicted: [...o].filter((f) => !p.has(f)).sort(), predicted_not_observed: [...p].filter((f) => !o.has(f)).sort() } };
+          }
           r = report({ status: "completed", result, observed: { wall_ms: Math.round(out.wallMs), cpu_ms: Math.round(out.cpuMs) } }, result.input_files, result.engine.generator);
         }
       } catch (error) {
