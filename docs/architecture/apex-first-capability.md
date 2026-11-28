@@ -843,3 +843,38 @@ It is not implemented for two reasons:
   "simple".
 
 Today the only privilege rule is in the `one-way` family: a reversal by the deployer is administrative, not a violation.
+
+## 11. Owner direction (2026-11-28): balance discovery with fidelity
+APEX now knows when it does not know enough. That is necessary, but not the goal. The risk to manage is a system that is reliable at
+finding very little. The fidelity gate (§10.1) stays; detection numbers are never improved by weakening it.
+
+| priority | objective | measured by |
+|---|---|---|
+| 1 | exploration depth and state coverage | reachable-state coverage against exhaustive enumeration (now 38–64%), on the controlled set and on **new** contracts written before the change |
+| 2 | complex accounting and multi-transaction bugs | recall on the known misses (4-transaction bugs, large amounts) **and** on a fresh set written before the change; the false-invariant rate must not rise |
+| 3 | cross-contract interactions and re-entry | the share of abstentions due to external calls or tokens, measured on real protocol structures (below) |
+
+Rules for this work:
+- every change is measured on contracts written **before** the change, not only on the ones that motivated it;
+- the false-negative and false-positive counts are both reported;
+- no improvement is claimed from the motivating cases alone.
+
+### Real protocol structures, not months in isolation
+Once D is ready and the first USX run is approved, APEX runs in **shadow mode** on real sealed snapshots: USX first, then later
+runs. Shadow mode means:
+- offline and passive;
+- its output never enters the eligible-findings dossier;
+- off by default, enabled per run with your approval.
+
+Each shadow run records:
+- every abstention, by feature and location;
+- every suppression, by approximation;
+- coverage;
+- candidate invariants accepted and rejected;
+- every hypothesis it would have made.
+
+That record decides what the interpreter supports next (§5, increment 7).
+
+### The milestone that counts
+APEX finds something genuinely vulnerable that the existing specialists (and Slither) missed, **and** an independent tool (Foundry
+against the actual contracts, by a separate test author) reproduces it. Test counts are not that milestone.
