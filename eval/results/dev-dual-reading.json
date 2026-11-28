@@ -1,0 +1,199 @@
+{
+ "readings": [
+  {
+   "capability": "solidity-structural-specialists@1",
+   "corpus": "dev",
+   "exposure": {
+    "capability": "solidity-structural-specialists@1",
+    "corpus": "dev",
+    "status": "tuned",
+    "evidence": "eval/dev is development data: the structural analyzer was developed and corrected against these labels (docs/evaluation-protocol.md section 3: 'dev = development data (inspected; not a measurement)')",
+    "trainingExposure": "n/a (deterministic code)"
+   },
+   "labelsSha256": "498dd349caac1a9407c98baba94a846b752e0ecd5dc373273ebcbb4072480693",
+   "original": {
+    "tp": 17,
+    "fp": 0,
+    "fn": 0,
+    "tn": 14
+   },
+   "adjudicated": {
+    "tp": 17,
+    "fp": 0,
+    "fn": 0,
+    "tn": 14,
+    "applied": []
+   },
+   "provisional": {
+    "tp": 17,
+    "fp": 0,
+    "fn": 2,
+    "tn": 12,
+    "pending": [
+     "ADJ-DEV-Config-transferOwner",
+     "ADJ-DEV-Misc-initOnce"
+    ],
+    "note": "pending adjudications applied as if signed: NOT adopted; for transparency only"
+   },
+   "disagreements": []
+  },
+  {
+   "capability": "slither@0.11.3",
+   "corpus": "dev",
+   "exposure": {
+    "capability": "slither@0.11.3",
+    "corpus": "dev",
+    "status": "blind-labels",
+    "evidence": "third-party tool, not configured against these labels; AgentSmith's detector-to-class map (engine/capabilities.ts) was written in T-201 before the T-203 label scoring",
+    "trainingExposure": "n/a (deterministic tool)"
+   },
+   "labelsSha256": "498dd349caac1a9407c98baba94a846b752e0ecd5dc373273ebcbb4072480693",
+   "original": {
+    "tp": 10,
+    "fp": 2,
+    "fn": 7,
+    "tn": 12
+   },
+   "adjudicated": {
+    "tp": 10,
+    "fp": 2,
+    "fn": 7,
+    "tn": 12,
+    "applied": []
+   },
+   "provisional": {
+    "tp": 10,
+    "fp": 2,
+    "fn": 9,
+    "tn": 10,
+    "pending": [
+     "ADJ-DEV-Config-transferOwner",
+     "ADJ-DEV-Misc-initOnce"
+    ],
+    "note": "pending adjudications applied as if signed: NOT adopted; for transparency only"
+   },
+   "disagreements": [
+    {
+     "key": "Bank.withdrawLocked|reentrancy",
+     "label": false,
+     "flagged": true,
+     "adjudication": null
+    },
+    {
+     "key": "Config.setOracleOpen|access-control",
+     "label": true,
+     "flagged": false,
+     "adjudication": null
+    },
+    {
+     "key": "Config.addMinter|access-control",
+     "label": true,
+     "flagged": false,
+     "adjudication": null
+    },
+    {
+     "key": "Config.mint|access-control",
+     "label": true,
+     "flagged": false,
+     "adjudication": null
+    },
+    {
+     "key": "Config.setFeeOpen|access-control",
+     "label": true,
+     "flagged": false,
+     "adjudication": null
+    },
+    {
+     "key": "Misc.initOpen|initializer",
+     "label": true,
+     "flagged": false,
+     "adjudication": null
+    },
+    {
+     "key": "Misc.fwdOwner|delegatecall",
+     "label": false,
+     "flagged": true,
+     "adjudication": null
+    },
+    {
+     "key": "Misc.viaHelper|unchecked-call",
+     "label": true,
+     "flagged": false,
+     "adjudication": null
+    },
+    {
+     "key": "ModArg.setOtherWrongArg|access-control",
+     "label": true,
+     "flagged": false,
+     "adjudication": null
+    }
+   ]
+  },
+  {
+   "capability": "claude-hunter@1",
+   "corpus": "dev",
+   "exposure": {
+    "capability": "claude-hunter@1",
+    "corpus": "dev",
+    "status": "blind-labels",
+    "evidence": "T-203 round 2: the hunter was given a copy of eval/dev/contracts only, never labels.json; verdicts in eval/dev/specialist-probe/outputs/round2/devhunt.json",
+    "trainingExposure": "none possible: the corpus was created on 2026-11-26, after the model's training cutoff"
+   },
+   "labelsSha256": "498dd349caac1a9407c98baba94a846b752e0ecd5dc373273ebcbb4072480693",
+   "original": {
+    "tp": 17,
+    "fp": 2,
+    "fn": 0,
+    "tn": 12
+   },
+   "adjudicated": {
+    "tp": 17,
+    "fp": 2,
+    "fn": 0,
+    "tn": 12,
+    "applied": []
+   },
+   "provisional": {
+    "tp": 19,
+    "fp": 0,
+    "fn": 0,
+    "tn": 12,
+    "pending": [
+     "ADJ-DEV-Config-transferOwner",
+     "ADJ-DEV-Misc-initOnce"
+    ],
+    "note": "pending adjudications applied as if signed: NOT adopted; for transparency only"
+   },
+   "disagreements": [
+    {
+     "key": "Config.transferOwner|access-control",
+     "label": false,
+     "flagged": true,
+     "adjudication": "ADJ-DEV-Config-transferOwner"
+    },
+    {
+     "key": "Misc.initOnce|initializer",
+     "label": false,
+     "flagged": true,
+     "adjudication": "ADJ-DEV-Misc-initOnce"
+    }
+   ]
+  }
+ ],
+ "integrity": {
+  "labelManifest": "9 files verified",
+  "frozenCorpora": [
+   "benchmark-b",
+   "heldout",
+   "heldout2",
+   "heldout3",
+   "heldout4"
+  ],
+  "adjudicationRecords": [
+   "ADJ-DEV-Config-transferOwner: overturned (proposed), sign-off pending",
+   "ADJ-DEV-Misc-initOnce: overturned (proposed), sign-off pending",
+   "ADJ-H3-MerchantEscrow-release: upheld, sign-off pending",
+   "ADJ-H3-EtherShareVault-redeem: upheld, sign-off pending"
+  ]
+ }
+}

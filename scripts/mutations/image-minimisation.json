@@ -1,0 +1,77 @@
+{
+ "command": "npx vitest run apps/api/src/build-output",
+ "mutations": [
+  {
+   "name": "tests compiled into the image",
+   "file": "tsconfig.build.json",
+   "old": "    \"**/*.test.ts\",\n",
+   "new": ""
+  },
+  {
+   "name": "integration harness compiled into the image",
+   "file": "tsconfig.build.json",
+   "old": "    \"apps/api/src/integration/**\",\n",
+   "new": ""
+  },
+  {
+   "name": "test fixtures (testing/) compiled into the image",
+   "file": "tsconfig.build.json",
+   "old": ",\n    \"apps/api/src/**/testing/**\"",
+   "new": ""
+  },
+  {
+   "name": "all dev scripts compiled into the image",
+   "file": "tsconfig.build.json",
+   "old": "    \"scripts/migrate.ts\",\n    \"scripts/apply-runtime-grants.ts\"",
+   "new": "    \"scripts/**/*.ts\""
+  },
+  {
+   "name": "apply-runtime-grants not shipped",
+   "file": "tsconfig.build.json",
+   "old": ",\n    \"scripts/apply-runtime-grants.ts\"",
+   "new": ""
+  },
+  {
+   "name": "migrate not shipped",
+   "file": "tsconfig.build.json",
+   "old": "    \"scripts/migrate.ts\",\n",
+   "new": ""
+  },
+  {
+   "name": "declaration files and maps shipped",
+   "file": "tsconfig.build.json",
+   "old": "    \"declaration\": false,\n    \"sourceMap\": false",
+   "new": "    \"declaration\": true,\n    \"sourceMap\": true"
+  },
+  {
+   "name": "npm run build uses the full tsconfig again",
+   "file": "package.json",
+   "old": "\"build\": \"tsc -p tsconfig.build.json",
+   "new": "\"build\": \"tsc -p tsconfig.json"
+  },
+  {
+   "name": "Dockerfile build stage lacks the production config",
+   "file": "Dockerfile",
+   "old": "COPY tsconfig.json tsconfig.build.json ./",
+   "new": "COPY tsconfig.json ./"
+  },
+  {
+   "name": "Docker-less image build lacks the production config",
+   "file": "scripts/hub-image.sh",
+   "old": "tsconfig.json tsconfig.build.json apps scripts db",
+   "new": "tsconfig.json apps scripts db"
+  },
+  {
+   "name": "runtime stage copies sources/scripts too",
+   "file": "Dockerfile",
+   "old": "COPY --from=build /app/db ./db",
+   "new": "COPY --from=build /app/db ./db\nCOPY --from=build /app/scripts ./scripts"
+  },
+  {
+   "name": "typecheck narrowed to the production config (tests unchecked)",
+   "file": "package.json",
+   "old": "\"typecheck\": \"tsc --noEmit -p tsconfig.json",
+   "new": "\"typecheck\": \"tsc --noEmit -p tsconfig.build.json"
+  }
+ ]
+}

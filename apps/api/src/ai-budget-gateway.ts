@@ -295,7 +295,7 @@ export class AiBudgetGateway {
   }
 
   private async settle(input: {
-    reservationId: string; workflowRunId: string; workflowStepId?: string;
+    reservationId: string; workflowRunId: string; workflowStepId?: string | undefined;
     provider: string; model: string; purpose: string; tier: ModelTier;
     promptVersion: string; priceVersion: string; inputTokens: number; outputTokens: number;
     actualUsd: number; latencyMs: number;

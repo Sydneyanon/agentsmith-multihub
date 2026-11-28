@@ -1,0 +1,487 @@
+{
+  "score": {
+    "name": "structural-analyzer",
+    "labels": 31,
+    "perClass": {
+      "reentrancy": {
+        "tp": 5,
+        "fp": 0,
+        "fn": 0,
+        "tn": 2,
+        "lineExact": 5,
+        "lineNear": 5,
+        "spanValid": 5,
+        "precision": 1,
+        "recall": 1
+      },
+      "access-control": {
+        "tp": 5,
+        "fp": 0,
+        "fn": 0,
+        "tn": 6,
+        "lineExact": 5,
+        "lineNear": 5,
+        "spanValid": 5,
+        "precision": 1,
+        "recall": 1
+      },
+      "initializer": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 1,
+        "recall": 1
+      },
+      "delegatecall": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1,
+        "lineExact": 2,
+        "lineNear": 2,
+        "spanValid": 2,
+        "precision": 1,
+        "recall": 1
+      },
+      "unchecked-call": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 2,
+        "lineExact": 2,
+        "lineNear": 2,
+        "spanValid": 2,
+        "precision": 1,
+        "recall": 1
+      },
+      "tx-origin": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 1,
+        "recall": 1
+      },
+      "selfdestruct": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 1,
+        "recall": 1
+      }
+    },
+    "total": {
+      "tp": 17,
+      "fp": 0,
+      "fn": 0,
+      "tn": 14,
+      "lineExact": 17,
+      "lineNear": 17,
+      "spanValid": 17,
+      "precision": 1,
+      "recall": 1
+    },
+    "misses": [],
+    "falsePos": [],
+    "unlabelledFindings": 1,
+    "detail": [
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawBad",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 15,
+        "note": "call before write (checked 0.8 subtraction: not drainable, see validator)",
+        "exploitable": false,
+        "reported": true,
+        "reportedLine": 15
+      },
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawCei",
+        "class": "reentrancy",
+        "vulnerable": false,
+        "line": 29,
+        "note": "effects before interaction",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawLocked",
+        "class": "reentrancy",
+        "vulnerable": false,
+        "line": 38,
+        "note": "custom lock",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawHelper",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 47,
+        "note": "call in helper before write",
+        "exploitable": false,
+        "reported": true,
+        "reportedLine": 47
+      },
+      {
+        "file": "contracts/Bank2.sol",
+        "contract": "Bank2",
+        "function": "cashOut",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 14,
+        "note": "zeroing after call",
+        "exploitable": true,
+        "reported": true,
+        "reportedLine": 14
+      },
+      {
+        "file": "contracts/Bank2.sol",
+        "contract": "Bank2",
+        "function": "withdrawUnchecked",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 22,
+        "note": "unchecked subtraction after call",
+        "exploitable": true,
+        "reported": true,
+        "reportedLine": 22
+      },
+      {
+        "file": "contracts/Bank2.sol",
+        "contract": "Bank2",
+        "function": "claimBonus",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 30,
+        "note": "flag set after payout",
+        "exploitable": true,
+        "reported": true,
+        "reportedLine": 30
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleOpen",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 21,
+        "note": "unguarded authority write",
+        "reported": true,
+        "reportedLine": 21
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleGuarded",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 22,
+        "note": "modifier via helper",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleInBody",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 23,
+        "note": "in-body require",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleIf",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 24,
+        "note": "if-revert guard",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "addMinter",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 25,
+        "note": "unguarded role grant",
+        "reported": true,
+        "reportedLine": 25
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "addMinterRole",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 26,
+        "note": "role check",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "transferOwner",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 27,
+        "note": "reverting check after write undoes it",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "mint",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 28,
+        "note": "unguarded mint",
+        "reported": true,
+        "reportedLine": 28
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setFeeOpen",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 20,
+        "note": "unguarded fee change",
+        "reported": true,
+        "reportedLine": 20
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "initOpen",
+        "class": "initializer",
+        "vulnerable": true,
+        "line": 10,
+        "note": "open initializer",
+        "reported": true,
+        "reportedLine": 10
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "initOnce",
+        "class": "initializer",
+        "vulnerable": false,
+        "line": 11,
+        "note": "one-time flag",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "fwdOpen",
+        "class": "delegatecall",
+        "vulnerable": true,
+        "line": 13,
+        "note": "param target",
+        "reported": true,
+        "reportedLine": 13
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "fwdOwner",
+        "class": "delegatecall",
+        "vulnerable": false,
+        "line": 14,
+        "note": "owner only",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "fwdImpl",
+        "class": "delegatecall",
+        "vulnerable": true,
+        "line": 15,
+        "note": "target set by open setter",
+        "reported": true,
+        "reportedLine": 15
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "ignored",
+        "class": "unchecked-call",
+        "vulnerable": true,
+        "line": 18,
+        "note": "result ignored",
+        "reported": true,
+        "reportedLine": 18
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "checked",
+        "class": "unchecked-call",
+        "vulnerable": false,
+        "line": 19,
+        "note": "checked inline",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "viaHelper",
+        "class": "unchecked-call",
+        "vulnerable": true,
+        "line": 22,
+        "note": "helper returns flag, caller ignores",
+        "reported": true,
+        "reportedLine": 22
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "viaHelperChecked",
+        "class": "unchecked-call",
+        "vulnerable": false,
+        "line": 23,
+        "note": "caller requires flag",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "viaOrigin",
+        "class": "tx-origin",
+        "vulnerable": true,
+        "line": 25,
+        "note": "tx.origin authorisation",
+        "reported": true,
+        "reportedLine": 25
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "eoaGate",
+        "class": "tx-origin",
+        "vulnerable": false,
+        "line": 28,
+        "note": "anti-contract check",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "killOpen",
+        "class": "selfdestruct",
+        "vulnerable": true,
+        "line": 29,
+        "note": "unguarded",
+        "reported": true,
+        "reportedLine": 29
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "killOwner",
+        "class": "selfdestruct",
+        "vulnerable": false,
+        "line": 30,
+        "note": "guarded",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/ModArg.sol",
+        "contract": "ModArg",
+        "function": "setOtherGuarded",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 9,
+        "note": "modifier argument is the authority",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/ModArg.sol",
+        "contract": "ModArg",
+        "function": "setOtherWrongArg",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 10,
+        "note": "modifier argument is caller-supplied, so the check is meaningless",
+        "reported": true,
+        "reportedLine": 10
+      }
+    ]
+  },
+  "validation": [
+    {
+      "file": "contracts/Bank.sol",
+      "function": "withdrawBad",
+      "verdict": "refuted",
+      "reason": "no exploit in 16 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: balances",
+      "labelled": true
+    },
+    {
+      "file": "contracts/Bank.sol",
+      "function": "withdrawHelper",
+      "verdict": "refuted",
+      "reason": "no exploit in 16 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: balances",
+      "labelled": true
+    },
+    {
+      "file": "contracts/Bank2.sol",
+      "function": "cashOut",
+      "verdict": "validated",
+      "reason": "a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering c",
+      "labelled": true
+    },
+    {
+      "file": "contracts/Bank2.sol",
+      "function": "withdrawUnchecked",
+      "verdict": "validated",
+      "reason": "a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering w",
+      "labelled": true
+    },
+    {
+      "file": "contracts/Bank2.sol",
+      "function": "claimBonus",
+      "verdict": "validated",
+      "reason": "a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering c",
+      "labelled": true
+    }
+  ],
+  "reproducible": true,
+  "findings": 19,
+  "problems": []
+}

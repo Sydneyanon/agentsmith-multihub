@@ -1,0 +1,125 @@
+{
+ "schema": "agentsmith-adjudication/1",
+ "records": [
+  {
+   "id": "ADJ-H3-MerchantEscrow-release",
+   "subject": {
+    "corpus": "eval/heldout3",
+    "corpusManifestSum": "5b34b254f209fffaaa50d748a64fe9d24d33dacde0ead244fa1ed1604cf87b41",
+    "file": "contracts/MerchantEscrow.sol",
+    "contract": "MerchantEscrow",
+    "function": "release",
+    "class": "reentrancy"
+   },
+   "originalLabel": {
+    "file": "contracts/MerchantEscrow.sol",
+    "contract": "MerchantEscrow",
+    "function": "release",
+    "class": "reentrancy",
+    "vulnerable": true,
+    "line": 66,
+    "pair": "re1",
+    "ambiguous": false,
+    "note": "release->_settle->_pushNative sends ETH before the escrow is zeroed by assignment, so nested release() calls drain other merchants' escrow."
+   },
+   "disputedBy": {
+    "source": "execution validator in structural-candidate-1 and structural-candidate-2 (identical verdicts)",
+    "result": "eval/results/heldout3-run1-candidate2-structural.json",
+    "verdict": "refuted",
+    "reason": "no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -)"
+   },
+   "evidence": [
+    {
+     "kind": "compiler-backed execution",
+     "tool": "eval/ground-truth/adjudicate-heldout3.mjs",
+     "output": "eval/adjudications/heldout3-reentrancy-ground-truth.json",
+     "outputSha256": "bef0bbe4938d25a39fe48ee17e4ee2eaeb4878af768448c8c686767a254244f3",
+     "summary": "Unchanged contract compiled with solc 0.8.28 and executed in a local EVM. One nested release(): attacker entitled to 1.99 ether receives 3.98; three nested: 7.96; the honest merchant's release then reverts (funds gone). The attack reverts only when other merchants' escrow is smaller than the attacker's."
+    },
+    {
+     "kind": "independent assessment",
+     "by": "separate agent that read only the two contract files (no labels, no validator output, no repository)",
+     "output": "eval/adjudications/heldout3-reentrancy-independent-assessment.md",
+     "outputSha256": "6f1a3568b0d6071c02161c376e828121913e29829a4691838681b645d8047a9e",
+     "verdict": "EXPLOITABLE (high confidence)"
+    },
+    {
+     "kind": "validator root cause",
+     "summary": "The validator seeded the escrow ledger but not _totalEscrowed, so even an honest release underflowed `_totalEscrowed -= amount` (the 'arithmetic underflow' refutation)."
+    }
+   ],
+   "outcome": {
+    "label": "UPHELD (vulnerable = true, as authored)",
+    "validatorVerdict": "OVERTURNED: the refutation was an artefact of an inconsistent model state",
+    "corpusLabelsChanged": false,
+    "scoreImpact": "none: scores are computed from labels, which stand; the recorded validator abstention line for corpus 3 overstated refutations by 2"
+   },
+   "adjudicator": {
+    "kind": "model (analysis maintainer)",
+    "humanSignOff": "pending: owner review required before this adjudication counts as human-adjudicated"
+   },
+   "date": "2026-11-26",
+   "followUp": "validator fixes V1 (aggregate seeding), V2 (no refutation while an exchange-rate payable re-entry target is unexplored) and named returns; development evidence only (corpus 3 is no longer held-out)."
+  },
+  {
+   "id": "ADJ-H3-EtherShareVault-redeem",
+   "subject": {
+    "corpus": "eval/heldout3",
+    "corpusManifestSum": "5b34b254f209fffaaa50d748a64fe9d24d33dacde0ead244fa1ed1604cf87b41",
+    "file": "contracts/EtherShareVault.sol",
+    "contract": "EtherShareVault",
+    "function": "redeem",
+    "class": "reentrancy"
+   },
+   "originalLabel": {
+    "file": "contracts/EtherShareVault.sol",
+    "contract": "EtherShareVault",
+    "function": "redeem",
+    "class": "reentrancy",
+    "vulnerable": true,
+    "line": 58,
+    "pair": "re3",
+    "ambiguous": false,
+    "note": "Burn is a checked 0.8 subtraction after the call, so nested redeem reverts, but re-entering deposit() mints at the depressed assets/shares ratio, a real cross-function drain."
+   },
+   "disputedBy": {
+    "source": "execution validator in structural-candidate-1 and structural-candidate-2 (identical verdicts)",
+    "result": "eval/results/heldout3-run1-candidate2-structural.json",
+    "verdict": "refuted",
+    "reason": "no exploit in 4 bounded scenarios: the re-entrant transaction reverts (division by zero)"
+   },
+   "evidence": [
+    {
+     "kind": "compiler-backed execution",
+     "tool": "eval/ground-truth/adjudicate-heldout3.mjs",
+     "output": "eval/adjudications/heldout3-reentrancy-ground-truth.json",
+     "outputSha256": "bef0bbe4938d25a39fe48ee17e4ee2eaeb4878af768448c8c686767a254244f3",
+     "summary": "Unchanged contract compiled with solc 0.8.28 and executed in a local EVM. Re-entering deposit() during the redeem payout: +0.0901 ether profit with 1 ether stake, +0.3226 ether with 2 ether; 5 repeated rounds take 3.41 of the victim's 10 ether. Honest sequence and same-function re-entry: no gain (the nested redeem reverts on the _burn underflow)."
+    },
+    {
+     "kind": "independent assessment",
+     "by": "separate agent that read only the two contract files (no labels, no validator output, no repository)",
+     "output": "eval/adjudications/heldout3-reentrancy-independent-assessment.md",
+     "outputSha256": "6f1a3568b0d6071c02161c376e828121913e29829a4691838681b645d8047a9e",
+     "verdict": "EXPLOITABLE (high confidence)"
+    },
+    {
+     "kind": "validator root cause",
+     "summary": "The validator seeded the share ledger but not totalShares, so previewRedeem divided by zero (the 'division by zero' refutation), and it never re-entered payable functions, so the labelled cross-function path through deposit() was not explored."
+    }
+   ],
+   "outcome": {
+    "label": "UPHELD (vulnerable = true, as authored)",
+    "validatorVerdict": "OVERTURNED: the refutation was an artefact of an inconsistent model state; and cross-function re-entry into a payable function was not modelled",
+    "corpusLabelsChanged": false,
+    "scoreImpact": "none: scores are computed from labels, which stand; the recorded validator abstention line for corpus 3 overstated refutations by 2"
+   },
+   "adjudicator": {
+    "kind": "model (analysis maintainer)",
+    "humanSignOff": "pending: owner review required before this adjudication counts as human-adjudicated"
+   },
+   "date": "2026-11-26",
+   "followUp": "validator fixes V1 (aggregate seeding), V2 (no refutation while an exchange-rate payable re-entry target is unexplored) and named returns; development evidence only (corpus 3 is no longer held-out)."
+  }
+ ]
+}

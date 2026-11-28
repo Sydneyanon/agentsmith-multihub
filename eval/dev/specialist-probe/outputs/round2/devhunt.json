@@ -1,0 +1,466 @@
+{
+ "specialist": "vulnerability-hunter",
+ "verdicts": [
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "owner() [getter, inherited from Ownable]",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 5,
+   "reason": "Auto-generated view getter; no state change."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "fee() / oracle() / minters(address) / supply(address) [getters]",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 13,
+   "reason": "Auto-generated view getters; no state change."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "setFeeOpen",
+   "verdict": "vulnerable",
+   "class": "access-control",
+   "exploitable": true,
+   "line": 20,
+   "reason": "No access control: any account can set `fee` to any value, including extreme values. `fee` is not read anywhere in this contract, so there is no direct loss here; the real impact depends on whatever reads it. Low severity. The inline comment says fee is not an authority variable, but a protocol parameter that anyone can write is still a missing-authorization finding."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "setOracleOpen",
+   "verdict": "vulnerable",
+   "class": "access-control",
+   "exploitable": true,
+   "line": 21,
+   "reason": "No access control on an authority-like address: anyone can point `oracle` at a contract they control. High impact for anything that trusts the oracle."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "setOracleGuarded",
+   "verdict": "safe",
+   "class": "access-control",
+   "exploitable": null,
+   "line": 22,
+   "reason": "Gated by the onlyOwner modifier (_checkOwner runs before the body)."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "setOracleInBody",
+   "verdict": "safe",
+   "class": "access-control",
+   "exploitable": null,
+   "line": 23,
+   "reason": "An inline require(msg.sender == owner) runs before the write. This is the same as the modifier."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "setOracleIf",
+   "verdict": "safe",
+   "class": "access-control",
+   "exploitable": null,
+   "line": 24,
+   "reason": "`if (msg.sender != owner) revert();` runs before the write. This is the same as a require."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "addMinter",
+   "verdict": "vulnerable",
+   "class": "access-control",
+   "exploitable": true,
+   "line": 25,
+   "reason": "Unguarded role grant: anyone can add any address, including their own, to `minters`. This also bypasses the intended gate in addMinterRole."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "addMinterRole",
+   "verdict": "safe",
+   "class": "access-control",
+   "exploitable": null,
+   "line": 26,
+   "reason": "Only an existing minter can grant the role. Taken alone it is correct. It becomes meaningless only because addMinter (line 25) is open. Also, no minter is set at construction, so without addMinter this function could never be used."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "transferOwner",
+   "verdict": "vulnerable",
+   "class": "access-control",
+   "exploitable": true,
+   "line": 27,
+   "reason": "The check comes after the write: `owner = n` is stored first, then _checkOwner compares msg.sender with the new owner. Any caller who passes n == msg.sender passes the check and takes ownership. Full owner takeover."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "function": "mint",
+   "verdict": "vulnerable",
+   "class": "access-control",
+   "exploitable": true,
+   "line": 28,
+   "reason": "Unguarded mint: any account can raise `supply` for any address by any amount. It does not even check the `minters` role. Unlimited inflation."
+  },
+  {
+   "file": "src/Bank.sol",
+   "contract": "Bank",
+   "function": "balances(address) [getter]",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 5,
+   "reason": "View getter."
+  },
+  {
+   "file": "src/Bank.sol",
+   "contract": "Bank",
+   "function": "deposit",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 8,
+   "reason": "Credits msg.value to the sender with checked addition. No external call."
+  },
+  {
+   "file": "src/Bank.sol",
+   "contract": "Bank",
+   "function": "withdrawBad",
+   "verdict": "vulnerable",
+   "class": "reentrancy",
+   "exploitable": false,
+   "line": 15,
+   "reason": "Classic interaction-before-effect: ETH is sent at line 15 before the balance is reduced at line 17, so the function can be re-entered. It cannot be drained, though. The reduction is a checked subtraction (`balances - amount`, Solidity 0.8). Every nested withdrawal must later subtract its own amount, so the total paid out can never exceed the caller's balance. Any excess underflows and reverts the whole transaction. A latent pattern that should still be fixed (CEI or a guard). Not exploitable as written."
+  },
+  {
+   "file": "src/Bank.sol",
+   "contract": "Bank",
+   "function": "withdrawCei",
+   "verdict": "safe",
+   "class": "reentrancy",
+   "exploitable": null,
+   "line": 21,
+   "reason": "Checks-effects-interactions: the balance is reduced before the external call. Re-entry sees the reduced balance."
+  },
+  {
+   "file": "src/Bank.sol",
+   "contract": "Bank",
+   "function": "withdrawLocked",
+   "verdict": "safe",
+   "class": "reentrancy",
+   "exploitable": null,
+   "line": 29,
+   "reason": "The hand-rolled mutex (lockState 1/2) blocks re-entry into this function, even though the balance update follows the call. The lock covers only this function: during the callback an attacker could call withdrawBad, withdrawCei or withdrawHelper against the stale balance. That still cannot be drained, because every debit is a checked subtraction, so the total paid is bounded by the balance. If the transfer fails the whole transaction reverts and the lock is reset."
+  },
+  {
+   "file": "src/Bank.sol",
+   "contract": "Bank",
+   "function": "withdrawHelper",
+   "verdict": "vulnerable",
+   "class": "reentrancy",
+   "exploitable": false,
+   "line": 42,
+   "reason": "The same pattern as withdrawBad, with the external call hidden in internal _pay (line 47). The balance is reduced only after it returns. Not exploitable: the checked `-=` at line 43 underflows and reverts if the nested withdrawals together exceed the balance."
+  },
+  {
+   "file": "src/Bank2.sol",
+   "contract": "Bank2",
+   "function": "credits(address) / claimed(address) [getters]",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 5,
+   "reason": "View getters."
+  },
+  {
+   "file": "src/Bank2.sol",
+   "contract": "Bank2",
+   "function": "deposit",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 8,
+   "reason": "Checked credit of msg.value. No external call."
+  },
+  {
+   "file": "src/Bank2.sol",
+   "contract": "Bank2",
+   "function": "cashOut",
+   "verdict": "vulnerable",
+   "class": "reentrancy",
+   "exploitable": true,
+   "line": 14,
+   "reason": "The full credit is sent before `credits = 0` is written. The reset is a plain assignment, not a subtraction, so checked arithmetic gives no protection. Each re-entry pays the full credit again, and the final zeroing never reverts. Exploitable: other depositors' ETH can be drained."
+  },
+  {
+   "file": "src/Bank2.sol",
+   "contract": "Bank2",
+   "function": "withdrawUnchecked",
+   "verdict": "vulnerable",
+   "class": "reentrancy",
+   "exploitable": true,
+   "line": 22,
+   "reason": "The call happens before the debit, and the debit sits in an `unchecked` block (line 24). Nested withdrawals each pass the stale require. The later subtractions wrap around instead of reverting, which leaves the attacker with an enormous credit. Exploitable: contract funds can be drained."
+  },
+  {
+   "file": "src/Bank2.sol",
+   "contract": "Bank2",
+   "function": "claimBonus",
+   "verdict": "vulnerable",
+   "class": "reentrancy",
+   "exploitable": true,
+   "line": 30,
+   "reason": "The one-time flag is set only after 1 ether is paid, so re-entry claims the bonus again and again until the contract is empty. A separate design flaw (class: other): any address can claim, with no deposit or eligibility check. The 'bonus' is paid out of depositors' funds, and fresh addresses can claim it repeatedly even without reentrancy."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "owner() / impl() [getters]",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 5,
+   "reason": "View getters."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "initOpen",
+   "verdict": "vulnerable",
+   "class": "initializer",
+   "exploitable": true,
+   "line": 10,
+   "reason": "Unprotected re-initializer: anyone can overwrite `owner` at any time. Full takeover. It then unlocks fwdOwner (arbitrary delegatecall) and killOwner (selfdestruct)."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "initOnce",
+   "verdict": "vulnerable",
+   "class": "initializer",
+   "exploitable": true,
+   "line": 11,
+   "reason": "The one-shot flag stops repeat calls, but the first caller can be anyone. The constructor has already set `owner`, and `ready` starts false. So unless the deployer calls this in the deployment transaction, any account can call it first (or front-run the deployer) and take ownership. Note: eoaGate (line 27) can also set `ready` and permanently disable it."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "fwdOpen",
+   "verdict": "vulnerable",
+   "class": "delegatecall",
+   "exploitable": true,
+   "line": 13,
+   "reason": "Arbitrary delegatecall to a caller-chosen target with caller-chosen data, and no access control. The target code runs in Misc's storage and balance context: it can rewrite owner or impl, take all ETH, or run selfdestruct."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "fwdOwner",
+   "verdict": "safe",
+   "class": "delegatecall",
+   "exploitable": null,
+   "line": 14,
+   "reason": "The delegatecall is gated by msg.sender == owner, so taken alone it is a trusted-admin action. Caveat: `owner` can be taken over through initOpen or initOnce, which makes this reachable by an attacker transitively. The root cause is those initializers, not this function."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "fwdImpl",
+   "verdict": "vulnerable",
+   "class": "delegatecall",
+   "exploitable": true,
+   "line": 15,
+   "reason": "Anyone can delegatecall into `impl`. That would be a normal proxy forward if impl were trusted. Here impl can be set by anyone through setImpl (line 16), so in practice the delegatecall target is attacker-controlled: the same as fwdOpen, done in two steps."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "setImpl",
+   "verdict": "vulnerable",
+   "class": "access-control",
+   "exploitable": true,
+   "line": 16,
+   "reason": "No access control on the delegatecall target address. This is what makes fwdImpl an arbitrary-code-execution path."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "ignored",
+   "verdict": "vulnerable",
+   "class": "unchecked-call",
+   "exploitable": false,
+   "line": 18,
+   "reason": "The return value of the low-level call is discarded. If the recipient reverts, the caller's msg.value stays in the contract and the transaction still succeeds. No attacker gains directly: the harm falls on the caller, whose funds are silently stuck, although they can then be taken through killOpen or fwdOpen. Low severity."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "checked",
+   "verdict": "safe",
+   "class": "unchecked-call",
+   "exploitable": null,
+   "line": 19,
+   "reason": "The call's success flag is checked with require."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "viaHelper",
+   "verdict": "vulnerable",
+   "class": "unchecked-call",
+   "exploitable": false,
+   "line": 20,
+   "reason": "_send returns the call's success flag, but viaHelper ignores it. This is the same unchecked-call problem as `ignored`, moved into a helper. Impact as for `ignored`."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "viaHelperChecked",
+   "verdict": "safe",
+   "class": "unchecked-call",
+   "exploitable": null,
+   "line": 21,
+   "reason": "The helper's returned success flag is wrapped in require."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "viaOrigin",
+   "verdict": "vulnerable",
+   "class": "tx-origin",
+   "exploitable": true,
+   "line": 25,
+   "reason": "Authorizes with tx.origin == owner. If the owner interacts with any malicious contract, that contract can call this function and set owner to 0xdead, cutting the real owner off from fwdOwner and killOwner. Exploitable through phishing; the impact is denial of service on admin functions. Fix: use msg.sender."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "eoaOnly",
+   "verdict": "safe",
+   "class": "tx-origin",
+   "exploitable": null,
+   "line": 26,
+   "reason": "A view function that only reports whether the caller is an EOA. It authorizes nothing. Informational: EOA detection through tx.origin is not a reliable security boundary, for example with EIP-7702-delegated EOAs."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "eoaGate",
+   "verdict": "vulnerable",
+   "class": "other",
+   "exploitable": true,
+   "line": 27,
+   "reason": "The tx.origin == msg.sender check is an EOA filter, not authorization, so this is not a tx-origin authentication bug. The problem is what it writes. Any EOA can set `ready = true`, which is the same flag initOnce uses, so anyone can permanently disable the intended initializer (griefing/DoS). Low severity. Incidentally this would also close the initOnce takeover."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "killOpen",
+   "verdict": "vulnerable",
+   "class": "selfdestruct",
+   "exploitable": true,
+   "line": 29,
+   "reason": "Unprotected selfdestruct that sends the whole contract balance to the caller, so anyone can drain all ETH. Under EIP-6780 (Cancun) the code is deleted only if this runs in the creation transaction, but the ETH sweep still happens."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "function": "killOwner",
+   "verdict": "safe",
+   "class": "selfdestruct",
+   "exploitable": null,
+   "line": 30,
+   "reason": "Gated by msg.sender == owner, and funds go to the owner. Same transitive caveat as fwdOwner: owner can be taken through initOpen or initOnce."
+  },
+  {
+   "file": "src/ModArg.sol",
+   "contract": "ModArg",
+   "function": "admin() / other() [getters]",
+   "verdict": "safe",
+   "class": "none",
+   "exploitable": null,
+   "line": 5,
+   "reason": "View getters."
+  },
+  {
+   "file": "src/ModArg.sol",
+   "contract": "ModArg",
+   "function": "setOtherGuarded",
+   "verdict": "safe",
+   "class": "access-control",
+   "exploitable": null,
+   "line": 9,
+   "reason": "onlyBy(admin) reads the `admin` storage value at call time. Only the admin set in the constructor passes."
+  },
+  {
+   "file": "src/ModArg.sol",
+   "contract": "ModArg",
+   "function": "setOtherWrongArg",
+   "verdict": "vulnerable",
+   "class": "access-control",
+   "exploitable": true,
+   "line": 10,
+   "reason": "The address passed to the modifier is a caller-supplied argument (`who`). Any caller passes who == msg.sender and gets through. The guard is effectively absent."
+  }
+ ],
+ "findings_outside_functions": [
+  {
+   "file": "src/Bank.sol",
+   "contract": "Bank",
+   "line": 6,
+   "class": "reentrancy",
+   "severity": "info",
+   "detail": "The lockState mutex guards only withdrawLocked. It is not shared with withdrawBad, withdrawCei or withdrawHelper, so cross-function re-entry is possible. Checked arithmetic on every debit keeps this undrainable today. Adding any unchecked or assignment-style debit would make it exploitable."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "line": 5,
+   "class": "access-control",
+   "severity": "high",
+   "detail": "Ownership chain: `owner` can be taken over through initOpen (any time) or initOnce (first caller). Taking owner exposes fwdOwner (arbitrary delegatecall) and killOwner (selfdestruct ETH sweep), so the owner-gated functions are only as safe as the initializers."
+  },
+  {
+   "file": "src/Misc.sol",
+   "contract": "Misc",
+   "line": 7,
+   "class": "initializer",
+   "severity": "low",
+   "detail": "The `ready` flag is shared by initOnce (initializer) and eoaGate (unrelated feature), so one unrelated function can disable initialization."
+  },
+  {
+   "file": "src/Bank2.sol",
+   "contract": "Bank2",
+   "line": 28,
+   "class": "other",
+   "severity": "high",
+   "detail": "There is no bonus funding source and no eligibility check: bonuses are paid from depositors' ETH to any address that asks."
+  },
+  {
+   "file": "src/Admin.sol",
+   "contract": "Config",
+   "line": 15,
+   "class": "other",
+   "severity": "info",
+   "detail": "The `minters` role is never checked by mint(), so the role system has no effect on minting."
+  },
+  {
+   "file": "src/*.sol",
+   "contract": "*",
+   "line": 2,
+   "class": "other",
+   "severity": "info",
+   "detail": "Floating pragma ^0.8.20. Also, selfdestruct is deprecated (EIP-6780) and the compiler emits warnings for it."
+  }
+ ],
+ "notes": "Counts: 41 entries (auto-getters grouped per contract), 21 vulnerable, 20 safe. Not exploitable as written: Bank.withdrawBad, Bank.withdrawHelper (reentrancy undrainable thanks to checked 0.8 subtraction), Misc.ignored and Misc.viaHelper (unchecked call that only harms the caller). Contrast: Bank2.cashOut (zeroing by assignment), Bank2.withdrawUnchecked (`unchecked` debit) and Bank2.claimBonus (flag set late) ARE drainable. Judgement calls: Config.setFeeOpen is flagged as a low-severity access-control finding despite the inline comment. Misc.initOnce is flagged because the constructor already set owner and the first caller can overwrite it. Misc.eoaGate is flagged for writing the initializer flag (griefing), not for its tx.origin use. fwdOwner and killOwner are safe on their own merits but transitively reachable through the initializers. Inline source comments were treated as hints, not as authority."
+}

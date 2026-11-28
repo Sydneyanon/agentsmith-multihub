@@ -1,0 +1,363 @@
+import { createHash } from "node:crypto";
+import type { Pool } from "pg";
+import { ProgramIndex } from "./index.js";
+import { challengeFinding } from "./challenge.js";
+import { validateReentrancy, type SimOutcome } from "./simulate.js";
+import { analyzeSources, type Finding } from "./specialists.js";
+import { buildProtocolModel, reachableCalls, type ProtocolModel } from "./protocol-model.js";
+import type { AuthorityFacts } from "./authority.js";
+import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
+import { slitherScanOfSnapshot } from "./slither-record.js";
+import { SLITHER_VERSION as SLITHER_PINNED } from "./keys.js";
+
+/**
+ * Glue between the structural analysis and the durable research state (5.1): findings become evidence-linked hypotheses citing
+ * hash-verified spans of a sealed snapshot; the execution validator's verdicts become recorded evaluations. Nothing is claimed
+ * beyond what each stage actually did: a class with no independent validator is recorded as `inconclusive`, never as "supports".
+ */
+export const SPECIALIST_ID = "solidity-structural-specialists"; export const SPECIALIST_VERSION = "1";
+export const VALIDATOR_ID = "reentrancy-execution-validator"; export const VALIDATOR_VERSION = "1";
+
+export type StoredHypothesis = { id: string; finding: Finding; spanIds: string[]; /** set for an external producer's lead (e.g. "slither@0.11.3"); absent for the specialists' own */ producer?: string };
+/** research_blobs holds at most 1 MiB per blob; a larger model is not stored (and the step says so) rather than truncated. */
+const MODEL_BLOB_LIMIT = 1_048_576;
+export type StoredProtocolModel = { sha256: string; stored: boolean; components: number; functions: number; callEdges: number; unknowns: number };
+
+export async function readSnapshotSources(pool: Pool, snapshotId: string): Promise<Array<{ path: string; text: string }>> {
+  const r = await pool.query<{ path: string; text: string }>(
+    `SELECT f.path, convert_from(b.content, 'UTF8') AS text FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256
+      WHERE f.snapshot_id = $1 AND f.path LIKE '%.sol' ORDER BY f.path COLLATE "C"`, [snapshotId]);
+  return r.rows;
+}
+
+/**
+ * A finding may only cite lines that exist in the sealed snapshot. One that does not is an analyzer attribution error: it is rejected
+ * and reported as a problem (never stored, never "fixed up"), so one bad finding cannot abort the analysis of a whole repository and
+ * no unverifiable evidence is ever recorded.
+ */
+export function rejectUncitableFindings(findings: Finding[], sources: ReadonlyArray<{ path: string; text: string }>): { kept: Finding[]; problems: string[] } {
+  const lineCount = new Map(sources.map((s) => [s.path, s.text.split("\n").length]));
+  const citable = (file: string, line: number) => Number.isInteger(line) && line >= 1 && line <= (lineCount.get(file) ?? 0);
+  const kept: Finding[] = []; const problems: string[] = [];
+  for (const f of findings) {
+    const bad = f.spans.filter((s) => !citable(s.file, s.lineStart) || !citable(s.file, s.lineEnd));
+    if (bad.length) problems.push(`finding rejected (analyzer attribution error): ${f.class} ${f.contract}.${f.function} cites ${bad.map((s) => `${s.file}:${s.lineStart}`).join(", ")}, which does not exist in the snapshot`);
+    else kept.push(f);
+  }
+  return { kept, problems };
+}
+
+export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
+  const sources = await readSnapshotSources(pool, snapshotId);
+  // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
+  const pm = buildProtocolModel(sources); const bytes = Buffer.from(pm.json, "utf8");
+  const storedModel = bytes.length <= MODEL_BLOB_LIMIT ? (await store.putBlob(lease, bytes)).sha256 === pm.sha256 : false;
+  const protocolModel: StoredProtocolModel = { sha256: pm.sha256, stored: storedModel, components: pm.model.components.length, functions: pm.model.functions.length, callEdges: pm.model.callEdges.length, unknowns: pm.model.unknowns.length };
+  const { findings, index, problems } = analyzeSources(sources);
+  const stored: StoredHypothesis[] = []; const spanCache = new Map<string, string>();
+  const span = async (file: string, line: number) => {
+    const key = `${file}:${line}`; const have = spanCache.get(key); if (have) return have;
+    const id = await store.createEvidenceSpan(lease, { snapshotId, path: file, lineStart: line, lineEnd: line }); spanCache.set(key, id); return id;
+  };
+  const checked = rejectUncitableFindings(findings, sources); problems.push(...checked.problems);
+  for (const f of checked.kept) {
+    if (options.include && !options.include(f)) continue; // an assignment scoped to target components stores only their findings
+    const seen = new Set<string>(); const spans: Array<{ spanId: string; role: "primary" | "supporting" | "context" }> = [];
+    for (const s of f.spans) { const k = `${s.file}:${s.lineStart}`; if (seen.has(k)) continue; seen.add(k); spans.push({ spanId: await span(s.file, s.lineStart), role: spans.length === 0 ? "primary" : s.role === "primary" ? "supporting" : s.role }); }
+    const made = await store.createHypothesis(lease, {
+      snapshotId, family: `solidity-${f.class}`, claim: f.claim, rationale: f.rationale + (f.assumptions.length ? ` Assumptions: ${f.assumptions.join("; ")}.` : ""),
+      requiredChecks: f.requiredChecks, alternativeExplanations: f.alternatives, generator: { kind: "deterministic_rule", id: SPECIALIST_ID, version: SPECIALIST_VERSION }, spans,
+    });
+    stored.push({ id: made.id, finding: f, spanIds: spans.map((s) => s.spanId) });
+  }
+  const fns = [...index.contracts.values()].reduce((n, c) => n + c.functions.length, 0);
+  return { stored, problems, contracts: index.contracts.size, functions: fns, protocolModel };
+}
+
+/**
+ * An EXTERNAL producer's stored leads (e.g. Slither's), as the input the independent evaluators need: the class, the contract, the
+ * function and the location, with the hypothesis's own recorded spans (primary first). Nothing of the producer's reasoning is passed on,
+ * so the evaluators judge the lead by their own method; a class with no validator is recorded as "no independent validator".
+ */
+export async function externalLeadsAsStored(pool: Pick<Pool, "query">, producer: string, leads: ReadonlyArray<{ hypothesisId: string; class: string; contract: string; function: string; file: string; line: number }>): Promise<StoredHypothesis[]> {
+  const out: StoredHypothesis[] = [];
+  for (const l of leads) {
+    const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [l.hypothesisId])).rows.map((x) => x.span_id);
+    const finding = { class: l.class as Finding["class"], contract: l.contract, function: l.function, file: l.file, line: l.line, claim: "", rationale: "", requiredChecks: [], alternatives: [], spans: [], chain: [], assumptions: [], confidence: "low", detail: {} } as Finding;
+    out.push({ id: l.hypothesisId, finding, spanIds: spans, producer });
+  }
+  return out;
+}
+
+export type Validation = { hypothesisId: string; outcome: SimOutcome };
+/** the classes `challengeFinding` has a method for (reentrancy has its own validator, below) */
+const CHALLENGED_CLASSES: ReadonlySet<string> = new Set(["access-control", "selfdestruct", "delegatecall", "initializer", "unchecked-call"]);
+
+/** Independent challenge of reentrancy leads by execution; other classes are recorded as inconclusive (no independent validator exists yet). */
+export async function runChallenge(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string, stored: StoredHypothesis[]): Promise<Validation[]> {
+  const index = new ProgramIndex(await readSnapshotSources(pool, snapshotId)); const out: Validation[] = [];
+  for (const h of stored) {
+    const primary = h.spanIds[0]!;
+    if (h.finding.class !== "reentrancy") {
+      // a class with no challenger (e.g. an external producer's missing-zero-check) is "no independent validator", even when its
+      // function cannot be found; for the specialists' own classes this is exactly the previous behaviour
+      const c = CHALLENGED_CLASSES.has(h.finding.class) ? challengeFinding(index, h.finding) : null;
+      if (!c) {
+        await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive",
+          rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by ${h.producer ?? "the specialist"} and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim) });
+        continue;
+      }
+      const outcome = c.verdict === "validated" ? "supports" : c.verdict === "refuted" ? "weakens" : "inconclusive";
+      const text = `${c.method}: ${c.reason}.${c.trace.length ? " Trace: " + c.trace.join(" | ") : ""}${c.verdict === "refuted" ? " This weakens (does not eliminate) the lead: the model is a bounded abstraction." : ""}`;
+      await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: `execution-challenge-${h.finding.class}`, evaluatorVersion: "1", outcome, rationale: text.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${c.verdict}|${c.reason}`) });
+      continue;
+    }
+    const fn = index.findFunctions(h.finding.contract, h.finding.function)[0];
+    const r = fn ? validateReentrancy(index, fn) : { verdict: "inconclusive" as const, reason: "function not found", trace: [], scenarios: 0, detail: {} };
+    out.push({ hypothesisId: h.id, outcome: r });
+    const outcome = r.verdict === "validated" ? "supports" : r.verdict === "refuted" ? "weakens" : "inconclusive";
+    const body = r.verdict === "validated" ? `Executed model: ${r.reason}. Trace: ${r.trace.join(" | ")}` : r.verdict === "refuted" ? `Executed model, ${r.scenarios} bounded scenarios: ${r.reason}. This weakens (does not eliminate) the lead: the model is a bounded abstraction.` : `The validator abstained: ${r.reason}`;
+    await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: VALIDATOR_ID, evaluatorVersion: VALIDATOR_VERSION, outcome, rationale: body.slice(0, 7900), spanIds: outcome === "inconclusive" ? [] : [primary], inputSha256: sha256Hex(`${h.finding.claim}|${r.verdict}|${r.reason}`) });
+  }
+  return out;
+}
+
+export type DossierEntry = {
+  hypothesis_id: string; class: string; function: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown;
+  generator: string; evidence: Array<{ path: string; lines: string; role: string; text: string; verified: boolean }>;
+  evaluations: Array<{ evaluator: string; outcome: string; rationale: string }>; status: string | null; static_outcome: string | null; human_review: string;
+};
+export type ArchitectureSection =
+  | { available: false; reason: string }
+  | { available: true; model_sha256: string; builder: string; components: Array<{ id: string; kind: string; file: string; lines: string; content_sha256: string; state_roles: Array<{ variable: string; status: string; roles: string[] }>; authority: AuthoritySummary | null; entry_points: Array<{ fn: string; guarded: boolean; writes: string[]; external_calls: Array<{ kind: string; to: string; target_provenance: string | null; resolved_callee: string | null; at: string }>; unresolved_calls: Array<{ name: string; at: string }> }> }>; unknowns: Array<{ at: string; what: string }> };
+export type AuthoritySummary = {
+  roles: Array<{ variable: string; strength: string; holder: string; held_by: string | null; transfer: string; writers: string[] }>;
+  open_authority_writes: string[]; callee_side_checks: string[]; factory_paths: string[]; proxy: string[]; initialisers: string[]; assumptions: string[]; unresolved: string[];
+};
+/**
+ * Whether the analysis behind a dossier actually covered the snapshot, from stored records only. A dossier is never presented as a
+ * complete investigation when it was not: `partial` lists every parser problem and every finding rejected for an uncitable span;
+ * `not_analysable` means the snapshot holds no Solidity (e.g. a non-EVM repository); `not_analysed` means no successful analysis
+ * step is recorded for the snapshot's run.
+ */
+export type AnalysisCoverage = {
+  status: "complete" | "partial" | "not_analysable" | "not_analysed"; solidity_files: number; contracts: number | null; functions: number | null; problems: string[];
+  /** present ONLY for runs created with the optional Slither stage: what the external tool did, or why it abstained */
+  external_tools?: ExternalToolCoverage[];
+};
+export type ExternalToolCoverage =
+  | { tool: "slither"; pinned_version: string; status: "completed"; version: string; solc_version: string; generator: string; leads: number; informational_detections: number; unanchored: number; leads_not_recorded: number }
+  | { tool: "slither"; pinned_version: string; status: "abstained"; code: string; detail: string };
+export type Dossier = {
+  snapshot: { id: string; repository: string; commit_sha: string; file_count: number; manifest_sha256: string; verified: boolean };
+  coverage: AnalysisCoverage;
+  /** what produced the analysis, from the analysis step's own record (null fields: not recorded, e.g. builds before structural-solidity/2) */
+  analyzer: { version: string | null; build_commit: string | null; image: string | null };
+  summary: Record<string, number>; entries: DossierEntry[]; architecture: ArchitectureSection; limitations: string[]; content_sha256: string;
+};
+
+async function analysisCoverage(pool: Pool, snapshotId: string): Promise<AnalysisCoverage> {
+  const sol = Number((await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256 WHERE f.snapshot_id = $1 AND f.path LIKE '%.sol'`, [snapshotId])).rows[0]!.n);
+  const out = (await pool.query<{ output: { problems?: unknown; contracts?: unknown; functions?: unknown } | null }>(
+    `SELECT st.output FROM repo_snapshots s JOIN workflow_steps st ON st.workflow_run_id = s.workflow_run_id
+      WHERE s.id = $1 AND st.step_key = 'analyze_structure' AND st.status = 'succeeded' ORDER BY st.completed_at DESC LIMIT 1`, [snapshotId])).rows[0]?.output ?? null;
+  if (sol === 0) return { status: "not_analysable", solidity_files: 0, contracts: null, functions: null, problems: ["the snapshot contains no Solidity source; this engine analyses Solidity only"] };
+  if (!out) return { status: "not_analysed", solidity_files: sol, contracts: null, functions: null, problems: ["no successful structural-analysis step is recorded for this snapshot"] };
+  const problems = Array.isArray(out.problems) ? out.problems.map(String) : [];
+  return { status: problems.length ? "partial" : "complete", solidity_files: sol, contracts: typeof out.contracts === "number" ? out.contracts : null, functions: typeof out.functions === "number" ? out.functions : null, problems };
+}
+
+async function analyzerRecord(pool: Pool, snapshotId: string): Promise<Dossier["analyzer"]> {
+  const o = (await pool.query<{ output: { analyzer?: unknown; analyzer_build?: { commit?: unknown; image?: unknown } } | null }>(
+    `SELECT st.output FROM repo_snapshots s JOIN workflow_steps st ON st.workflow_run_id = s.workflow_run_id
+      WHERE s.id = $1 AND st.step_key = 'analyze_structure' AND st.status = 'succeeded' ORDER BY st.completed_at DESC LIMIT 1`, [snapshotId])).rows[0]?.output ?? null;
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  return { version: str(o?.analyzer), build_commit: str(o?.analyzer_build?.commit), image: str(o?.analyzer_build?.image) };
+}
+
+/** P3 consumer: what the dossier says about authority, with code locations, and with every unresolved or assumed path listed. */
+function authoritySummary(a: AuthorityFacts | null, at: (e: { file: string; lineStart: number; lineEnd: number }) => string): AuthoritySummary | null {
+  if (!a) return null;
+  const L = (l: { file: string; line: number }) => `${l.file}:${l.line}`;
+  return {
+    roles: a.roles.map((r) => ({ variable: r.variable, strength: r.strength, holder: r.holder, held_by: r.heldBy ? `${r.heldBy.contract} (deploying contract; ${r.heldBy.evidence.map(L).join(", ")})` : null, transfer: r.transfer,
+      writers: r.writers.map((w) => `${w.fn} [${w.control}${w.guardedBy.length ? ` by ${w.guardedBy.join(",")}` : ""}] @ ${L(w.at)}`) })),
+    open_authority_writes: a.unguardedAuthorityWrites.map((w) => `${w.fn} writes ${w.variable} with no caller-side check @ ${L(w.at)}`),
+    callee_side_checks: a.checks.filter((c) => c.side === "callee-side").map((c) => `${c.fn}: ${c.note} @ ${L(c.at)}`),
+    factory_paths: a.factoryPaths.map((p) => `${p.from} -> ${p.callee}${p.reaches.length ? ` (${p.reaches.join(", ")})` : ""}: callee checks ${p.calleeChecks.map((c) => `${c.reads.join(",") || "?"} @ ${L(c.at)}`).join("; ")}; ${p.outerCallerGuarded ? "outer function has a caller-side check" : "**outer function has NO caller-side check**"} @ ${L(p.at)}`),
+    proxy: a.proxy.map((p) => `${p.fallback} delegatecalls ${p.pointer} -> ${p.implementation} @ ${L(p.at)}; pointer writers: ${p.upgradeWriters.map((w) => `${w.fn} [${w.control}]`).join(", ") || "none found"}; ${p.note}`),
+    initialisers: a.initialisers.map((i) => `${i.fn} (flag ${i.flag}) @ ${L(i.at)}: ${i.note}`),
+    assumptions: a.externalAssumptions.map((x) => `${x.fn} @ ${L(x.at)}: ${x.why}`),
+    unresolved: a.unresolved.map((u) => `${u.what}${u.at ? ` @ ${L(u.at)}` : ""}`),
+  };
+  void at;
+}
+
+/** P1 consumer: the dossier's architecture section, built ONLY from the protocol model the analysis step stored for this snapshot's run
+ *  (located through the step output, re-hashed on read; a missing or mismatching model is reported, never reconstructed). */
+async function architectureFromStoredModel(pool: Pool, snapshotId: string): Promise<ArchitectureSection> {
+  const ref = (await pool.query<{ sha: string | null }>(
+    `SELECT st.output->>'protocol_model_sha256' AS sha FROM repo_snapshots s JOIN workflow_steps st ON st.workflow_run_id = s.workflow_run_id
+      WHERE s.id = $1 AND st.step_key = 'analyze_structure' AND st.status = 'succeeded' AND st.output ? 'protocol_model_sha256' ORDER BY st.completed_at DESC LIMIT 1`, [snapshotId])).rows[0];
+  if (!ref?.sha) return { available: false, reason: "no protocol model is recorded for this snapshot's analysis step" };
+  const blob = (await pool.query<{ content: Buffer }>("SELECT content FROM research_blobs WHERE content_sha256 = $1", [ref.sha])).rows[0];
+  if (!blob) return { available: false, reason: `the recorded protocol model ${ref.sha} was not stored (too large for one blob)` };
+  if (createHash("sha256").update(blob.content).digest("hex") !== ref.sha) throw new Error("dossier refused: the stored protocol model does not match its recorded hash");
+  const m = JSON.parse(blob.content.toString("utf8")) as ProtocolModel;
+  const at = (e: { file: string; lineStart: number; lineEnd: number }) => `${e.file}:${e.lineStart}${e.lineEnd !== e.lineStart ? `-${e.lineEnd}` : ""}`;
+  return {
+    available: true, model_sha256: ref.sha, builder: `${m.schema} ${m.builder}`,
+    components: m.components.filter((c) => c.deployable).map((c) => ({
+      id: c.id, kind: c.kind, file: c.file, lines: `${c.evidence.lineStart}-${c.evidence.lineEnd}`, content_sha256: c.contentSha256,
+      // P2 roles, shown with basis and strength so a name-only "authority" is never mistaken for an enforced one
+      state_roles: (m.stateRoles?.byComponent.find((x) => x.component === c.id)?.variables ?? []).map((v) => ({
+        variable: v.variable, status: v.status, roles: v.roles.map((r) => `${r.role} (${r.basis}, ${r.strength}, ${r.rule} @ ${r.evidence.map((e) => `${e.file}:${e.line}`).join(", ")})`),
+      })),
+      authority: authoritySummary(m.authority?.byComponent.find((x) => x.component === c.id) ?? null, at),
+      entry_points: m.functions.filter((f) => f.component === c.id && f.entryPoint).map((f) => ({
+        fn: f.id, guarded: f.callerGuarded, writes: f.stateWrites,
+        external_calls: reachableCalls(m, f.id).filter((e) => e.kind !== "unresolved").map((e) => ({ kind: e.kind, to: e.to, target_provenance: e.targetProvenance, resolved_callee: e.resolvedCallee ?? null, at: at(e.evidence) })),
+        unresolved_calls: reachableCalls(m, f.id).filter((e) => e.kind === "unresolved").map((e) => ({ name: e.to, at: at(e.evidence) })),
+      })),
+    })),
+    unknowns: m.unknowns.map((u) => ({ at: `${u.file}${u.line ? `:${u.line}` : ""}`, what: u.what })),
+  };
+}
+
+/**
+ * The optional Slither stage in the dossier (runs created with `slitherScan` only; otherwise nothing changes). A completed scan is listed
+ * as an external tool with its generator; an abstention is listed with its code and reason, is added to the coverage problems (so the
+ * dossier is PARTIAL, never presented as complete) and to the limitations. A stage that exists but has no recorded outcome is the same.
+ */
+async function addSlitherCoverage(pool: Pool, snapshotId: string, coverage: AnalysisCoverage, limitations: string[]): Promise<void> {
+  const s = await slitherScanOfSnapshot(pool, snapshotId);
+  if (!s.exists) return;
+  const o = s.outcome ?? { status: "abstained" as const, code: "not_recorded", detail: "the Slither stage has no recorded outcome" };
+  if (o.status === "tool_completed") {
+    coverage.external_tools = [{ tool: "slither", pinned_version: SLITHER_PINNED, status: "completed", version: o.version, solc_version: o.solcVersion, generator: `slither@${o.version}`, leads: o.leads.length, informational_detections: o.informational, unanchored: o.unanchored, leads_not_recorded: o.notRecorded }];
+    if (o.notRecorded > 0) { coverage.problems.push(`Slither ${o.version}: ${o.notRecorded} mapped detections were not recorded (the per-run lead limit was reached)`); if (coverage.status === "complete") coverage.status = "partial"; }
+    limitations[0] = `Leads generated by ${SPECIALIST_ID} come from deterministic rules over source text. Leads generated by slither@${o.version} come from Slither compiling the snapshot with solc ${o.solcVersion} on the worker (pinned, offline); nothing was run against a chain or tested with a fuzzer.`;
+    limitations.push(`Slither leads are claims by an external tool, not evidence. Each is challenged by AgentSmith's own validators where its class has one; other classes are recorded as "no independent validator". ${o.informational} informational detections were counted, not stored${o.unanchored ? `; ${o.unanchored} mapped detections could not be anchored to the snapshot and were not stored` : ""}.`);
+  } else {
+    coverage.external_tools = [{ tool: "slither", pinned_version: SLITHER_PINNED, status: "abstained", code: o.code, detail: o.detail }];
+    coverage.problems.push(`Slither ${SLITHER_PINNED} abstained (${o.code}): ${o.detail}`);
+    if (coverage.status === "complete") coverage.status = "partial";
+    limitations.push(`Slither ${SLITHER_PINNED} was requested for this run but abstained (${o.code}), so no Slither leads are included. That is NOT evidence that Slither would find nothing.`);
+  }
+}
+
+/** Builds the dossier ONLY from stored records; spans are re-resolved and re-verified; fails closed if any cited span cannot be verified. */
+export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId: string): Promise<Dossier> {
+  const snap = (await pool.query("SELECT id, repository, commit_sha, file_count, manifest_sha256 FROM repo_snapshots WHERE id = $1", [snapshotId])).rows[0];
+  const verified = (await store.verifySnapshot(snapshotId)) as { ok?: boolean };
+  const hs = (await pool.query<{ id: string; family: string; claim: string; rationale: string; required_checks: unknown; alternative_explanations: unknown; generator_id: string; generator_version: string }>(
+    "SELECT id, family, claim, rationale, required_checks, alternative_explanations, generator_id, generator_version FROM hypotheses WHERE snapshot_id = $1 ORDER BY claim COLLATE \"C\"", [snapshotId])).rows;
+  const entries: DossierEntry[] = [];
+  for (const h of hs) {
+    const ev = (await pool.query<{ span_id: string; role: string }>("SELECT span_id, role FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY role, span_id", [h.id])).rows;
+    const evidence: DossierEntry["evidence"] = [];
+    for (const e of ev) {
+      const r = await store.resolveSpan(e.span_id); const verifiedHash = await store.verifySpan(e.span_id).then(() => true).catch(() => false);
+      if (!r.ok || !verifiedHash) throw new Error(`dossier refused: a cited span of hypothesis ${h.id} cannot be verified`);
+      evidence.push({ path: r.path, lines: `${r.lineStart}-${r.lineEnd}`, role: e.role, text: r.text.trim(), verified: true });
+    }
+    evidence.sort((a, b) => a.path.localeCompare(b.path) || a.lines.localeCompare(b.lines));
+    const evals = (await pool.query<{ evaluator_id: string; outcome: string; rationale: string }>("SELECT evaluator_id, outcome, rationale FROM hypothesis_evaluations WHERE hypothesis_id = $1 ORDER BY evaluator_id, created_at", [h.id])).rows;
+    const st = (await store.getStatus(h.id)) as Record<string, unknown> | null;
+    const cls = h.family.replace(/^solidity-/, "");
+    const fn = h.generator_id === "slither" ? /^Slither \S+ \([^)]*\) in ([\w$]+(?:\.[\w$]+)?):/.exec(h.claim)?.[1] ?? "" : /^(\w+\.\w+)/.exec(h.claim)?.[1] ?? "";
+    entries.push({ hypothesis_id: h.id, class: cls, function: fn, claim: h.claim, rationale: h.rationale, required_checks: h.required_checks, alternative_explanations: h.alternative_explanations,
+      generator: `${h.generator_id}@${h.generator_version}`, evidence, evaluations: evals.map((e) => ({ evaluator: e.evaluator_id, outcome: e.outcome, rationale: e.rationale })),
+      status: (st?.status as string) ?? null, static_outcome: (st?.static_outcome as string) ?? null, human_review: "none recorded" });
+  }
+  const summary: Record<string, number> = {};
+  for (const e of entries) summary[e.status ?? "unknown"] = (summary[e.status ?? "unknown"] ?? 0) + 1;
+  const limitations = [
+    "Every item is a lead produced by deterministic rules over source text; nothing was compiled, run against a chain or tested with a fuzzer.",
+    "Reentrancy, access-control, initializer, delegatecall, selfdestruct and unchecked-call leads are challenged by bounded execution of a modelled contract (a different method from the specialists); tx.origin leads have no independent method and stay unchallenged.",
+    "No human review is recorded for any item. Status values come from the database view and say so.",
+    "The analysis is intra-repository: calls into code outside the snapshot, inline assembly and unresolved modifiers are not analysed (they are listed as assumptions where they affect a lead).",
+  ];
+  const architecture = await architectureFromStoredModel(pool, snapshotId);
+  const coverage = await analysisCoverage(pool, snapshotId); const analyzer = await analyzerRecord(pool, snapshotId);
+  await addSlitherCoverage(pool, snapshotId, coverage, limitations); // no-op unless the run was created with the Slither stage
+  const content = entries.map((e) => [e.class, e.function, e.claim, e.evidence.map((x) => `${x.path}:${x.lines}:${x.text}`), e.evaluations.map((x) => `${x.evaluator}:${x.outcome}`), e.status]);
+  const content_sha256 = createHash("sha256").update(JSON.stringify([content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer])).digest("hex");
+  return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, coverage, analyzer, summary, entries, architecture, limitations, content_sha256 };
+}
+
+export function renderDossierMarkdown(d: Dossier): string {
+  const o: string[] = [`# Research dossier: ${d.snapshot.repository} @ ${d.snapshot.commit_sha}\n`,
+    `Snapshot ${d.snapshot.id}: ${d.snapshot.file_count} files, manifest \`${d.snapshot.manifest_sha256}\`, database verification ok=${d.snapshot.verified}. Content hash \`${d.content_sha256}\`.\n`,
+    `Analyzer: ${d.analyzer.version ?? "not recorded"}; build commit ${d.analyzer.build_commit ?? "not recorded"}${d.analyzer.image ? ` (image \`${d.analyzer.image}\`)` : ""}.\n`,
+    `**Analysis coverage: ${d.coverage.status.toUpperCase().replace("_", " ")}** — ${d.coverage.solidity_files} Solidity files${d.coverage.contracts !== null ? `, ${d.coverage.contracts} contracts, ${d.coverage.functions} functions analysed` : ""}.${d.coverage.status === "complete" ? "" : " This is NOT a complete investigation of the snapshot."}\n`
+      + (d.coverage.problems.length ? d.coverage.problems.map((p) => `- ${p}`).join("\n") + "\n" : "")
+      + (d.coverage.external_tools?.length ? d.coverage.external_tools.map((t) => t.status === "completed"
+        ? `External tool: **${t.generator}** completed (solc ${t.solc_version}): ${t.leads} leads, ${t.informational_detections} informational detections counted, not stored.`
+        : `External tool: **slither ${t.pinned_version} ABSTAINED** (${t.code}): ${t.detail}`).join("\n") + "\n" : ""),
+    `Status counts (derived by the database view): ${Object.entries(d.summary).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}.\n`, "## Leads\n"];
+  if (!d.entries.length) o.push("_No leads were generated. That is NOT evidence that the code is free of vulnerabilities: it means only that this analyzer's patterns did not match (see coverage and limitations)._\n");
+  d.entries.forEach((e, i) => {
+    o.push(`### ${i + 1}. ${e.function} - ${e.class} (status: ${e.status})\n**Claim.** ${e.claim}\n`);
+    for (const x of e.evidence) o.push(`- evidence (${x.role}) \`${x.path}:${x.lines}\`: \`${x.text.slice(0, 140)}\``);
+    o.push(`\n**Challenge.**` + (e.evaluations.length ? "\n" + e.evaluations.map((v) => `- ${v.evaluator}: **${v.outcome}**. ${v.rationale.slice(0, 600)}`).join("\n") : " none recorded"));
+    if (!e.evaluations.length || e.evaluations.some((v) => v.outcome === "inconclusive"))
+      o.push("_The independent check could not decide this lead. That is NOT evidence that the issue is absent: the lead stays open for review._");
+    o.push(`\n**Required checks.** ${(e.required_checks as string[]).join("; ")}\n**Alternative explanations.** ${(e.alternative_explanations as string[]).join("; ")}\n**Generated by** ${e.generator}. Human review: ${e.human_review}.\n`);
+  });
+  o.push("## Architecture (protocol model P1-P3)\n");
+  if (!d.architecture.available) o.push(`Not available: ${d.architecture.reason}.\n`);
+  else {
+    o.push(`Model \`${d.architecture.model_sha256}\` (${d.architecture.builder}). Every item cites code; P1 covers components, entry points, writes and external calls; P2 adds state-variable roles with their basis and strength; P3 adds who holds and can change authority, which checks are caller-side, cross-contract and proxy boundaries, initialisation controls and unresolved paths. A check is described, never certified. No assets or value flows yet.\n`);
+    for (const c of d.architecture.components) {
+      o.push(`### ${c.id} (${c.kind}, \`${c.file}:${c.lines}\`)`);
+      const classified = c.state_roles.filter((v) => v.status !== "unclassified");
+      if (classified.length) o.push("State variables: " + classified.map((v) => `\`${v.variable}\` [${v.status}] ${v.roles.join("; ")}`).join(" · "));
+      const unc = c.state_roles.filter((v) => v.status === "unclassified").map((v) => v.variable);
+      if (unc.length) o.push(`Unclassified state variables (kept for investigation): ${unc.map((x) => `\`${x}\``).join(", ")}`);
+      const au = c.authority;
+      if (au) {
+        for (const r of au.roles) o.push(`- authority \`${r.variable}\` (${r.strength}, ${r.holder}${r.held_by ? `, held by ${r.held_by}` : ""}), transfer: ${r.transfer}${r.writers.length ? `; writers: ${r.writers.join("; ")}` : ""}`);
+        for (const [label, xs] of [["Open authority writes", au.open_authority_writes], ["Callee-side checks (not a check on this function's caller)", au.callee_side_checks], ["Cross-contract authority paths", au.factory_paths], ["Proxy boundaries", au.proxy], ["Initialisation controls", au.initialisers], ["Trust assumptions", au.assumptions], ["Unresolved authority", au.unresolved]] as const)
+          if (xs.length) o.push(`**${label}:** ` + xs.join(" · "));
+      }
+      for (const f of c.entry_points) o.push(`- \`${f.fn}\` ${f.guarded ? "caller-guarded" : "**no caller guard**"}${f.writes.length ? `; writes ${f.writes.join(", ")}` : ""}${f.external_calls.length ? `; calls ${f.external_calls.map((x) => `${x.kind} ${x.to}${x.resolved_callee ? ` -> ${x.resolved_callee}` : ""} (target from ${x.target_provenance ?? "n/a"}, \`${x.at}\`)`).join("; ")}` : ""}${f.unresolved_calls.length ? `; **unresolved:** ${f.unresolved_calls.map((x) => `${x.name} (\`${x.at}\`)`).join(", ")}` : ""}`);
+      o.push("");
+    }
+    if (d.architecture.unknowns.length) o.push(`Not modelled (${d.architecture.unknowns.length}): ` + d.architecture.unknowns.slice(0, 20).map((u) => `\`${u.at}\` ${u.what}`).join("; ") + (d.architecture.unknowns.length > 20 ? "; ..." : "") + "\n");
+  }
+  o.push("## Limitations\n" + d.limitations.map((l) => `- ${l}`).join("\n") + "\n");
+  return o.join("\n");
+}
+
+/** The structural map, now a PROJECTION of the protocol model (P1): one derivation, kept in the step output for compatibility. Metadata only. */
+export function buildStructuralMap(sources: ReadonlyArray<{ path: string; text: string }>) {
+  const { model } = buildProtocolModel(sources); const ix = new ProgramIndex(sources);
+  const contracts = model.components.map((c) => ({
+    name: c.id, kind: c.kind, file: c.file, bases: ix.contracts.get(c.id)?.bases ?? [], lines: [c.evidence.lineStart, c.evidence.lineEnd],
+    state_variables: c.stateVariables.map((v) => ({ name: v.name, type: v.type, constant: v.constant, immutable: v.immutable })),
+    functions: model.functions.filter((f) => f.component === c.id).map((f) => {
+      const calls = reachableCalls(model, f.id).filter((e) => e.kind !== "unresolved");
+      return {
+        name: f.name, kind: f.kind, visibility: f.visibility, mutability: f.mutability, modifiers: f.modifiers, lines: [f.evidence.lineStart, f.evidence.lineEnd], declared_in: f.declaredIn,
+        entry_point: f.entryPoint, caller_guarded: f.callerGuarded, external_calls: calls.length,
+        low_level_calls: [...new Set(calls.map((e) => e.kind).filter((k) => k !== "external"))], state_writes: f.stateWrites,
+        unresolved_calls: reachableCalls(model, f.id).filter((e) => e.kind === "unresolved").length,
+      };
+    }),
+  }));
+  return { contracts, problems: ix.problems, protocol_model_schema: model.schema };
+}
+
+/** Rebuild the stored hypotheses of a snapshot (ids and primary spans) by matching the deterministic findings to the database records. */
+export async function loadStoredHypotheses(pool: Pool, snapshotId: string): Promise<StoredHypothesis[]> {
+  const sources = await readSnapshotSources(pool, snapshotId); const { findings } = analyzeSources(sources); const out: StoredHypothesis[] = [];
+  for (const f of findings) {
+    const h = (await pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE snapshot_id = $1 AND claim = $2 AND generator_id = $3", [snapshotId, f.claim, SPECIALIST_ID])).rows[0];
+    if (!h) continue;
+    const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [h.id])).rows;
+    out.push({ id: h.id, finding: f, spanIds: spans.map((x) => x.span_id) });
+  }
+  return out;
+}

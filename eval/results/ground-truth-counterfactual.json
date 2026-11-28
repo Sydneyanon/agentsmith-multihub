@@ -1,0 +1,179 @@
+{
+  "solc": "0.8.28+commit.7893614a.Emscripten.clang",
+  "report": [
+    {
+      "id": "counterfactual/ReentHelperAUnchecked (HelperA with unchecked subtraction)",
+      "labelled": "counterfactual",
+      "solc": "0.8.28+commit.7893614a.Emscripten.clang",
+      "groundTruth": "EXPLOITABLE",
+      "firstExploit": {
+        "credit": "1 ether",
+        "amount": "1 ether",
+        "honestMax": "1000 milli-ether",
+        "reentrant": "2000 milli-ether",
+        "entryResult": "target call succeeded",
+        "hookCalls": 1,
+        "hookFailures": 0,
+        "exploit": true
+      },
+      "scenarios": [
+        {
+          "credit": "1 ether",
+          "amount": "1 ether",
+          "honestMax": "1000 milli-ether",
+          "reentrant": "2000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": true
+        },
+        {
+          "credit": "1 ether",
+          "amount": "2 ether",
+          "honestMax": "0 milli-ether",
+          "reentrant": "0 milli-ether",
+          "entryResult": "target call REVERTED (attacker exec returned false)",
+          "hookCalls": 0,
+          "hookFailures": 0,
+          "exploit": false
+        },
+        {
+          "credit": "2 ether",
+          "amount": "1 ether",
+          "honestMax": "2000 milli-ether",
+          "reentrant": "2000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": false
+        },
+        {
+          "credit": "2 ether",
+          "amount": "2 ether",
+          "honestMax": "2000 milli-ether",
+          "reentrant": "4000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": true
+        }
+      ]
+    },
+    {
+      "id": "counterfactual/ReentBankAUnchecked (BankA with unchecked subtraction)",
+      "labelled": "counterfactual",
+      "solc": "0.8.28+commit.7893614a.Emscripten.clang",
+      "groundTruth": "EXPLOITABLE",
+      "firstExploit": {
+        "credit": "1 ether",
+        "amount": "1 ether",
+        "honestMax": "1000 milli-ether",
+        "reentrant": "2000 milli-ether",
+        "entryResult": "target call succeeded",
+        "hookCalls": 1,
+        "hookFailures": 0,
+        "exploit": true
+      },
+      "scenarios": [
+        {
+          "credit": "1 ether",
+          "amount": "1 ether",
+          "honestMax": "1000 milli-ether",
+          "reentrant": "2000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": true
+        },
+        {
+          "credit": "1 ether",
+          "amount": "2 ether",
+          "honestMax": "0 milli-ether",
+          "reentrant": "0 milli-ether",
+          "entryResult": "target call REVERTED (attacker exec returned false)",
+          "hookCalls": 0,
+          "hookFailures": 0,
+          "exploit": false
+        },
+        {
+          "credit": "2 ether",
+          "amount": "1 ether",
+          "honestMax": "2000 milli-ether",
+          "reentrant": "2000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": false
+        },
+        {
+          "credit": "2 ether",
+          "amount": "2 ether",
+          "honestMax": "2000 milli-ether",
+          "reentrant": "4000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": true
+        }
+      ]
+    },
+    {
+      "id": "counterfactual/BankUnchecked.withdrawBad (dev withdrawBad with unchecked subtraction)",
+      "labelled": "counterfactual",
+      "solc": "0.8.28+commit.7893614a.Emscripten.clang",
+      "groundTruth": "EXPLOITABLE",
+      "firstExploit": {
+        "credit": "1 ether",
+        "amount": "1 ether",
+        "honestMax": "1000 milli-ether",
+        "reentrant": "2000 milli-ether",
+        "entryResult": "target call succeeded",
+        "hookCalls": 1,
+        "hookFailures": 0,
+        "exploit": true
+      },
+      "scenarios": [
+        {
+          "credit": "1 ether",
+          "amount": "1 ether",
+          "honestMax": "1000 milli-ether",
+          "reentrant": "2000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": true
+        },
+        {
+          "credit": "1 ether",
+          "amount": "2 ether",
+          "honestMax": "0 milli-ether",
+          "reentrant": "0 milli-ether",
+          "entryResult": "target call REVERTED (attacker exec returned false)",
+          "hookCalls": 0,
+          "hookFailures": 0,
+          "exploit": false
+        },
+        {
+          "credit": "2 ether",
+          "amount": "1 ether",
+          "honestMax": "2000 milli-ether",
+          "reentrant": "2000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": false
+        },
+        {
+          "credit": "2 ether",
+          "amount": "2 ether",
+          "honestMax": "2000 milli-ether",
+          "reentrant": "4000 milli-ether",
+          "entryResult": "target call succeeded",
+          "hookCalls": 1,
+          "hookFailures": 0,
+          "exploit": true
+        }
+      ]
+    }
+  ]
+}

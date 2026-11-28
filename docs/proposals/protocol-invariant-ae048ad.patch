@@ -1,0 +1,1077 @@
+From ae048ade05ee715f26c1122484abe6eb5bfe6fc6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 27 Nov 2026 22:58:12 +0000
+Subject: [PATCH] analysis: protocol-invariant detector (inferred aggregate ==
+ sum of ledger conservation)
+
+The first meaning-aware rule of the deterministic Solidity analyzer. The trace now
+gives every state write a linear change over symbolic amounts, resolved through
+helper arguments, storage references and locals into the entry function's terms,
+plus the enclosing branch conditions decided statically where syntax or an earlier
+unconditional reverting check settles them (so a single _update(from, to, v)
+helper is followed per caller).
+
+invariants.ts infers "A == sum over a of L[a]" for a scalar unsigned A and an
+address-keyed ledger L (or a struct field of one) only when at least two
+functions change both sides by the same non-zero amount, in both directions,
+and reports a function that changes them by different amounts, unless another
+state quantity absorbs the difference, the call keeps another aggregate equal to
+the ledger instead, or A is re-set absolutely. Undecided branches, loops and
+non-linear updates are skipped, never reported. Constructors are evidence only.
+
+Findings use the existing machinery (class protocol-invariant), cite the write
+and the call chain, state the inferred invariant and the maintaining functions,
+and are challenged by execution (challengeInvariant: change of A versus change of
+sum(L) in a world seeded consistent, after checking the maintainers keep it).
+
+Synthetic unit tests only (invariants.test.ts): 8 positive, 12 negative, 2 execution-challenge.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WqgUXPKRtWKWJd57TvffMY
+---
+ apps/api/src/analysis/solidity/challenge.ts   |  39 ++
+ .../src/analysis/solidity/invariants.test.ts  | 349 ++++++++++++++++++
+ apps/api/src/analysis/solidity/invariants.ts  | 128 +++++++
+ apps/api/src/analysis/solidity/pipeline.ts    |   3 +-
+ apps/api/src/analysis/solidity/specialists.ts |  60 ++-
+ apps/api/src/analysis/solidity/trace.ts       | 189 ++++++++--
+ apps/api/src/engine/capabilities.ts           |   8 +-
+ apps/api/src/engine/classes.ts                |   2 +-
+ 8 files changed, 749 insertions(+), 29 deletions(-)
+ create mode 100644 apps/api/src/analysis/solidity/invariants.test.ts
+ create mode 100644 apps/api/src/analysis/solidity/invariants.ts
+
+diff --git a/apps/api/src/analysis/solidity/challenge.ts b/apps/api/src/analysis/solidity/challenge.ts
+index 8c78091..9f736c5 100644
+--- a/apps/api/src/analysis/solidity/challenge.ts
++++ b/apps/api/src/analysis/solidity/challenge.ts
+@@ -100,12 +100,51 @@ export function challengeUncheckedCall(ix: ProgramIndex, f: Finding, entry: Func
+   } catch (e) { if (e instanceof Unsupported) return { verdict: "inconclusive", method, reason: `not modelled: ${e.why}`, trace: [], scenarios: 0 }; throw e; }
+ }
+ 
++/**
++ * protocol-invariant: execute the breaking function in a modelled world where the aggregate equals the sum of the ledger, and compare the
++ * change of the aggregate with the change of the ledger's sum. The functions the invariant was inferred from are executed first, each in a
++ * fresh world, and must keep the two equal in the model: if they do not, the inference itself is not supported and the method abstains.
++ */
++export function challengeInvariant(ix: ProgramIndex, f: Finding, entry: FunctionDef): ChallengeOutcome {
++  const method = "execution: change of the aggregate versus change of the sum of the ledger in one call";
++  const agg = String(f.detail["aggregate"] ?? ""); const ledger = String(f.detail["ledger"] ?? "");
++  if (!agg || !ledger || ledger.includes(".")) return { verdict: "inconclusive", method, reason: "the ledger is a struct field, which the execution model does not represent", trace: [], scenarios: 0 };
++  const sumL = (it: Interp) => { let s = 0n; for (const [k, v] of it.w.storage) if (k.startsWith(`${ledger}|`) && k.split("|").length === 2 && typeof v === "bigint") s += v; return s; };
++  const world = (fn: FunctionDef) => { const it = freshInterp(ix, entry.contract, fn); it.writeVar(agg, [], sumL(it)); it.w.trace = []; return it; };
++  const run = (fn: FunctionDef): { ok: boolean; why: string; dA: bigint; dL: bigint; who: string } => {
++    let last = { ok: false, why: "", dA: 0n, dL: 0n, who: "" };
++    for (const who of ["attacker", "owner0"]) for (const args of argVariants(fn)) {
++      const it = world(fn); const a0 = it.num(it.readVar(agg, []), agg); const l0 = sumL(it);
++      const r = attempt(it, fn, who, fn.mutability === "payable" ? ETHER : 0n, args);
++      if (!r.ok) { last = { ...last, why: r.why }; continue; }
++      const out = { ok: true, why: "", dA: it.num(it.readVar(agg, []), agg) - a0, dL: sumL(it) - l0, who };
++      if (out.dA !== 0n || out.dL !== 0n) return out; last = out;
++    }
++    return last;
++  };
++  try {
++    const maintainers = String(f.detail["maintainers"] ?? "").split(",").filter((n) => n && n !== "constructor");
++    let scenarios = 0; const checked: string[] = [];
++    for (const name of maintainers) {
++      const m = ix.findFunctions(entry.contract, name)[0]; if (!m) continue;
++      const r = run(m); scenarios++;
++      if (r.ok && r.dA !== r.dL) return { verdict: "inconclusive", method, reason: `${name}, one of the functions the invariant was inferred from, does not keep it in the model (${agg} ${r.dA}, sum ${r.dL}); the inference is not supported by execution`, trace: [], scenarios };
++      if (r.ok && r.dA !== 0n) checked.push(`${name} (as ${r.who}) changes ${agg} and the sum of ${ledger} by ${r.dA}`);
++    }
++    const r = run(entry); scenarios++;
++    if (!r.ok) return { verdict: "inconclusive", method, reason: `${entry.name} reverts in the model for every caller and argument tried (${r.why})`, trace: checked, scenarios };
++    if (r.dA !== r.dL) return { verdict: "validated", method, reason: `${entry.name}, called by ${r.who === "attacker" ? "an unprivileged caller" : "the privileged deployer"}, changes ${agg} by ${r.dA} but the sum of ${ledger} by ${r.dL}: afterwards ${agg} != sum(${ledger})`, trace: [`world: ${agg} seeded equal to the sum of ${ledger}`, ...checked, `${entry.name} completes: ${agg} ${r.dA >= 0n ? "+" : ""}${r.dA}, sum(${ledger}) ${r.dL >= 0n ? "+" : ""}${r.dL}`], scenarios };
++    return { verdict: "refuted", method, reason: `${entry.name} completes and changes ${agg} and the sum of ${ledger} by the same amount (${r.dA}) in the model`, trace: checked, scenarios };
++  } catch (e) { if (e instanceof Unsupported) return { verdict: "inconclusive", method, reason: `not modelled: ${e.why}`, trace: [], scenarios: 0 }; throw e; }
++}
++
+ export function challengeFinding(ix: ProgramIndex, f: Finding): ChallengeOutcome | null {
+   const entry = ix.findFunctions(f.contract, f.function)[0]; if (!entry) return { verdict: "inconclusive", method: "none", reason: "function not found", trace: [], scenarios: 0 };
+   switch (f.class) {
+     case "access-control": case "selfdestruct": case "delegatecall": return challengeReachability(ix, f, entry);
+     case "initializer": return challengeInitializer(ix, f, entry);
+     case "unchecked-call": return challengeUncheckedCall(ix, f, entry);
++    case "protocol-invariant": return challengeInvariant(ix, f, entry);
+     default: return null; // reentrancy has its own validator; tx-origin has no independent method yet
+   }
+ }
+diff --git a/apps/api/src/analysis/solidity/invariants.test.ts b/apps/api/src/analysis/solidity/invariants.test.ts
+new file mode 100644
+index 0000000..3582536
+--- /dev/null
++++ b/apps/api/src/analysis/solidity/invariants.test.ts
+@@ -0,0 +1,349 @@
++import { describe, expect, it } from "vitest";
++import { analyzeSources } from "./specialists.js";
++import { ProgramIndex } from "./index.js";
++import { challengeFinding } from "./challenge.js";
++
++/**
++ * protocol-invariant: a conservation relation between an aggregate and a per-account ledger (totalSupply == sum of balances) is inferred
++ * from the functions that keep it, and a function that changes the two sides by different amounts is reported. All contracts here are
++ * synthetic and written for this test.
++ */
++const analyse = (text: string, path = "s/T.sol") => {
++  const lines = text.split("\n");
++  const lineOf = (needle: string) => { const i = lines.findIndex((l) => l.includes(needle)); if (i < 0) throw new Error(`no line with ${needle}`); return i + 1; };
++  const { findings, index } = analyzeSources([{ path, text }]);
++  const inv = findings.filter((f) => f.class === "protocol-invariant");
++  return { findings, inv, lineOf, index, of: (fn: string) => inv.filter((f) => f.function === fn) };
++};
++
++const token = (extra: string, opts: { header?: string } = {}) => `pragma solidity ^0.8.20;
++contract Token {
++    mapping(address => uint256) public balanceOf;
++    uint256 public totalSupply;
++    address public owner;
++${opts.header ?? ""}
++    constructor() { owner = msg.sender; }
++    function mint(address to, uint256 amount) external {
++        require(msg.sender == owner, "owner");
++        balanceOf[to] += amount;
++        totalSupply += amount;
++    }
++    function burn(uint256 amount) external {
++        balanceOf[msg.sender] -= amount;
++        totalSupply -= amount;
++    }
++    function transfer(address to, uint256 amount) external returns (bool) {
++        balanceOf[msg.sender] -= amount;
++        balanceOf[to] += amount;
++        return true;
++    }
++${extra}
++}`;
++
++describe("protocol-invariant: positives", () => {
++  it("flags a burn path that lowers balances but not totalSupply, citing the maintainers as evidence", () => {
++    const { of, inv, lineOf } = analyse(token(`
++    function burnFrom(address from, uint256 amount) external {
++        require(msg.sender == owner, "owner");
++        balanceOf[from] -= amount;
++    }`));
++    expect(inv).toHaveLength(1);
++    const f = of("burnFrom")[0]!;
++    expect(f.line).toBe(lineOf("balanceOf[from] -= amount;"));
++    expect(f.detail).toMatchObject({ aggregate: "totalSupply", ledger: "balanceOf", maintainers: "mint,burn", aggregateDelta: "0", ledgerDelta: "-amount" });
++    expect(f.claim).toContain("totalSupply == sum over accounts a of balanceOf[a]");
++    expect(f.claim).toMatch(/mint changes both by \+amount \(s\/T\.sol:\d+, s\/T\.sol:\d+\)/);
++    expect(f.claim).toContain("burn changes both by -amount");
++    expect(f.claim).toContain("transfer move value between accounts");
++    expect(f.requiredChecks.length).toBeGreaterThan(0);
++    expect(f.alternatives.length).toBeGreaterThan(0);
++    expect(f.spans[0]).toMatchObject({ file: "s/T.sol", lineStart: f.line, role: "primary" });
++  });
++
++  it("flags a mint that credits a different amount from the one added to the supply", () => {
++    const { of, inv, lineOf } = analyse(token(`
++    function mintWithBonus(address to, uint256 amount, uint256 bonus) external {
++        require(msg.sender == owner, "owner");
++        totalSupply += amount;
++        balanceOf[to] += amount + bonus;
++    }`));
++    expect(inv.map((f) => f.function)).toEqual(["mintWithBonus"]);
++    expect(of("mintWithBonus")[0]!.detail).toMatchObject({ aggregateDelta: "+amount", ledgerDelta: "+amount + bonus" });
++    expect(of("mintWithBonus")[0]!.line).toBe(lineOf("balanceOf[to] += amount + bonus;"));
++  });
++
++  it("follows internal helpers: maintainers and the breaker all go through _mint / _burn style helpers", () => {
++    const { of, inv, lineOf } = analyse(`pragma solidity ^0.8.20;
++contract Shares {
++    mapping(address => uint256) internal shares;
++    uint256 internal totalShares;
++    function _credit(address who, uint256 n) internal { shares[who] += n; totalShares += n; }
++    function _debit(address who, uint256 n) internal { shares[who] -= n; totalShares -= n; }
++    function _debitOnly(address who, uint256 n) internal { shares[who] = shares[who] - n; }
++    function join(uint256 n) external { _credit(msg.sender, n); }
++    function leave(uint256 n) external { _debit(msg.sender, n); }
++    function forfeit(address who, uint256 n) external { _debitOnly(who, n); }
++}`);
++    expect(inv.map((f) => f.function)).toEqual(["forfeit"]);
++    const f = of("forfeit")[0]!;
++    expect(f.line).toBe(lineOf("function _debitOnly"));
++    expect(f.chain.map((c) => c.fn)).toEqual(["_debitOnly"]);
++    expect(f.detail).toMatchObject({ ledgerDelta: "-n", maintainers: "join,leave" });
++    expect(f.spans.some((s) => s.role === "supporting" && s.lineStart === lineOf("function forfeit"))).toBe(true); // the call site in the caller
++  });
++
++  it("flags an emergency withdrawal that zeroes a deposit read into a local but forgets the total", () => {
++    const { of, inv, lineOf } = analyse(`pragma solidity ^0.8.20;
++contract Pool {
++    mapping(address => uint256) public deposits;
++    uint256 public totalDeposits;
++    function deposit() external payable { deposits[msg.sender] += msg.value; totalDeposits += msg.value; }
++    function withdraw() external {
++        uint256 amt = deposits[msg.sender];
++        deposits[msg.sender] = 0;
++        totalDeposits -= amt;
++        payable(msg.sender).transfer(amt);
++    }
++    function emergencyWithdraw() external {
++        uint256 amt = deposits[msg.sender];
++        delete deposits[msg.sender];
++        payable(msg.sender).transfer(amt);
++    }
++}`);
++    expect(inv.map((f) => f.function)).toEqual(["emergencyWithdraw"]);
++    expect(of("emergencyWithdraw")[0]!.line).toBe(lineOf("delete deposits[msg.sender];"));
++    expect(of("emergencyWithdraw")[0]!.confidence).toBe("medium"); // an absolute write to the ledger
++    expect(of("emergencyWithdraw")[0]!.detail).toMatchObject({ ledgerDelta: "-deposits[msg.sender]", aggregateDelta: "0" });
++  });
++
++  it("resolves branches on helper arguments and on earlier reverting checks (a single _update(from, to, v) helper)", () => {
++    const { inv, of, lineOf } = analyse(`pragma solidity ^0.8.20;
++contract Unified {
++    mapping(address => uint256) private _balances;
++    uint256 private _totalSupply;
++    error Bad();
++    function _update(address from, address to, uint256 value) internal {
++        if (from == address(0)) {
++            _totalSupply += value;
++        } else {
++            uint256 fromBalance = _balances[from];
++            if (fromBalance < value) revert Bad();
++            unchecked { _balances[from] = fromBalance - value; }
++        }
++        if (to == address(0)) {
++            unchecked { _totalSupply -= value; }
++        } else {
++            unchecked { _balances[to] += value; }
++        }
++    }
++    function mint(address account, uint256 value) external {
++        if (account == address(0)) revert Bad();
++        _update(address(0), account, value);
++    }
++    function burn(uint256 value) external { _update(msg.sender, address(0), value); }
++    function transfer(address to, uint256 value) external {
++        if (to == address(0)) revert Bad();
++        _update(msg.sender, to, value);
++    }
++    function slash(address account, uint256 value) external {
++        unchecked { _balances[account] -= value; }
++    }
++}`);
++    expect(inv.map((f) => f.function)).toEqual(["slash"]);
++    expect(of("slash")[0]!.line).toBe(lineOf("unchecked { _balances[account] -= value; }"));
++    expect(of("slash")[0]!.detail).toMatchObject({ maintainers: "mint,burn" });
++  });
++
++  it("handles ledgers that are a struct field reached through a storage reference", () => {
++    const { inv, of } = analyse(`pragma solidity ^0.8.20;
++contract Staking {
++    struct Account { uint256 staked; uint256 since; }
++    mapping(address => Account) internal accounts;
++    uint256 public totalStaked;
++    function stake(uint256 a) external { Account storage acc = accounts[msg.sender]; acc.staked += a; acc.since = block.timestamp; totalStaked += a; }
++    function unstake(uint256 a) external { Account storage acc = accounts[msg.sender]; acc.staked -= a; totalStaked -= a; }
++    function compound(uint256 reward) external { accounts[msg.sender].staked += reward; }
++}`);
++    expect(inv.map((f) => f.function)).toEqual(["compound"]);
++    expect(of("compound")[0]!.detail).toMatchObject({ ledger: "accounts.staked", aggregate: "totalStaked" });
++    expect(of("compound")[0]!.claim).toContain("totalStaked == sum over accounts a of accounts[a].staked");
++  });
++
++  it("handles SafeMath-style .add/.sub and x = x + y forms", () => {
++    const { inv } = analyse(`pragma solidity ^0.6.12;
++library SafeMath {
++    function add(uint256 a, uint256 b) internal pure returns (uint256) { uint256 c = a + b; require(c >= a); return c; }
++    function sub(uint256 a, uint256 b) internal pure returns (uint256) { require(b <= a); return a - b; }
++}
++contract Old {
++    using SafeMath for uint256;
++    mapping(address => uint256) balances;
++    uint256 supply;
++    function mint(uint256 v) external { balances[msg.sender] = balances[msg.sender].add(v); supply = supply.add(v); }
++    function burn(uint256 v) external { balances[msg.sender] = balances[msg.sender] - v; supply = supply - v; }
++    function badBurn(uint256 v) external { balances[msg.sender] = balances[msg.sender].sub(v); supply = supply.sub(v / 2); }
++}`);
++    expect(inv.map((f) => f.function)).toEqual(["badBurn"]);
++  });
++});
++
++describe("protocol-invariant: values are tracked, not names", () => {
++  it("a local reassigned on a branch becomes a fresh unknown (no false balance from a stale name), so the mismatch is reported", () => {
++    const { inv } = analyse(token(`
++    bool public halve;
++    function burnOdd(uint256 v) external { uint256 x = v; if (halve) { x = v / 2; } balanceOf[msg.sender] -= v; totalSupply -= x; }`));
++    expect(inv.map((f) => f.function)).toEqual(["burnOdd"]);
++  });
++});
++
++describe("protocol-invariant: negatives (no lead)", () => {
++  it("a correct token: mint, burn, transfer, transferFrom with allowances", () => {
++    const { inv } = analyse(token(`
++    mapping(address => mapping(address => uint256)) public allowance;
++    function approve(address s, uint256 v) external { allowance[msg.sender][s] = v; }
++    function transferFrom(address from, address to, uint256 v) external {
++        allowance[from][msg.sender] -= v;
++        balanceOf[from] -= v;
++        balanceOf[to] += v;
++    }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("only one maintaining function is not enough evidence to infer the invariant", () => {
++    const { inv } = analyse(`pragma solidity ^0.8.20;
++contract One {
++    mapping(address => uint256) public balanceOf;
++    uint256 public totalSupply;
++    function mint(uint256 v) external { balanceOf[msg.sender] += v; totalSupply += v; }
++    function burn(uint256 v) external { balanceOf[msg.sender] -= v; }
++}`);
++    expect(inv).toHaveLength(0);
++  });
++
++  it("value moved into another bucket in the same call is not a break (staking out of balances)", () => {
++    const { inv } = analyse(token(`
++    mapping(address => uint256) public staked;
++    uint256 public reserve;
++    function stake(uint256 v) external { balanceOf[msg.sender] -= v; staked[msg.sender] += v; }
++    function unstake(uint256 v) external { staked[msg.sender] -= v; balanceOf[msg.sender] += v; }
++    function takeFee(uint256 v) external { balanceOf[msg.sender] -= v; reserve += v; }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("a write under a condition that is not decided statically, or inside a loop, is skipped, not reported", () => {
++    const { inv } = analyse(token(`
++    bool public burnsReduceSupply;
++    function burnMaybe(uint256 v) external { balanceOf[msg.sender] -= v; if (burnsReduceSupply) totalSupply -= v; }
++    function airdrop(address[] calldata to, uint256 v) external { for (uint256 i = 0; i < to.length; i++) { balanceOf[to[i]] += v; } }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("a fee split that pays the fee to another account is balanced (linear arithmetic over the amounts)", () => {
++    const { inv } = analyse(token(`
++    address public feeTo;
++    function transferWithFee(address to, uint256 v) external {
++        uint256 fee = v / 100;
++        balanceOf[msg.sender] -= v;
++        balanceOf[to] += v - fee;
++        balanceOf[feeTo] += fee;
++    }
++    function burnAll() external {
++        uint256 b = balanceOf[msg.sender];
++        delete balanceOf[msg.sender];
++        totalSupply -= b;
++    }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("shares and assets that differ by design are never paired (no function keeps them equal)", () => {
++    const { inv } = analyse(`pragma solidity ^0.8.20;
++contract Vault {
++    mapping(address => uint256) public shares;
++    uint256 public totalAssets;
++    uint256 public totalShares;
++    function deposit(uint256 assets) external { uint256 s = totalShares == 0 ? assets : assets * totalShares / totalAssets; shares[msg.sender] += s; totalShares += s; totalAssets += assets; }
++    function redeem(uint256 s) external { uint256 assets = s * totalAssets / totalShares; shares[msg.sender] -= s; totalShares -= s; totalAssets -= assets; }
++}`);
++    expect(inv).toHaveLength(0);
++  });
++
++  it("an absolute re-set of the aggregate (a resynchronisation) is not reported", () => {
++    const { inv } = analyse(token(`
++    function sync(uint256 v) external { require(msg.sender == owner); totalSupply = v; }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("an unchecked block around a correct burn changes nothing", () => {
++    const { inv } = analyse(token(`
++    function burnUnchecked(uint256 v) external { require(balanceOf[msg.sender] >= v); unchecked { balanceOf[msg.sender] -= v; totalSupply -= v; } }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("a helper parameter reassigned before use is tracked by value, not by name", () => {
++    const { inv } = analyse(token(`
++    function _take(address who, uint256 v) internal { uint256 half = v / 2; balanceOf[who] -= half; v = half; totalSupply -= v; }
++    function burnHalf(uint256 v) external { _take(msg.sender, v); }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("a total that only ever grows with the ledger (a cumulative counter) does not establish the relation", () => {
++    const { inv } = analyse(`pragma solidity ^0.8.20;
++contract Counter {
++    mapping(address => uint256) public deposits;
++    uint256 public totalDepositedEver;
++    function deposit() external payable { deposits[msg.sender] += msg.value; totalDepositedEver += msg.value; }
++    function depositFor(address who) external payable { deposits[who] += msg.value; totalDepositedEver += msg.value; }
++    function withdraw(uint256 v) external { deposits[msg.sender] -= v; payable(msg.sender).transfer(v); }
++}`);
++    expect(inv).toHaveLength(0);
++  });
++
++  it("a burn that keeps totalSupply right is not reported against a second, minted-ever total", () => {
++    const { inv } = analyse(token(`
++    uint256 public totalMinted;
++    function mintTracked(address to, uint256 v) external { require(msg.sender == owner); balanceOf[to] += v; totalSupply += v; totalMinted += v; }
++    function mintTracked2(address to, uint256 v) external { require(msg.sender == owner); balanceOf[to] += v; totalSupply += v; totalMinted += v; }
++    function burnTracked(uint256 v) external { balanceOf[msg.sender] -= v; totalSupply -= v; }`));
++    expect(inv).toHaveLength(0);
++  });
++
++  it("a constructor that mints the initial supply is evidence, never a breaker", () => {
++    const { inv } = analyse(`pragma solidity ^0.8.20;
++contract Fixed {
++    mapping(address => uint256) public balanceOf;
++    uint256 public totalSupply;
++    constructor(uint256 initial) { totalSupply = initial; balanceOf[msg.sender] = initial / 2; }
++    function burn(uint256 v) external { balanceOf[msg.sender] -= v; totalSupply -= v; }
++    function mint(uint256 v) external { balanceOf[msg.sender] += v; totalSupply += v; }
++}`);
++    expect(inv).toHaveLength(0);
++  });
++});
++
++describe("protocol-invariant: execution challenge", () => {
++  it("validates a real break by execution and refutes nothing it cannot run", () => {
++    const text = token(`
++    function burnFrom(address from, uint256 amount) external {
++        require(msg.sender == owner, "owner");
++        balanceOf[from] -= amount;
++    }`);
++    const { inv } = analyse(text);
++    const c = challengeFinding(new ProgramIndex([{ path: "s/T.sol", text }]), inv[0]!)!;
++    expect(c.verdict).toBe("validated");
++    expect(c.reason).toMatch(/changes totalSupply by 0 but the sum of balanceOf by -\d+/);
++  });
++
++  it("abstains on struct-field ledgers", () => {
++    const text = `pragma solidity ^0.8.20;
++contract Staking {
++    struct Account { uint256 staked; }
++    mapping(address => Account) internal accounts;
++    uint256 public totalStaked;
++    function stake(uint256 a) external { accounts[msg.sender].staked += a; totalStaked += a; }
++    function unstake(uint256 a) external { accounts[msg.sender].staked -= a; totalStaked -= a; }
++    function compound(uint256 reward) external { accounts[msg.sender].staked += reward; }
++}`;
++    const { inv } = analyse(text);
++    expect(challengeFinding(new ProgramIndex([{ path: "s/T.sol", text }]), inv[0]!)!.verdict).toBe("inconclusive");
++  });
++});
+diff --git a/apps/api/src/analysis/solidity/invariants.ts b/apps/api/src/analysis/solidity/invariants.ts
+new file mode 100644
+index 0000000..761dbb3
+--- /dev/null
++++ b/apps/api/src/analysis/solidity/invariants.ts
+@@ -0,0 +1,128 @@
++import type { ProgramIndex } from "./index.js";
++import type { FunctionDef } from "./parser.js";
++import { addLin, recordToLin, scale, type Ev, type Lin, type TraceResult } from "./trace.js";
++
++/**
++ * Conservation invariants between an AGGREGATE and a LEDGER (totalSupply == sum of balances[a]; totalDeposits == sum of deposits[a]).
++ *
++ * Nothing is assumed from names. For every state-changing function of a deployed contract (and its constructors) the trace gives each
++ * write as a linear change over symbolic amounts, already resolved through internal helpers, storage references and locals (trace.ts
++ * `delta`). Summing the changes per function gives, for every scalar unsigned state variable A and every address-keyed numeric ledger L,
++ * the net change of A and the net change of sum(L) that one call makes (keys do not matter: a transfer moving `v` from one key to another
++ * nets to zero).
++ *
++ * The relation "A == sum(L)" is INFERRED for a pair only when at least two functions change both sides by the same non-zero amount
++ * (they MAINTAIN it: mint and burn, deposit and withdraw), and those functions include at least one that increases both and one that decreases
++ * both (a total that only grows may be a cumulative counter). A function that changes one side by a different amount from the other BREAKS it,
++ * unless another state quantity changes by exactly the missing amount in the same call (value moved to another bucket: staking from
++ * `balances` into `staked`, fees into a reserve), or the same call keeps another aggregate equal to the ledger's change, or A is re-set
++ * absolutely (a resynchronisation). A pair is reported only when the
++ * maintaining functions outnumber the breaking ones. Functions whose change cannot be stated exactly (a write inside a loop, under a
++ * condition that is not decided statically, a non-linear update, an unanalysed write shape) are neither evidence nor breakers: they are
++ * skipped, so the detector errs towards silence.
++ */
++export type WriteEv = Extract<Ev, { k: "write" }>;
++export type FunctionChange = { fn: FunctionDef; constructor: boolean; deltas: Map<string, Lin>; writes: Map<string, WriteEv[]>; unknown: Map<string, string> };
++export type ConservationBreak = {
++  aggregate: string; ledger: string; breaker: FunctionChange; aggregateDelta: Lin; ledgerDelta: Lin;
++  maintainers: FunctionChange[]; neutral: string[]; skipped: Array<{ fn: string; why: string }>; absoluteLedgerWrite: boolean;
++};
++
++const UINT = /^u?int\d*$/;
++const ADDR_MAPPING = /^mapping\s*\(\s*address\s*=>\s*(.+)\)\s*$/;
++
++/** the quantity a write changes: `L` / `L.field` for an address-keyed ledger, `A` for a scalar integer; null for anything else */
++function quantity(ix: ProgramIndex, contract: string, w: WriteEv): { id: string; kind: "ledger" | "aggregate" | "other" } | null {
++  const sv = ix.stateVar(contract, w.variable); if (!sv || sv.constant || sv.immutable) return null;
++  const t = sv.type.replace(/\s+/g, " ").trim();
++  if (w.key === null && !w.field && UINT.test(t)) return { id: w.variable, kind: "aggregate" };
++  const m = ADDR_MAPPING.exec(t);
++  if (m && w.key !== null && !m[1]!.trim().startsWith("mapping")) {
++    const value = m[1]!.trim();
++    if (!w.field && UINT.test(value)) return { id: w.variable, kind: "ledger" };
++    if (w.field && !w.field.includes(".") && !UINT.test(value)) return { id: `${w.variable}.${w.field}`, kind: "ledger" };
++  }
++  return { id: `${w.variable}${w.field ? `.${w.field}` : ""}${w.key !== null ? "[]" : ""}`, kind: "other" };
++}
++
++/** the net change one call makes to every state quantity, and the quantities whose change cannot be stated exactly */
++export function functionChange(ix: ProgramIndex, contract: string, fn: FunctionDef, tr: TraceResult): FunctionChange & { kinds: Map<string, "ledger" | "aggregate" | "other"> } {
++  const isCtor = fn.kind === "constructor";
++  const deltas = new Map<string, Lin>(); const writes = new Map<string, WriteEv[]>(); const unknown = new Map<string, string>(); const kinds = new Map<string, "ledger" | "aggregate" | "other">();
++  const ctorTargets = new Set<string>();
++  for (const e of tr.events) {
++    if (e.k !== "write" || e.variable.startsWith("<")) continue;
++    if (e.pc?.some((p) => p.startsWith("F:"))) continue; // a branch that cannot be taken on this path
++    const q = quantity(ix, contract, e); if (!q) continue;
++    kinds.set(q.id, q.kind); writes.set(q.id, [...(writes.get(q.id) ?? []), e]);
++    if (q.kind === "other" && ADDR_MAPPING.test(ix.stateVar(contract, e.variable)?.type ?? "")) {
++      // a write to a ledger variable in a shape not tracked (`delete accounts[a]` of a whole struct, a nested key): every field is unknown
++      for (const [id, k] of kinds) if (k === "ledger" && (id === e.variable || id.startsWith(`${e.variable}.`))) unknown.set(id, `${e.file}:${e.line}: ${e.text} is written in a shape that is not tracked`);
++      unknown.set(`<var:${e.variable}>`, `${e.file}:${e.line}: ${e.text}`);
++    }
++    const open = e.pc?.find((p) => p.startsWith("?:"));
++    if (open) { unknown.set(q.id, `${e.file}:${e.line}: the write runs only under ${open.slice(2)}, which is not decided statically`); continue; }
++    if (!e.delta) { unknown.set(q.id, `${e.file}:${e.line}: ${e.text} ${e.op} is not a linear update`); continue; }
++    let d = recordToLin(e.delta);
++    if (isCtor && e.target) ctorTargets.add(e.target);
++    if (isCtor) d = new Map([...d].filter(([k]) => !ctorTargets.has(k))); // before the constructor every location is zero
++    deltas.set(q.id, addLin(deltas.get(q.id) ?? new Map(), d));
++  }
++  // a ledger written in an untracked shape poisons every field of it, including ones first seen after the untracked write
++  for (const [id, k] of kinds) if (k === "ledger") { const v = id.split(".")[0]!; const why = unknown.get(`<var:${v}>`); if (why && !unknown.has(id)) unknown.set(id, why); }
++  return { fn, constructor: isCtor, deltas, writes, unknown, kinds };
++}
++
++/** the sign of a change when every coefficient agrees (amounts are unsigned): "up", "down", or "mixed" */
++export function direction(a: Lin): "up" | "down" | "mixed" {
++  const signs = new Set([...a.values()].map((v) => v > 0n)); return signs.size !== 1 ? "mixed" : signs.has(true) ? "up" : "down";
++}
++export const linEq = (a: Lin, b: Lin) => a.size === b.size && [...a].every(([k, v]) => b.get(k) === v);
++const sub = (a: Lin, b: Lin) => addLin(a, scale(b, -1n));
++export function fmtLin(a: Lin): string {
++  if (a.size === 0) return "0";
++  const terms = [...a].sort(([x], [y]) => (x === "1" ? 1 : y === "1" ? -1 : x.localeCompare(y))).map(([k, v]) => {
++    const mag = v < 0n ? -v : v; const body = k === "1" ? mag.toString() : mag === 1n ? k : `${mag} * ${k}`;
++    return { neg: v < 0n, body };
++  });
++  return terms.map((t, i) => (i === 0 ? (t.neg ? `-${t.body}` : `+${t.body}`) : t.neg ? ` - ${t.body}` : ` + ${t.body}`)).join("");
++}
++
++/** every inferred aggregate/ledger conservation relation of `contract` that some function breaks */
++export function conservationBreaks(ix: ProgramIndex, contract: string, fns: Array<{ fn: FunctionDef; tr: TraceResult }>): ConservationBreak[] {
++  const changes = fns.map(({ fn, tr }) => functionChange(ix, contract, fn, tr));
++  const aggregates = new Set<string>(); const ledgers = new Set<string>();
++  for (const c of changes) for (const [id, k] of c.kinds) { if (k === "aggregate") aggregates.add(id); else if (k === "ledger") ledgers.add(id); }
++  const out: ConservationBreak[] = [];
++  for (const A of [...aggregates].sort()) for (const L of [...ledgers].sort()) {
++    const maintainers: FunctionChange[] = []; const neutral: string[] = []; const skipped: Array<{ fn: string; why: string }> = [];
++    const breakers: Array<{ c: FunctionChange; dA: Lin; dL: Lin }> = [];
++    for (const c of changes) {
++      const why = c.unknown.get(A) ?? c.unknown.get(L);
++      if (why) { skipped.push({ fn: c.fn.name, why }); continue; }
++      const dA = c.deltas.get(A) ?? new Map<string, bigint>(); const dL = c.deltas.get(L) ?? new Map<string, bigint>();
++      if (dA.size === 0 && dL.size === 0) { if (c.writes.has(A) || c.writes.has(L)) neutral.push(c.fn.name); continue; }
++      if (linEq(dA, dL)) { maintainers.push(c); continue; }
++      if (c.constructor) { skipped.push({ fn: "constructor", why: "a constructor is used as evidence only, never reported" }); continue; }
++      if (dA.get(A) !== undefined && dA.get(A)! < 0n) { skipped.push({ fn: c.fn.name, why: `${A} is re-set absolutely (a resynchronisation, not an update)` }); continue; }
++      // the missing amount went into (or came from) another state quantity in the same call: value moved between buckets, not lost
++      const missing = sub(dL, dA);
++      const moved = [...c.deltas].find(([id, d]) => id !== A && id !== L && !c.unknown.has(id) && linEq(d, scale(missing, -1n)));
++      if (moved) { skipped.push({ fn: c.fn.name, why: `the difference is matched by an opposite change of ${moved[0]}` }); continue; }
++      // the call keeps ANOTHER aggregate equal to the ledger's change: A is then likely a different quantity (minted-ever, a cap)
++      const other = [...aggregates].find((A2) => A2 !== A && !c.unknown.has(A2) && dL.size > 0 && linEq(c.deltas.get(A2) ?? new Map(), dL));
++      if (other) { skipped.push({ fn: c.fn.name, why: `it keeps ${other} equal to the change of ${L} instead` }); continue; }
++      breakers.push({ c, dA, dL });
++    }
++    if (maintainers.length < 2 || breakers.length === 0 || breakers.length >= maintainers.length) continue;
++    // evidence in BOTH directions: a total that only ever grows alongside the ledger may be a cumulative counter (deposited-ever, minted-ever)
++    // rather than the sum of current balances, so increases alone never establish the relation
++    const dirs = new Set(maintainers.map((m) => direction(m.deltas.get(A)!)));
++    if (!dirs.has("up") || !dirs.has("down")) continue;
++    for (const b of breakers) {
++      const absoluteLedgerWrite = (b.c.writes.get(L) ?? []).some((w) => w.op === "=" || w.op === "delete");
++      out.push({ aggregate: A, ledger: L, breaker: b.c, aggregateDelta: b.dA, ledgerDelta: b.dL, maintainers, neutral, skipped, absoluteLedgerWrite });
++    }
++  }
++  return out;
++}
+diff --git a/apps/api/src/analysis/solidity/pipeline.ts b/apps/api/src/analysis/solidity/pipeline.ts
+index 9cdb1fc..5c8ffe7 100644
+--- a/apps/api/src/analysis/solidity/pipeline.ts
++++ b/apps/api/src/analysis/solidity/pipeline.ts
+@@ -224,7 +224,8 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
+   for (const e of entries) summary[e.status ?? "unknown"] = (summary[e.status ?? "unknown"] ?? 0) + 1;
+   const limitations = [
+     "Every item is a lead produced by deterministic rules over source text; nothing was compiled, run against a chain or tested with a fuzzer.",
+-    "Reentrancy, access-control, initializer, delegatecall, selfdestruct and unchecked-call leads are challenged by bounded execution of a modelled contract (a different method from the specialists); tx.origin leads have no independent method and stay unchallenged.",
++    "Reentrancy, access-control, initializer, delegatecall, selfdestruct, unchecked-call and protocol-invariant leads are challenged by bounded execution of a modelled contract (a different method from the specialists); tx.origin leads have no independent method and stay unchallenged.",
++    "Protocol-invariant leads rest on an INFERRED relation (an aggregate equal to the sum of a per-account ledger, inferred from functions that keep it); the contract never states it, so the lead says which functions it was inferred from.",
+     "No human review is recorded for any item. Status values come from the database view and say so.",
+     "The analysis is intra-repository: calls into code outside the snapshot, inline assembly and unresolved modifiers are not analysed (they are listed as assumptions where they affect a lead).",
+   ];
+diff --git a/apps/api/src/analysis/solidity/specialists.ts b/apps/api/src/analysis/solidity/specialists.ts
+index 1d5b8ef..eb6f053 100644
+--- a/apps/api/src/analysis/solidity/specialists.ts
++++ b/apps/api/src/analysis/solidity/specialists.ts
+@@ -3,13 +3,15 @@ import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
+ import { isCaller, Tracer, type Ev, type Frame, type TraceResult } from "./trace.js";
+ import { namesWithRole, stateVariableRoles, type VariableRoles } from "./state-roles.js";
+ import { guardSide } from "./authority.js";
++import { conservationBreaks, fmtLin, type ConservationBreak } from "./invariants.js";
++import { recordToLin } from "./trace.js";
+ 
+ /**
+  * Deterministic specialists over the structural index. Each emits LEADS with cited lines, never verified vulnerabilities.
+  * Findings carry the call chain through internal helpers and the assumptions made (for example a modifier imported from a file
+  * that was not analysed), so a reviewer can see exactly why the claim was made and what it rests on.
+  */
+-export type FindingClass = "reentrancy" | "access-control" | "initializer" | "delegatecall" | "unchecked-call" | "selfdestruct" | "tx-origin";
++export type FindingClass = "reentrancy" | "access-control" | "initializer" | "delegatecall" | "unchecked-call" | "selfdestruct" | "tx-origin" | "protocol-invariant";
+ export type Span = { file: string; lineStart: number; lineEnd: number; role: "primary" | "supporting" | "context" };
+ export type Finding = {
+   class: FindingClass; contract: string; function: string; file: string; line: number; claim: string; rationale: string;
+@@ -97,6 +99,11 @@ export class Analyzer {
+           const k = `${f.file}:${f.line}:${f.class}:${f.function}`; if (seen.has(k)) continue; seen.add(k); out.push(f);
+         }
+       }
++      // cross-function rules: an invariant is inferred from several functions of the deployed contract and checked against each of them
++      const ctors = this.ix.linearize(c.name).flatMap((b) => b.functions.filter((f) => f.kind === "constructor" && f.body)).map((f) => this.view(f.contract === c.name ? f : { ...f, contract: c.name }));
++      for (const f of this.protocolInvariant(c.name, [...fns.map((raw) => this.view(raw)), ...ctors])) {
++        const k = `${f.file}:${f.line}:${f.class}:${f.function}`; if (seen.has(k)) continue; seen.add(k); out.push(f);
++      }
+     }
+     return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.class.localeCompare(b.class) || a.function.localeCompare(b.function));
+   }
+@@ -239,6 +246,55 @@ export class Analyzer {
+     return [];
+   }
+ 
++  // ---------------------------------------------------------------- protocol invariant (aggregate == sum of ledger), see invariants.ts
++  private protocolInvariant(contract: string, fns: FunctionDef[]): Finding[] {
++    const out: Finding[] = [];
++    for (const b of conservationBreaks(this.ix, contract, fns.map((fn) => ({ fn, tr: this.trace(fn) })))) out.push(this.invariantFinding(b));
++    return out;
++  }
++
++  private invariantFinding(b: ConservationBreak): Finding {
++    const fn = b.breaker.fn; const tr = this.trace(fn);
++    const rel = [...(b.breaker.writes.get(b.ledger) ?? []), ...(b.breaker.writes.get(b.aggregate) ?? [])].filter((w) => !w.pc?.some((p) => p.startsWith("F:")));
++    const order = new Map(tr.events.map((e, i) => [e, i] as const)); rel.sort((x, y) => order.get(x)! - order.get(y)!);
++    // the statement that settles the imbalance: the last write of the call to either side
++    const primary = rel[rel.length - 1]!;
++    const at = (w: { file: string; line: number }) => `${w.file}:${w.line}`;
++    const ledgerTxt = b.ledger.includes(".") ? `${b.ledger.split(".")[0]}[a].${b.ledger.split(".").slice(1).join(".")}` : `${b.ledger}[a]`;
++    const inv = `${b.aggregate} == sum over accounts a of ${ledgerTxt}`;
++    const evidence = b.maintainers.map((m) => {
++      const ws = [...(m.writes.get(b.ledger) ?? []), ...(m.writes.get(b.aggregate) ?? [])];
++      return `${m.constructor ? "the constructor" : m.fn.name} changes both by ${fmtLin(m.deltas.get(b.aggregate)!)} (${[...new Set(ws.map(at))].join(", ")})`;
++    });
++    const side = b.aggregateDelta.size === 0 ? `changes ${ledgerTxt} by ${fmtLin(b.ledgerDelta)} but leaves ${b.aggregate} unchanged`
++      : b.ledgerDelta.size === 0 ? `changes ${b.aggregate} by ${fmtLin(b.aggregateDelta)} but leaves every ${ledgerTxt} unchanged`
++      : `changes the sum of ${ledgerTxt} by ${fmtLin(b.ledgerDelta)} but ${b.aggregate} by ${fmtLin(b.aggregateDelta)}`;
++    const writesTxt = [...new Set(rel.map((w) => `${w.op === "delete" ? `delete ${w.text}` : `${w.text} ${w.op} ...`} (${w.delta ? fmtLin(recordToLin(w.delta)) : "?"}${w.chain.length ? `, in ${w.chain.map((f) => f.fn).join(" -> ")}` : ""}, ${at(w)})`))].join("; ");
++    const chainSpans = rel.flatMap((w) => this.chainSpans(w.chain));
++    return this.mk(fn, "protocol-invariant", primary.line, primary.file, {
++      claim: `${fn.contract}.${fn.name} breaks the inferred invariant ${inv}: one call ${side} (${writesTxt}). The invariant is inferred, not declared: ${evidence.join("; ")}${b.neutral.length ? `; ${[...new Set(b.neutral)].join(", ")} move value between accounts and leave both sides unchanged` : ""}.`,
++      rationale: `At least two functions keep ${b.aggregate} equal to the total of ${ledgerTxt} by changing both by the same amount, and ${fn.name} changes them by different amounts with no other state quantity absorbing the difference. After it runs, ${b.aggregate} no longer equals the sum of the per-account values, so anything priced, capped or paid out from ${b.aggregate} (share prices, supply caps, pro-rata rewards, the last withdrawals) is computed from a wrong total.`,
++      requiredChecks: [
++        `Confirm that ${b.aggregate} is meant to equal the sum of ${ledgerTxt} (documentation, getters such as totalSupply, every reader of ${b.aggregate})`,
++        `Execute ${fn.name} on a local fork or test and compare the change of ${b.aggregate} with the change of the sum of ${ledgerTxt}`,
++        `Check whether the difference is accounted for somewhere the analysis does not track (another contract, ether or token balances, an off-chain ledger)`,
++        `Find who can call ${fn.name} and how often, and what reads ${b.aggregate} afterwards`,
++      ],
++      alternatives: [
++        `${b.aggregate} may intentionally track something other than the sum of ${ledgerTxt} (for example minted-ever, or a total that includes another bucket)`,
++        `The difference may be compensated in a contract or variable outside the analysed files`,
++        `${fn.name} may be an intentional administrative correction`,
++        ...(b.skipped.length ? [`Functions whose change could not be stated exactly were skipped (${[...new Set(b.skipped.map((x) => x.fn))].join(", ")}); they are neither evidence nor checked`] : []),
++      ],
++      spans: uniqueSpans([this.span(primary.file, primary.line, "primary"), ...rel.filter((w) => w !== primary).map((w) => this.span(w.file, w.line, "supporting")), ...chainSpans,
++        ...b.maintainers.flatMap((m) => [...(m.writes.get(b.ledger) ?? []), ...(m.writes.get(b.aggregate) ?? [])].flatMap((w) => [this.span(w.file, w.line, "context"), ...w.chain.map((f) => this.span(f.file, f.line, "context"))]))]
++      ),
++      chain: primary.chain,
++      ...(b.absoluteLedgerWrite ? { confidence: "medium" as const } : {}),
++      detail: { invariant: inv, aggregate: b.aggregate, ledger: b.ledger, maintainers: b.maintainers.map((m) => (m.constructor ? "constructor" : m.fn.name)).join(","), aggregateDelta: fmtLin(b.aggregateDelta), ledgerDelta: fmtLin(b.ledgerDelta), primaryLine: primary.line },
++    }, tr);
++  }
++
+   // ---------------------------------------------------------------- tx.origin
+   private txOrigin(fn: FunctionDef, tr: TraceResult): Finding[] {
+     for (const o of tr.events) {
+@@ -254,6 +310,8 @@ export class Analyzer {
+   }
+ }
+ 
++function uniqueSpans(xs: Span[]): Span[] { const seen = new Set<string>(); return xs.filter((x) => { const k = `${x.file}:${x.lineStart}`; if (seen.has(k)) return false; seen.add(k); return true; }); }
++
+ export function analyzeSources(sources: ReadonlyArray<{ path: string; text: string }>): { findings: Finding[]; index: ProgramIndex; problems: string[] } {
+   const index = new ProgramIndex(sources); const a = new Analyzer(index);
+   return { findings: a.analyze(), index, problems: index.problems };
+diff --git a/apps/api/src/analysis/solidity/trace.ts b/apps/api/src/analysis/solidity/trace.ts
+index 069f8fd..83e9681 100644
+--- a/apps/api/src/analysis/solidity/trace.ts
++++ b/apps/api/src/analysis/solidity/trace.ts
+@@ -8,19 +8,37 @@ import { exprText, type Expr, type FunctionDef, type Stmt } from "./parser.js";
+  */
+ /** One step of a call path: `fn` (of `contract`) is entered at `file`:`line`, the call site in the CALLER's file. */
+ export type Frame = { fn: string; contract: string; file: string; line: number };
+-type Base = { line: number; file: string; contract: string; cond: boolean; prot: boolean; ret: boolean; chain: Frame[] };
++/**
++ * `pc`: the enclosing branch conditions of an event, outermost first, each written `T:<cond>` / `F:<cond>` / `?:<cond>`: the condition
++ * (resolved through helper arguments and locals) is statically true, statically false, or undecided at that point. A condition is decided
++ * only by syntax (`address(0) == address(0)` after inlining `_update(address(0), to, v)`) or by an unconditional reverting check met
++ * earlier in the same trace (`if (to == address(0)) revert ...;`). Loops, ternaries and try/catch are always `?`.
++ */
++type Base = { line: number; file: string; contract: string; cond: boolean; prot: boolean; ret: boolean; chain: Frame[]; pc?: string[] };
+ export type Ev =
+   | (Base & { k: "guard"; auth: boolean; origin: boolean; reads: string[]; text: string; reverting: boolean; assumed?: string })
+   | (Base & { k: "call"; low: "call" | "delegatecall" | "staticcall" | "send" | "transfer" | null; targetText: string; targetExpr: Expr | null; valueText: string | null; hasValue: boolean; callee: string | null; calleeResolved: boolean; attackerTarget: boolean; checked: "checked" | "unchecked" | "returned" | "n/a"; targetTaint: "param" | "msg.sender" | "state" | "constant" | "other"; targetVar: string | null })
+-  | (Base & { k: "write"; variable: string; owner: string; key: string | null; op: string; increasing: boolean; decreasing: boolean; keyedByCaller: boolean; keyedByParam: boolean; text: string; via?: string })
++  | (Base & { k: "write"; variable: string; owner: string; key: string | null; op: string; increasing: boolean; decreasing: boolean; keyedByCaller: boolean; keyedByParam: boolean; text: string; via?: string;
++      /** struct members on the path below the variable (`accounts[a].balance` -> "balance") */
++      field?: string;
++      /** the written location with helper parameters, storage references and locals resolved into the entry function's terms */
++      target?: string;
++      /** the change the write makes, as a linear form {atom: coefficient} over resolved sub-expressions ("1" is the constant term);
++       *  an absolute assignment `x = e` is e - x (x's old value is the atom `target`); null when the change is not linear (`*=`, push ...) */
++      delta?: Record<string, string> | null })
+   | (Base & { k: "read"; variable: string })
+   | (Base & { k: "destruct"; text: string })
+   | (Base & { k: "origin"; usage: "auth" | "eoa-check" | "other"; text: string });
+ 
++type Branch = { cond: boolean; prot: boolean; ret: boolean; pc: string[] };
+ type Ctx = {
+   contract: string; file: string; fn: FunctionDef; params: Map<string, string>; locals: Map<string, string>;
+   tainted: Set<string>; authLocals: Set<string>; success: Map<string, Extract<Ev, { k: "call" }>>; chain: Frame[]; depth: number;
+-  onPlaceholder: (() => void) | null; branch: { cond: boolean; prot: boolean; ret: boolean }; stack: string[]; aliases: Map<string, { expr: Expr; ctx: Ctx }>;
++  onPlaceholder: (() => void) | null; branch: Branch; stack: string[]; aliases: Map<string, { expr: Expr; ctx: Ctx }>;
++  /** the current value of a local or reassigned parameter, already resolved (see Tracer.resolve); absent: the name is its own atom */
++  defs: Map<string, Expr>; versions: Map<string, number>;
++  /** how many branches enclosed a local's declaration (parameters: 0); a reassignment under MORE branches than that is path-dependent */
++  declDepth: Map<string, number>;
+   /** `storage` locals and parameters: the expression each one points into (null while a declared-only local is still unbound) */
+   storageRefs: Map<string, { expr: Expr; ctx: Ctx } | null>;
+ };
+@@ -73,6 +91,42 @@ function terminates(stmts: Stmt[]): boolean {
+   return false;
+ }
+ 
++// ---------------------------------------------------------------- linear forms over resolved expressions
++export type Lin = Map<string, bigint>;
++const isZeroAddress = (e: Expr) => e.k === "call" && e.fn.k === "id" && e.fn.name === "address" && e.args.length === 1 && e.args[0]!.k === "num" && e.args[0]!.v === 0n;
++const isConstExpr = (e: Expr): boolean => (e.k === "num" && e.v !== null) || e.k === "bool" || isZeroAddress(e);
++/** an unambiguous rendering (binary operations parenthesised), used as the identity of an atom or a condition */
++export function canonText(e: Expr): string {
++  switch (e.k) {
++    case "binary": return `(${canonText(e.l)} ${e.op} ${canonText(e.r)})`;
++    case "unary": return `${e.op}(${canonText(e.e)})`;
++    case "member": return `${canonText(e.obj)}.${e.name}`;
++    case "index": return `${canonText(e.obj)}[${e.idx ? canonText(e.idx) : ""}]`;
++    case "call": return `${canonText(e.fn)}(${e.args.map(canonText).join(", ")})`;
++    case "ternary": return `(${canonText(e.c)} ? ${canonText(e.a)} : ${canonText(e.b)})`;
++    case "tuple": return `(${e.items.map((i) => (i ? canonText(i) : "")).join(", ")})`;
++    case "num": return e.v !== null ? e.v.toString() : e.text;
++    default: return exprText(e);
++  }
++}
++export function addLin(a: Lin, b: Lin): Lin { const o = new Map(a); for (const [k, v] of b) { const n = (o.get(k) ?? 0n) + v; if (n === 0n) o.delete(k); else o.set(k, n); } return o; }
++export function scale(a: Lin, c: bigint): Lin { const o: Lin = new Map(); if (c === 0n) return o; for (const [k, v] of a) o.set(k, v * c); return o; }
++const constOf = (a: Lin): bigint | null => (a.size === 0 ? 0n : a.size === 1 && a.has("1") ? a.get("1")! : null);
++/** e as a sum of coefficient * atom; anything that is not +, -, negation, multiplication by a literal or a cast is one atom */
++export function linear(e: Expr): Lin {
++  if (e.k === "num" && e.v !== null) return e.v === 0n ? new Map() : new Map([["1", e.v]]);
++  if (e.k === "tuple" && e.items.length === 1 && e.items[0]) return linear(e.items[0]);
++  if (e.k === "unary" && e.op === "-") return scale(linear(e.e), -1n);
++  if (e.k === "binary" && (e.op === "+" || e.op === "-")) return addLin(linear(e.l), e.op === "+" ? linear(e.r) : scale(linear(e.r), -1n));
++  if (e.k === "binary" && e.op === "*") { const a = linear(e.l), b = linear(e.r); const ca = constOf(a), cb = constOf(b); if (ca !== null) return scale(b, ca); if (cb !== null) return scale(a, cb); }
++  // SafeMath style `a.add(b)` / `a.sub(b)`, and value-preserving casts `uint256(x)`
++  if (e.k === "call" && e.fn.k === "member" && e.args.length === 1 && (e.fn.name === "add" || e.fn.name === "sub")) return addLin(linear(e.fn.obj), e.fn.name === "add" ? linear(e.args[0]!) : scale(linear(e.args[0]!), -1n));
++  if (e.k === "call" && e.fn.k === "id" && /^uint(256)?$/.test(e.fn.name) && e.args.length === 1) return linear(e.args[0]!);
++  return new Map([[canonText(e), 1n]]);
++}
++export const linToRecord = (a: Lin): Record<string, string> => Object.fromEntries([...a].sort(([x], [y]) => x.localeCompare(y)).map(([k, v]) => [k, v.toString()]));
++export const recordToLin = (r: Record<string, string>): Lin => new Map(Object.entries(r).map(([k, v]) => [k, BigInt(v)]));
++
+ export class Tracer {
+   readonly events: Ev[] = []; readonly assumptions: string[] = []; readonly unknowns: string[] = [];
+   constructor(private readonly ix: ProgramIndex) {}
+@@ -86,11 +140,11 @@ export class Tracer {
+   private newCtx(fn: FunctionDef, contract: string, chain: Frame[], tainted: Set<string>, depth: number, stack: string[]): Ctx {
+     return {
+       contract, file: fn.file, fn, params: new Map(fn.params.filter((p) => p.name).map((p) => [p.name!, p.type])), locals: new Map(), tainted,
+-      authLocals: new Set(), success: new Map(), chain, depth, onPlaceholder: null, branch: { cond: false, prot: false, ret: false }, stack: [...stack, `${contract}.${fn.name}`], aliases: new Map(), storageRefs: new Map(),
++      authLocals: new Set(), success: new Map(), chain, depth, onPlaceholder: null, branch: { cond: false, prot: false, ret: false, pc: [] }, stack: [...stack, `${contract}.${fn.name}`], aliases: new Map(), storageRefs: new Map(), defs: new Map(), versions: new Map(), declDepth: new Map(),
+     };
+   }
+ 
+-  private base(ctx: Ctx, line: number): Base { return { line, file: ctx.file, contract: ctx.contract, cond: ctx.branch.cond, prot: ctx.branch.prot, ret: ctx.branch.ret, chain: ctx.chain }; }
++  private base(ctx: Ctx, line: number): Base { return { line, file: ctx.file, contract: ctx.contract, cond: ctx.branch.cond, prot: ctx.branch.prot, ret: ctx.branch.ret, chain: ctx.chain, ...(ctx.branch.pc.length ? { pc: [...ctx.branch.pc] } : {}) }; }
+ 
+   // ---------------------------------------------------------------- modifiers
+   private runWithModifiers(fn: FunctionDef, ctx: Ctx, i: number): void {
+@@ -99,12 +153,12 @@ export class Tracer {
+     const use = uses[i]!; const def = this.ix.findModifier(ctx.contract, use.name);
+     if (def && def.body) {
+       // the modifier body runs in the DEPLOYED contract's context (virtual dispatch and state resolve there), not the declaring base's
+-      const mctx: Ctx = { ...this.newCtx(def, ctx.contract, [...ctx.chain, { fn: `modifier ${def.name}`, contract: def.contract, file: ctx.file, line: use.line }], ctx.tainted, ctx.depth + 1, ctx.stack), branch: { ...ctx.branch } };
++      const mctx: Ctx = { ...this.newCtx(def, ctx.contract, [...ctx.chain, { fn: `modifier ${def.name}`, contract: def.contract, file: ctx.file, line: use.line }], ctx.tainted, ctx.depth + 1, ctx.stack), branch: { ...ctx.branch, pc: [...ctx.branch.pc] } };
+       mctx.params = new Map(def.params.filter((p) => p.name).map((p) => [p.name!, p.type]));
+       // a modifier parameter stands for the argument it was given: onlyBy(owner) compares the caller with `owner`, an authority
+       def.params.forEach((p, k) => { const a = use.args[k]; if (!p.name || !a) return; if (this.isAuthority(a, ctx)) mctx.authLocals.add(p.name); if (this.tainted(a, ctx)) mctx.tainted.add(p.name); });
+       // `_` may sit inside a branch of the modifier (`if (msg.sender == owner) _;`): the body runs under that branch's protection
+-      mctx.onPlaceholder = () => { const saved = ctx.branch; ctx.branch = { cond: saved.cond || mctx.branch.cond, prot: saved.prot || mctx.branch.prot, ret: saved.ret || mctx.branch.ret }; try { this.runWithModifiers(fn, ctx, i + 1); } finally { ctx.branch = saved; } };
++      mctx.onPlaceholder = () => { const saved = ctx.branch; ctx.branch = { cond: saved.cond || mctx.branch.cond, prot: saved.prot || mctx.branch.prot, ret: saved.ret || mctx.branch.ret, pc: [...new Set([...saved.pc, ...mctx.branch.pc])] }; try { this.runWithModifiers(fn, ctx, i + 1); } finally { ctx.branch = saved; } };
+       this.stmts(def.body, mctx);
+       return;
+     }
+@@ -130,8 +184,8 @@ export class Tracer {
+   // ---------------------------------------------------------------- statements
+   private stmts(list: Stmt[], ctx: Ctx): void { for (const s of list) this.stmt(s, ctx); }
+ 
+-  private withBranch<T>(ctx: Ctx, cond: boolean, prot: boolean, f: () => T, ret = false): T {
+-    const saved = ctx.branch; ctx.branch = { cond: saved.cond || cond, prot: saved.prot || prot, ret: saved.ret || ret };
++  private withBranch<T>(ctx: Ctx, cond: boolean, prot: boolean, f: () => T, ret = false, pc = "?:<branch>"): T {
++    const saved = ctx.branch; ctx.branch = { cond: saved.cond || cond, prot: saved.prot || prot, ret: saved.ret || ret, pc: [...saved.pc, pc] };
+     try { return f(); } finally { ctx.branch = saved; }
+   }
+ 
+@@ -149,16 +203,20 @@ export class Tracer {
+             if (this.tainted(s.init!, ctx)) ctx.tainted.add(n);
+             if (this.isAuthority(s.init!, ctx)) ctx.authLocals.add(n);
+             if (lastCall && i === 0 && /^bool/.test(s.types[0] ?? "")) { ctx.success.set(n, lastCall); }
++            // the value a plain local holds (resolved now, so later writes to what it read do not change it); a tuple's parts are unknown
++            ctx.defs.delete(n); this.bump(n, ctx);
++            ctx.declDepth.set(n, ctx.branch.pc.length); // block scoping: the local is only visible inside the branch that declares it
++            if (s.names.length === 1 && !STORAGE_LOC.test(s.types[i] ?? "")) ctx.defs.set(n, this.resolve(s.init!, ctx));
+           });
+-        } else s.names.forEach((n, i) => { if (!n) return; ctx.locals.set(n, s.types[i] ?? ""); if (STORAGE_LOC.test(s.types[i] ?? "")) ctx.storageRefs.set(n, null); });
++        } else s.names.forEach((n, i) => { if (!n) return; ctx.locals.set(n, s.types[i] ?? ""); ctx.defs.delete(n); this.bump(n, ctx); ctx.declDepth.set(n, ctx.branch.pc.length); if (STORAGE_LOC.test(s.types[i] ?? "")) ctx.storageRefs.set(n, null); });
+         return;
+       }
+       case "if": this.ifStmt(s, ctx); return;
+-      case "loop": { if (s.cond) this.expr(s.cond, ctx, "use"); this.withBranch(ctx, true, false, () => this.stmts(s.body, ctx)); return; }
++      case "loop": { if (s.cond) this.expr(s.cond, ctx, "use"); this.withBranch(ctx, true, false, () => this.stmts(s.body, ctx), false, "?:<loop>"); return; }
+       case "block": this.stmts(s.body, ctx); return;
+       case "return": if (s.e) this.expr(s.e, ctx, "return"); return;
+       case "placeholder": if (ctx.onPlaceholder) ctx.onPlaceholder(); return;
+-      case "try": { this.expr(s.call, ctx, "use"); this.withBranch(ctx, true, false, () => { this.stmts(s.body, ctx); for (const c of s.catches) this.stmts(c, ctx); }); return; }
++      case "try": { this.expr(s.call, ctx, "use"); this.withBranch(ctx, true, false, () => { this.stmts(s.body, ctx); for (const c of s.catches) this.stmts(c, ctx); }, false, "?:<try>"); return; }
+       case "asm": this.unknowns.push(`${ctx.file}:${s.line}: inline assembly is not analysed`); return;
+       default: return;
+     }
+@@ -166,18 +224,22 @@ export class Tracer {
+ 
+   private ifStmt(s: Extract<Stmt, { k: "if" }>, ctx: Ctx): void {
+     this.expr(s.cond, ctx, "use");
++    const v = this.staticTruth(s.cond, ctx); const ct = canonText(this.resolve(s.cond, ctx));
++    const pcThen = `${v === true ? "T" : v === false ? "F" : "?"}:${ct}`; const pcEls = `${v === false ? "T" : v === true ? "F" : "?"}:!(${ct})`;
+     const termThen = terminates(s.then); const termEls = s.els.length > 0 && terminates(s.els);
+     if (termThen && s.els.length === 0) { // `if (bad) revert/return;` is a guard on everything that follows
+       this.emitGuard(s.cond, false, ctx, s.line, endsWithRevert(s.then));
+-      this.withBranch(ctx, true, false, () => this.stmts(s.then, ctx), !endsWithRevert(s.then)); return; // a branch that RETURNS skips any later check
++      this.withBranch(ctx, true, false, () => this.stmts(s.then, ctx), !endsWithRevert(s.then), pcThen); return; // a branch that RETURNS skips any later check
+     }
+     if (termEls && !termThen) { this.emitGuard(s.cond, true, ctx, s.line, endsWithRevert(s.els)); this.stmts(s.then, ctx); return; }
+     const authTrue = this.auth(s.cond, true, ctx); const authFalse = this.auth(s.cond, false, ctx);
+-    this.withBranch(ctx, true, authTrue, () => this.stmts(s.then, ctx), termThen && !endsWithRevert(s.then));
+-    this.withBranch(ctx, true, authFalse, () => this.stmts(s.els, ctx), termEls && !endsWithRevert(s.els));
++    this.withBranch(ctx, true, authTrue, () => this.stmts(s.then, ctx), termThen && !endsWithRevert(s.then), pcThen);
++    this.withBranch(ctx, true, authFalse, () => this.stmts(s.els, ctx), termEls && !endsWithRevert(s.els), pcEls);
+   }
+ 
+   private emitGuard(cond: Expr, positive: boolean, ctx: Ctx, line: number, reverting = true): void {
++    // an unconditional reverting check is a fact for the rest of the trace (a revert undoes the transaction, whatever came before)
++    if (reverting && ctx.branch.pc.length === 0) this.addFact(cond, positive, ctx);
+     const reads = this.collectReads(cond, ctx);
+     const authOk = this.auth(cond, positive, ctx);
+     if (containsOrigin(cond)) this.events.push({ ...this.base(ctx, line), k: "origin", usage: this.originUsage(cond), text: exprText(cond) });
+@@ -286,10 +348,10 @@ export class Tracer {
+       case "index": this.expr(e.obj, ctx, "use"); if (e.idx) this.expr(e.idx, ctx, "use"); return;
+       case "unary": this.expr(e.e, ctx, "use"); return;
+       case "binary": this.expr(e.l, ctx, "use"); this.expr(e.r, ctx, "use"); return;
+-      case "ternary": this.expr(e.c, ctx, "use"); this.withBranch(ctx, true, false, () => { this.expr(e.a, ctx, "use"); this.expr(e.b, ctx, "use"); }); return;
++      case "ternary": this.expr(e.c, ctx, "use"); this.withBranch(ctx, true, false, () => { this.expr(e.a, ctx, "use"); this.expr(e.b, ctx, "use"); }, false, "?:<ternary>"); return;
+       case "tuple": for (const i of e.items) if (i) this.expr(i, ctx, usage === "return" ? "return" : "use"); return;
+       case "assign": this.assign(e, ctx); return;
+-      case "update": this.writeTo(e.e, e.op === "++" ? "++" : "--", e.line, ctx, null); return;
++      case "update": if (e.e.k === "id" && (ctx.locals.has(e.e.name) || ctx.params.has(e.e.name))) this.rebind(e.e.name, e.op === "++" ? "+=" : "-=", { k: "num", v: 1n, text: "1", line: e.line }, ctx); this.writeTo(e.e, e.op === "++" ? "++" : "--", e.line, ctx, null); return;
+       case "delete": this.writeTo(e.e, "delete", e.line, ctx, null); return;
+       case "call": this.call(e, ctx, usage); return;
+       default: return;
+@@ -300,7 +362,8 @@ export class Tracer {
+     this.expr(e.r, ctx, "use"); if (e.op !== "=") this.expr(e.l, ctx, "use");
+     const r = rootId(e.l);
+     if (e.op === "=" && e.l.k === "id" && ctx.success.has(e.l.name)) return;
+-    if (e.l.k === "id" && (ctx.locals.has(e.l.name) || ctx.params.has(e.l.name))) { if (this.tainted(e.r, ctx)) ctx.tainted.add(e.l.name); if (this.isAuthority(e.r, ctx)) ctx.authLocals.add(e.l.name); }
++    if (e.l.k === "id" && (ctx.locals.has(e.l.name) || ctx.params.has(e.l.name))) { if (this.tainted(e.r, ctx)) ctx.tainted.add(e.l.name); if (this.isAuthority(e.r, ctx)) ctx.authLocals.add(e.l.name); if (!ctx.storageRefs.has(e.l.name)) this.rebind(e.l.name, e.op, e.r, ctx); }
++    if (e.l.k === "tuple") for (const it of e.l.items) if (it && it.k === "id" && (ctx.locals.has(it.name) || ctx.params.has(it.name))) this.rebind(it.name, "?", null, ctx);
+     if (r && (e.l.k === "tuple")) return;
+     // `a = accounts[x]` on a storage reference re-points the reference; it writes no state
+     if (e.l.k === "id" && ctx.storageRefs.has(e.l.name)) { if (e.op === "=") ctx.storageRefs.set(e.l.name, { expr: e.r, ctx }); return; }
+@@ -313,9 +376,14 @@ export class Tracer {
+     const sv = this.ix.stateVar(loc.ctx.contract, loc.root)!;
+     const increasing = op === "+=" || op === "++" || (op === "=" && !!rhs && walkExpr(rhs, (x) => x.k === "binary" && x.op === "+"));
+     const decreasing = op === "-=" || op === "--" || op === "delete";
++    const tgt = canonText(this.resolve(target, ctx));
++    const r = rhs ? linear(this.resolve(rhs, ctx)) : null;
++    const d: Lin | null = op === "+=" ? r : op === "-=" ? (r ? scale(r, -1n) : null) : op === "++" ? new Map([["1", 1n]]) : op === "--" ? new Map([["1", -1n]])
++      : op === "delete" ? new Map([[tgt, -1n]]) : op === "=" && r ? addLin(r, new Map([[tgt, -1n]])) : null;
+     this.events.push({
+       ...this.base(ctx, line), k: "write", variable: loc.root, owner: sv.owner, key: loc.keys.length ? loc.keys.join(",") : null, op, increasing, decreasing,
+       keyedByCaller: loc.keyedByCaller, keyedByParam: loc.keyedByParam, text: exprText(target), ...(loc.via.length ? { via: loc.via.join(" -> ") } : {}),
++      ...(loc.fields.length ? { field: loc.fields.join(".") } : {}), target: tgt, delta: d ? linToRecord(d) : null,
+     });
+   }
+ 
+@@ -324,11 +392,12 @@ export class Tracer {
+    * expression the reference was bound to, in the context where it was bound, so `a.balance` with `Account storage a = accounts[msg.sender]`
+    * is a write to accounts[msg.sender]. A `memory` or `calldata` copy is never in storageRefs, so writing it is not a state write.
+    */
+-  private stateLocation(target: Expr, ctx: Ctx, depth = 0): { root: string; ctx: Ctx; keys: string[]; keyedByCaller: boolean; keyedByParam: boolean; via: string[] } | null {
++  private stateLocation(target: Expr, ctx: Ctx, depth = 0): { root: string; ctx: Ctx; keys: string[]; keyedByCaller: boolean; keyedByParam: boolean; via: string[]; fields: string[] } | null {
+     const r = rootId(target); if (!r) return null;
+-    const keys: string[] = []; let keyedByCaller = false; let keyedByParam = false;
++    const keys: string[] = []; const fields: string[] = []; let keyedByCaller = false; let keyedByParam = false;
+     let cur: Expr = target;
+     while (cur.k === "index" || cur.k === "member") {
++      if (cur.k === "member") fields.unshift(cur.name);
+       if (cur.k === "index" && cur.idx) {
+         keys.unshift(exprText(cur.idx));
+         if (walkExpr(cur.idx, (x) => isCaller(x) || (x.k === "id" && this.aliasIsCaller(x.name, ctx)))) keyedByCaller = true;
+@@ -336,11 +405,86 @@ export class Tracer {
+       }
+       cur = cur.obj;
+     }
+-    if (this.rootIsState(r, ctx)) return { root: r, ctx, keys, keyedByCaller, keyedByParam, via: [] };
++    if (this.rootIsState(r, ctx)) return { root: r, ctx, keys, keyedByCaller, keyedByParam, via: [], fields };
+     const ref = cur.k === "id" ? ctx.storageRefs.get(r) : undefined;
+     if (!ref || depth >= 8) return null;
+     const inner = this.stateLocation(ref.expr, ref.ctx, depth + 1); if (!inner) return null;
+-    return { root: inner.root, ctx: inner.ctx, keys: [...inner.keys, ...keys], keyedByCaller: inner.keyedByCaller || keyedByCaller, keyedByParam: inner.keyedByParam || keyedByParam, via: [r, ...inner.via] };
++    return { root: inner.root, ctx: inner.ctx, keys: [...inner.keys, ...keys], keyedByCaller: inner.keyedByCaller || keyedByCaller, keyedByParam: inner.keyedByParam || keyedByParam, via: [r, ...inner.via], fields: [...inner.fields, ...fields] };
++  }
++
++  // ---------------------------------------------------------------- symbolic values (for the conservation detector, invariants.ts)
++  /** reverting checks met unconditionally so far in this trace: canonical condition text -> the value it must have */
++  private readonly facts = new Map<string, boolean>();
++
++  /**
++   * `e` with every name replaced by what it stands for in the ENTRY function's terms: a helper parameter by the argument it was given,
++   * a storage reference by the location it points into, a local by the value it was last given on the main path. A local or parameter of an
++   * inlined helper that has no known value is renamed `helper.name` so it cannot collide with a name of the caller; a local reassigned on a
++   * branch gets a fresh version `name#n`. Only the shape of values is tracked, never their numbers.
++   */
++  resolve(e: Expr, ctx: Ctx, depth = 0): Expr {
++    if (depth > 24) return e;
++    const R = (x: Expr) => this.resolve(x, ctx, depth + 1);
++    switch (e.k) {
++      case "id": {
++        const d = ctx.defs.get(e.name); if (d) return d;
++        const ref = ctx.storageRefs.get(e.name); if (ref) return this.resolve(ref.expr, ref.ctx, depth + 1);
++        const isLocal = ctx.locals.has(e.name) || ctx.params.has(e.name);
++        const ver = ctx.versions.get(e.name) ?? 0;
++        const al = ctx.aliases.get(e.name); if (al && ver === 0) return this.resolve(al.expr, al.ctx, depth + 1);
++        if (!isLocal) return e;
++        const name = `${ctx.depth > 0 ? `${ctx.fn.name}.` : ""}${e.name}${ver > 1 ? `#${ver}` : ""}`;
++        return { ...e, name };
++      }
++      case "member": return { ...e, obj: R(e.obj) };
++      case "index": return { ...e, obj: R(e.obj), idx: e.idx ? R(e.idx) : null };
++      case "call": return { ...e, fn: e.fn.k === "member" ? { ...e.fn, obj: R(e.fn.obj) } : e.fn, args: e.args.map(R) };
++      case "unary": return { ...e, e: R(e.e) };
++      case "binary": return { ...e, l: R(e.l), r: R(e.r) };
++      case "ternary": return { ...e, c: R(e.c), a: R(e.a), b: R(e.b) };
++      case "tuple": return { ...e, items: e.items.map((i) => (i ? R(i) : null)) };
++      default: return e;
++    }
++  }
++
++  private bump(name: string, ctx: Ctx): void { ctx.versions.set(name, (ctx.versions.get(name) ?? 0) + 1); }
++
++  /** a local (or parameter) is given a new value: track it on the main path, make it a fresh unknown on a branch */
++  private rebind(name: string, op: string, rhs: Expr | null, ctx: Ctx): void {
++    const cur = this.resolve({ k: "id", name, line: 0 }, ctx);
++    const bin = op.length === 2 && op.endsWith("=") && op !== "==" ? op[0]! : null;
++    const next: Expr | null = ctx.branch.pc.length > (ctx.declDepth.get(name) ?? 0) || !rhs ? null : op === "=" ? this.resolve(rhs, ctx) : bin ? { k: "binary", op: bin, l: cur, r: this.resolve(rhs, ctx), line: 0 } : null;
++    ctx.defs.delete(name); if (!ctx.versions.get(name)) ctx.versions.set(name, 1); this.bump(name, ctx);
++    if (next) ctx.defs.set(name, next);
++  }
++
++  private addFact(c: Expr, val: boolean, ctx: Ctx): void {
++    if (c.k === "unary" && c.op === "!") { this.addFact(c.e, !val, ctx); return; }
++    if (c.k === "binary" && c.op === "&&" && val) { this.addFact(c.l, true, ctx); this.addFact(c.r, true, ctx); return; }
++    if (c.k === "binary" && c.op === "||" && !val) { this.addFact(c.l, false, ctx); this.addFact(c.r, false, ctx); return; }
++    if (c.k === "binary" && c.op === "!=") { this.addFact({ ...c, op: "==" }, !val, ctx); return; }
++    const r = this.resolve(c, ctx); this.facts.set(canonText(r), val);
++    if (r.k === "binary" && r.op === "==") this.facts.set(canonText({ ...r, l: r.r, r: r.l }), val);
++  }
++
++  /** is the condition decided by syntax or by an earlier reverting check? null when it is not */
++  staticTruth(c: Expr, ctx: Ctx): boolean | null {
++    if (c.k === "bool") return c.v;
++    if (c.k === "unary" && c.op === "!") { const v = this.staticTruth(c.e, ctx); return v === null ? null : !v; }
++    if (c.k === "binary" && (c.op === "&&" || c.op === "||")) {
++      const a = this.staticTruth(c.l, ctx); const b = this.staticTruth(c.r, ctx);
++      if (c.op === "&&") return a === false || b === false ? false : a === true && b === true ? true : null;
++      return a === true || b === true ? true : a === false && b === false ? false : null;
++    }
++    if (c.k === "binary" && c.op === "!=") { const v = this.staticTruth({ ...c, op: "==" }, ctx); return v === null ? null : !v; }
++    const r = this.resolve(c, ctx); const known = this.facts.get(canonText(r)); if (known !== undefined) return known;
++    if (r.k === "binary" && r.op === "==") {
++      const a = canonText(r.l); const b = canonText(r.r);
++      if (a === b && isConstExpr(r.l)) return true;
++      if (isConstExpr(r.l) && isConstExpr(r.r)) return false; // two different constants
++      if ((isZeroAddress(r.l) && isCaller(r.r)) || (isZeroAddress(r.r) && isCaller(r.l))) return false; // the caller is never the zero address
++    }
++    return null;
+   }
+ 
+   private targetTaint(e: Expr, ctx: Ctx): { taint: "param" | "msg.sender" | "state" | "constant" | "other"; variable: string | null } {
+@@ -434,6 +578,7 @@ export class Tracer {
+     const chain = [...ctx.chain, { fn: callee.name, contract, file: ctx.file, line: e.line }];
+     const sub = this.newCtx(callee, contract, chain, tainted, ctx.depth + 1, ctx.stack);
+     sub.branch = { ...ctx.branch };
++    for (const p of callee.params) if (p.name) sub.declDepth.set(p.name, sub.branch.pc.length);
+     callee.params.forEach((p, i) => {
+       const a = e.args[i]; if (!p.name || !a) return; sub.aliases.set(p.name, { expr: a, ctx }); if (this.isAuthority(a, ctx)) sub.authLocals.add(p.name);
+       if (p.location === "storage") sub.storageRefs.set(p.name, { expr: a, ctx }); // a storage parameter IS the caller's storage
+diff --git a/apps/api/src/engine/capabilities.ts b/apps/api/src/engine/capabilities.ts
+index 4565535..ca7cd08 100644
+--- a/apps/api/src/engine/capabilities.ts
++++ b/apps/api/src/engine/capabilities.ts
+@@ -44,7 +44,7 @@ export type CapabilityProfile = {
+   method?: string;
+ };
+ 
+-const STRUCTURAL_CLASSES = ["reentrancy", "access-control", "initializer", "delegatecall", "unchecked-call", "selfdestruct", "tx-origin"] as const satisfies readonly FindingClass[];
++const STRUCTURAL_CLASSES = ["reentrancy", "access-control", "initializer", "delegatecall", "unchecked-call", "selfdestruct", "tx-origin", "protocol-invariant"] as const satisfies readonly FindingClass[];
+ 
+ /** Slither 0.11.3 detector -> AgentSmith bug class. Detectors not listed are informational or style; they are counted, never stored as leads. */
+ export const SLITHER_DETECTOR_CLASS: Readonly<Record<string, string>> = {
+@@ -134,7 +134,7 @@ export const CAPABILITIES: readonly Capability[] = [
+   { id: "solidity-structural-specialists", version: "1", kind: "producer", stepKey: "investigate_target", scope: "component", classes: STRUCTURAL_CLASSES, status: "active", requires: [],
+     description: "AgentSmith's deterministic Solidity specialists over the protocol model (in-process, no tool)",
+     profile: { specialisation: "structural patterns over the protocol model: authority, initialisers, external calls", inputs: ["sealed snapshot", "protocol model"], outputs: ["claims with spans"],
+-      limitations: ["no accounting, precision, oracle or economic reasoning", "single-function patterns"], failureModes: ["parser gaps reported as problems"],
++      limitations: ["accounting reasoning limited to one rule: an aggregate/ledger conservation relation inferred from functions that maintain it (protocol-invariant)", "no precision, oracle or economic reasoning", "otherwise single-function patterns"], failureModes: ["parser gaps reported as problems"],
+       runtime: "in_process", availabilityMode: "unattended", costUnits: 1, costNote: "seconds of CPU", relevance: [{ signal: "unguarded_writes", weight: 0.5 }, { signal: "external_calls", weight: 0.5 }] } },
+   { id: "slither", version: SLITHER_VERSION, kind: "producer", stepKey: SLITHER_STEP_KEY, scope: "snapshot", classes: [...new Set(Object.values(SLITHER_DETECTOR_CLASS))].sort(), status: "active",
+     requires: [{ env: "AGENTSMITH_SLITHER_BIN", what: `slither ${SLITHER_VERSION}` }, { env: "AGENTSMITH_SOLC_BIN", what: "a pinned solc binary" }],
+@@ -142,9 +142,9 @@ export const CAPABILITIES: readonly Capability[] = [
+     profile: { specialisation: "pattern detectors (reentrancy, unchecked calls, dangerous patterns)", inputs: ["sealed snapshot (.sol)", "pinned solc"], outputs: ["claims with spans", "raw tool output"],
+       limitations: ["no accounting or economic reasoning", "noisy on informational detectors", "framework remappings unsupported (compile_failed)"], failureModes: ["tool_unavailable", "version_mismatch", "compile_failed", "timeout", "output_invalid", "crashed"],
+       runtime: "local_tool", availabilityMode: "unattended", costUnits: 2, costNote: "seconds to minutes of CPU", relevance: [{ signal: "external_calls", weight: 0.5 }, { signal: "entry_points", weight: 0.5 }] } },
+-  { id: "agentsmith-execution-validators", version: "1", kind: "evaluator", stepKey: "challenge_target", scope: "component", classes: ["reentrancy", "access-control", "selfdestruct", "delegatecall", "initializer", "unchecked-call"], status: "active", requires: [],
++  { id: "agentsmith-execution-validators", version: "1", kind: "evaluator", stepKey: "challenge_target", scope: "component", classes: ["reentrancy", "access-control", "selfdestruct", "delegatecall", "initializer", "unchecked-call", "protocol-invariant"], status: "active", requires: [],
+     description: "bounded execution and reachability validators; challenge any producer's leads of these classes",
+-    profile: { specialisation: "bounded execution of the claimed path", inputs: ["leads with spans"], outputs: ["evaluations"], limitations: ["six classes only; abstains on the rest"], failureModes: ["abstains (inconclusive)"],
++    profile: { specialisation: "bounded execution of the claimed path", inputs: ["leads with spans"], outputs: ["evaluations"], limitations: ["seven classes only; abstains on the rest"], failureModes: ["abstains (inconclusive)"],
+       runtime: "in_process", availabilityMode: "unattended", costUnits: 1, costNote: "seconds", relevance: [] } },
+   { id: "foundry-forge", version: FOUNDRY_VERSION, kind: "evaluator", stepKey: FOUNDRY_STEP_KEY, scope: "component", classes: [...STRUCTURAL_CLASSES, ...NOT_MODELLED_CLASSES], status: "active",
+     requires: [{ env: "AGENTSMITH_FORGE_BIN", what: `forge ${FOUNDRY_VERSION}` }, { env: "AGENTSMITH_SOLC_BIN", what: "a pinned solc binary" }],
+diff --git a/apps/api/src/engine/classes.ts b/apps/api/src/engine/classes.ts
+index 7358159..c6c33e5 100644
+--- a/apps/api/src/engine/classes.ts
++++ b/apps/api/src/engine/classes.ts
+@@ -6,6 +6,6 @@ import type { FindingClass } from "../analysis/solidity/specialists.js";
+  * - NOT_MODELLED_CLASSES: classes AgentSmith tracks but has no specialist for. Coverage for these is recorded as `not_modelled`, so the
+  *   memory says "nobody looked" instead of implying a clean result. The structural analyzer cannot see precision or accounting bugs.
+  */
+-const IMPLEMENTED = { "reentrancy": true, "access-control": true, "initializer": true, "delegatecall": true, "unchecked-call": true, "selfdestruct": true, "tx-origin": true } as const satisfies Record<FindingClass, true>;
++const IMPLEMENTED = { "reentrancy": true, "access-control": true, "initializer": true, "delegatecall": true, "unchecked-call": true, "selfdestruct": true, "tx-origin": true, "protocol-invariant": true } as const satisfies Record<FindingClass, true>;
+ export const SPECIALIST_CLASSES: readonly FindingClass[] = Object.keys(IMPLEMENTED) as FindingClass[];
+ export const NOT_MODELLED_CLASSES = ["arithmetic-precision", "accounting-invariant", "oracle-manipulation", "economic-incentive", "liveness"] as const;
+-- 
+2.43.0
+

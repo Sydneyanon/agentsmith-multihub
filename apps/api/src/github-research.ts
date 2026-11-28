@@ -1,3 +1,4 @@
+import { outboundFetch } from "./net/outbound.js";
 export type GitHubRepositorySummary = {
   fullName: string;
   description: string | null;
@@ -41,7 +42,7 @@ export class GitHubResearchClient {
   private readonly maxResponseBytes: number;
 
   constructor(private readonly options: GitHubClientOptions = {}) {
-    this.fetcher = options.fetcher ?? fetch;
+    this.fetcher = options.fetcher ?? outboundFetch;
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.maxResponseBytes = options.maxResponseBytes ?? 2_000_000;
     if (this.timeoutMs < 500 || this.timeoutMs > 60_000) throw new Error("timeoutMs must be between 500 and 60000");

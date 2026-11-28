@@ -1,0 +1,54 @@
+# PRODUCTION HUB: the private dashboard and research API at https://hub.agentsmithdesk.xyz. DEPLOYED (first release 2026-11-25; see
+# docs/hub-production-plan.md sections 12-15). Changes to this file take effect only on a deploy, which needs the owner's explicit
+# approval; the next release is planned in docs/first-production-release-plan.md. Never use fly.toml for the hub.
+app = "agentsmith-hub"
+primary_region = "syd"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  LOG_LEVEL = "info"
+  # Fly Managed Postgres (Developer plan) auto-pauses and takes up to ~25s to wake.
+  DATABASE_CONNECT_TIMEOUT_MS = "30000"
+  # Declared label shown on the Control Room: the production database is never seeded (docs/control-room-plan.md, rule 2).
+  HUB_DATA_KIND = "production"
+  # The hub is served only under its permanent hostname; any other Host (including the app's default *.fly.dev name) gets 421.
+  # Health checks are exempt. Smoke-test before DNS exists with `fly proxy` and a Host header (docs/hub-production-plan.md).
+  HUB_ALLOWED_HOSTS = "hub.agentsmithdesk.xyz"
+  # Owner decision 2026-11-28: a link an operator pastes into Import is one user-initiated retrieval (like opening it in a browser),
+  # so robots.txt does not block it, and X posts are read through X's documented oEmbed endpoint. One page per paste, no crawling,
+  # no login, honest user agent. Automated collection ALWAYS respects robots.txt, whatever this setting (bounties/import.ts).
+  BOUNTY_IMPORT_FETCH_POLICY = "user_initiated"
+  # Secrets are never listed here. Set with `fly secrets set` (names only in docs/hub-production-plan.md):
+  #   API_BEARER_TOKEN, DATABASE_URL
+
+# App process group only. The worker (intake pipeline) is a separate, later decision: the hub dashboard does not need it.
+[processes]
+  app = "npm start"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Keep one API machine always running so the dashboard never cold-starts (a cold start showed as "cannot reach the backend"
+  # on the first load after idle). Approved by the owner 2026-11-27. Scaling above one still auto-stops the extras.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  # Liveness only: /health/ready depends on the database and must not restart the API.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health/live"
+
+[[vm]]
+  processes = ["app"]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

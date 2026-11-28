@@ -1,0 +1,375 @@
+/**
+ * TRACK B LOCAL EXPERIMENT (not part of the product; uncommitted scratch).
+ * Runs the REAL acquisition path (real git fixture -> FakeSource -> acquireRepository -> sealed 5.1 snapshot) and the REAL research store
+ * (spans, hypotheses, evaluations), with a PROTOTYPE analyzer and PROTOTYPE challenger standing in for the missing 5.3/5.4/5.5/5.6 layers.
+ * No network. Disposable local database. The fixture contracts are written here, for this experiment.
+ */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { acquireRepository } from "../acquisition/acquire.js";
+import { FakeSource } from "../acquisition/testing/fake-source.js";
+import { buildGitFixture, type GitFixture } from "../acquisition/testing/git-fixture.js";
+import { ResearchStore, sha256Hex, type StepLease } from "../research-state.js";
+import { SURFACE_RULES } from "../worker-runtime.js";
+import { WorkflowWorker } from "../worker.js";
+import { assertIntegrationConfigured, migratedTestDatabase, seedRun, skipIntegration, type TestDatabase } from "./harness.js";
+
+vi.setConfig({ testTimeout: 180_000, hookTimeout: 180_000 });
+const OUT = process.env.TRACKB_OUT ?? "/tmp/trackb";
+
+const VULN = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnVault {
+    address public owner;
+    bool public initialized;
+    mapping(address => uint256) public balances;
+    uint256 public totalDeposits;
+
+    function initialize(address newOwner) external {
+        owner = newOwner;
+        initialized = true;
+    }
+
+    function deposit() external payable {
+        balances[msg.sender] += msg.value;
+        totalDeposits += msg.value;
+    }
+
+    function withdraw(uint256 amount) external {
+        require(balances[msg.sender] >= amount, "insufficient");
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok, "send failed");
+        balances[msg.sender] -= amount;
+        totalDeposits -= amount;
+    }
+
+    function setOwner(address next) external {
+        require(tx.origin == owner, "not owner");
+        owner = next;
+    }
+
+    function forward(address target, bytes calldata data) external {
+        target.delegatecall(data);
+    }
+
+    function pay(address payable to, uint256 amount) external {
+        to.call{value: amount}("");
+        balances[msg.sender] -= amount;
+    }
+
+    function kill() external {
+        selfdestruct(payable(msg.sender));
+    }
+}
+`;
+
+const SAFE = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract SafeVault {
+    address public immutable owner;
+    bool private locked;
+    mapping(address => uint256) public balances;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "not owner");
+        _;
+    }
+
+    modifier nonReentrant() {
+        require(!locked, "reentrant");
+        locked = true;
+        _;
+        locked = false;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function deposit() external payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw(uint256 amount) external nonReentrant {
+        require(balances[msg.sender] >= amount, "insufficient");
+        balances[msg.sender] -= amount;
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok, "send failed");
+    }
+
+    function sweep(address payable to) external onlyOwner {
+        (bool ok, ) = to.call{value: address(this).balance}("");
+        require(ok, "sweep failed");
+    }
+
+    function isEoa() external view returns (bool) {
+        return tx.origin == msg.sender;
+    }
+}
+`;
+
+// ---------------------------------------------------------------- prototype analyzer (stands in for 5.4 index + 5.5 specialists)
+type Fn = { contract: string; name: string; visibility: string; mutability: string; modifiers: string[]; start: number; end: number; lines: string[] };
+
+function parseFunctions(path: string, text: string): Fn[] {
+  const lines = text.split("\n");
+  const fns: Fn[] = [];
+  let contract = "?";
+  for (let i = 0; i < lines.length; i++) {
+    const c = /^\s*contract\s+([A-Za-z_]\w*)/.exec(lines[i]!);
+    if (c) contract = c[1]!;
+    const f = /^\s*(function|modifier)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)([^{]*)\{/.exec(lines[i]!);
+    if (!f) continue;
+    let depth = 0; let end = i;
+    for (let j = i; j < lines.length; j++) {
+      for (const ch of lines[j]!) { if (ch === "{") depth++; else if (ch === "}") depth--; }
+      if (depth === 0) { end = j; break; }
+    }
+    const tail = f[4]!;
+    const vis = /\b(external|public|internal|private)\b/.exec(tail)?.[1] ?? (f[1] === "modifier" ? "modifier" : "public");
+    const mut = /\b(view|pure|payable)\b/.exec(tail)?.[1] ?? "nonpayable";
+    const mods = tail.replace(/\b(external|public|internal|private|view|pure|payable|virtual|override)\b/g, " ").replace(/returns\s*\([^)]*\)/, " ").split(/\s+/).filter((m) => /^[A-Za-z_]\w*$/.test(m));
+    fns.push({ contract, name: f[2]!, visibility: vis, mutability: mut, modifiers: f[1] === "modifier" ? [] : mods, start: i + 1, end: end + 1, lines: lines.slice(i, end + 1) });
+  }
+  return fns.filter((f) => f.visibility !== "modifier");
+}
+
+type Candidate = { family: string; fn: Fn; claim: string; rationale: string; checks: string[]; alternatives: string[]; spans: Array<{ line: number; end: number; role: "primary" | "supporting" }> };
+const abs = (fn: Fn, idx: number) => fn.start + idx; // 1-based absolute line of body line idx
+
+function analyze(path: string, text: string): { fns: Fn[]; candidates: Candidate[] } {
+  const fns = parseFunctions(path, text);
+  const out: Candidate[] = [];
+  for (const fn of fns) {
+    if (!["external", "public"].includes(fn.visibility)) continue;
+    const L = fn.lines;
+    const callIdx = L.findIndex((l) => /\.call\s*[({]/.test(l) && !/\bstaticcall\b/.test(l));
+    const writeAfter = (from: number) => { for (let k = from + 1; k < L.length; k++) if (/\b\w+(\[[^\]]*\])?\s*(-=|\+=|=)(?!=)/.test(L[k]!) && !/\b(bool|uint\d*|address|bytes\d*)\b.*=\s*\w*\.call/.test(L[k]!) && !/^\s*(\(bool|require)/.test(L[k]!)) return k; return -1; };
+    // R1: external call, then a state write
+    if (callIdx >= 0) {
+      const w = writeAfter(callIdx);
+      if (w >= 0) out.push({
+        family: "solidity-reentrancy-order", fn,
+        claim: `${fn.contract}.${fn.name} makes an external call (line ${abs(fn, callIdx)}) before updating state (line ${abs(fn, w)}); a re-entering receiver could observe stale state.`,
+        rationale: "Checks-effects-interactions is violated: the call hands control to msg.sender/target while the balance accounting is not yet updated.",
+        checks: ["Confirm the callee can re-enter this contract", "Confirm no reentrancy lock or earlier state write protects the path", "Reproduce with a malicious receiver in a local fork test"],
+        alternatives: ["A nonReentrant modifier may guard this function", "State may be updated before the call elsewhere in the path"],
+        spans: [{ line: abs(fn, callIdx), end: abs(fn, callIdx), role: "primary" }, { line: abs(fn, w), end: abs(fn, w), role: "supporting" }],
+      });
+    }
+    // R2: tx.origin
+    const to = L.findIndex((l) => /\btx\s*\.\s*origin\b/.test(l));
+    if (to >= 0) out.push({
+      family: "solidity-tx-origin", fn,
+      claim: `${fn.contract}.${fn.name} references tx.origin (line ${abs(fn, to)}).`,
+      rationale: "tx.origin used for authorization lets any contract the owner interacts with act as the owner (phishing relay).",
+      checks: ["Determine whether tx.origin is used for authorization or only as an EOA check", "Identify who can be tricked into calling a malicious contract"],
+      alternatives: ["It may be an anti-contract check (tx.origin == msg.sender) rather than authorization"],
+      spans: [{ line: abs(fn, to), end: abs(fn, to), role: "primary" }],
+    });
+    // R3: unchecked low-level call/delegatecall (statement whose result is neither captured nor checked)
+    for (let k = 0; k < L.length; k++) {
+      if (/\.(call|delegatecall|send)\s*[({]/.test(L[k]!) && !/^\s*(\(bool|bool|require|if)\b/.test(L[k]!) && !/=/.test(L[k]!.split(/\.(call|delegatecall|send)/)[0]!)) out.push({
+        family: "solidity-unchecked-call", fn,
+        claim: `${fn.contract}.${fn.name} ignores the success flag of a low-level call (line ${abs(fn, k)}).`,
+        rationale: "A failed call is silently treated as success, so later accounting may diverge from what was actually transferred or executed.",
+        checks: ["Confirm the return value is never used on any path", "Find what state is updated assuming success"],
+        alternatives: ["The function may be intended best-effort"],
+        spans: [{ line: abs(fn, k), end: abs(fn, k), role: "primary" }],
+      });
+    }
+    // R4: delegatecall to a caller-influenced target
+    const dc = L.findIndex((l) => /\.delegatecall\s*\(/.test(l));
+    if (dc >= 0) out.push({
+      family: "solidity-delegatecall-target", fn,
+      claim: `${fn.contract}.${fn.name} delegatecalls (line ${abs(fn, dc)}); the target may be caller-controlled.`,
+      rationale: "delegatecall runs foreign code against this contract's storage, so a caller-chosen target can overwrite owner/balances or selfdestruct.",
+      checks: ["Determine whether the target is a parameter or mutable storage", "Check for an access modifier"],
+      alternatives: ["The target may be a constant trusted implementation"],
+      spans: [{ line: fn.start, end: fn.start, role: "supporting" }, { line: abs(fn, dc), end: abs(fn, dc), role: "primary" }],
+    });
+    // R5: unprotected initializer / selfdestruct (no modifier and no msg.sender check)
+    const hasGuard = fn.modifiers.length > 0 || L.some((l) => /msg\.sender\s*==|==\s*msg\.sender|require\s*\(\s*!?initialized/.test(l));
+    const init = /^(initialize|init|setup)\w*$/i.test(fn.name) && L.some((l) => /\bowner\s*=/.test(l));
+    const sd = L.findIndex((l) => /\bselfdestruct\s*\(/.test(l));
+    if (!hasGuard && (init || sd >= 0)) {
+      const idx = sd >= 0 ? sd : L.findIndex((l) => /\bowner\s*=/.test(l));
+      out.push({
+        family: init ? "solidity-unprotected-initializer" : "solidity-unprotected-destruct", fn,
+        claim: init ? `${fn.contract}.${fn.name} sets the owner with no caller check and no one-time guard (line ${abs(fn, idx)}).`
+          : `${fn.contract}.${fn.name} can selfdestruct with no access control (line ${abs(fn, idx)}).`,
+        rationale: init ? "Anyone can call the initializer, so anyone can claim ownership (repeatedly, as nothing records that it ran)."
+          : "Any caller can destroy the contract and send its balance to themselves.",
+        checks: ["Confirm no modifier or inherited guard applies", "Confirm the function is reachable in the deployed configuration"],
+        alternatives: ["Access control may be enforced by a proxy or deployment script outside this file"],
+        spans: [{ line: fn.start, end: fn.start, role: "supporting" }, { line: abs(fn, idx), end: abs(fn, idx), role: "primary" }],
+      });
+    }
+  }
+  return { fns, candidates: out };
+}
+
+// ---------------------------------------------------------------- prototype challenger (stands in for 5.6; separate logic from the generator)
+type Verdict = { outcome: "supports" | "weakens" | "contradicts" | "inconclusive"; rationale: string; spans: Array<{ line: number; end: number }> };
+function challenge(c: Candidate): Verdict {
+  const body = c.fn.lines.join("\n");
+  const sig = c.fn.lines[0]!;
+  const one = (idx: number) => ({ line: c.fn.start + idx, end: c.fn.start + idx });
+  switch (c.family) {
+    case "solidity-reentrancy-order": {
+      if (c.fn.modifiers.includes("nonReentrant")) return { outcome: "contradicts", rationale: "The function carries a nonReentrant modifier, so re-entry reverts.", spans: [one(0)] };
+      const callAt = c.fn.lines.findIndex((l) => /\.call\s*[({]/.test(l));
+      const earlier = c.fn.lines.slice(0, callAt).findIndex((l) => /\[[^\]]*\]\s*-=/.test(l));
+      if (earlier >= 0) return { outcome: "contradicts", rationale: "The balance is decremented before the call (checks-effects-interactions holds).", spans: [one(earlier)] };
+      return { outcome: "supports", rationale: "No reentrancy modifier or lock is present and no balance write precedes the call; the write after the call is reachable by a re-entering receiver.", spans: [one(0), one(callAt)] };
+    }
+    case "solidity-tx-origin": {
+      const k = c.fn.lines.findIndex((l) => /tx\s*\.\s*origin/.test(l));
+      if (/tx\s*\.\s*origin\s*==\s*msg\s*\.\s*sender|msg\s*\.\s*sender\s*==\s*tx\s*\.\s*origin/.test(c.fn.lines[k]!)) return { outcome: "weakens", rationale: "tx.origin is compared with msg.sender, which is an anti-contract (EOA) check, not authorization.", spans: [one(k)] };
+      return /require|if/.test(c.fn.lines[k]!) && /owner|admin/.test(c.fn.lines[k]!)
+        ? { outcome: "supports", rationale: "tx.origin is compared with the owner inside a require: it is used as authorization.", spans: [one(k)] }
+        : { outcome: "inconclusive", rationale: "The use of tx.origin could not be classified.", spans: [one(k)] };
+    }
+    case "solidity-unchecked-call": {
+      const k = c.fn.lines.findIndex((l) => /\.(call|delegatecall|send)\s*[({]/.test(l));
+      const used = c.fn.lines.slice(k + 1).some((l) => /\b(ok|success)\b/.test(l));
+      return used ? { outcome: "weakens", rationale: "A later statement uses the success flag.", spans: [one(k)] }
+        : { outcome: "supports", rationale: "The call's result is never captured or tested in the rest of the function.", spans: [one(k)] };
+    }
+    case "solidity-delegatecall-target": {
+      if (c.fn.modifiers.length) return { outcome: "weakens", rationale: `Guarded by modifier(s): ${c.fn.modifiers.join(", ")}.`, spans: [one(0)] };
+      const m = /\.delegatecall/.exec(body); const tgt = /(\w+)\.delegatecall/.exec(body)?.[1] ?? "";
+      return new RegExp(`\\b(address|contract)\\s+${tgt}\\b`).test(sig)
+        ? { outcome: "supports", rationale: `The delegatecall target "${tgt}" is a function parameter and the function has no access modifier: any caller chooses the code that runs.`, spans: [one(0)] }
+        : { outcome: "inconclusive", rationale: `Target "${tgt}" is not a parameter; its provenance needs data-flow analysis${m ? "" : ""}.`, spans: [one(0)] };
+    }
+    case "solidity-unprotected-initializer":
+    case "solidity-unprotected-destruct": {
+      const guarded = c.fn.lines.some((l) => /msg\.sender\s*==|==\s*msg\.sender|!\s*initialized|initializer/.test(l)) || c.fn.modifiers.length > 0;
+      return guarded ? { outcome: "contradicts", rationale: "An access check or one-time guard exists.", spans: [one(0)] }
+        : { outcome: "supports", rationale: "No modifier, msg.sender comparison or one-time flag guards the privileged action.", spans: [one(0)] };
+    }
+  }
+  return { outcome: "inconclusive", rationale: "no rule", spans: [one(0)] };
+}
+
+describe.skipIf(skipIntegration)("TRACK B local research experiment", () => {
+  let db: TestDatabase; let fx: GitFixture; let store: ResearchStore;
+  beforeAll(async () => {
+    assertIntegrationConfigured(); db = await migratedTestDatabase(); store = new ResearchStore(db.pool);
+    fx = buildGitFixture([
+      { path: "contracts/VulnVault.sol", content: VULN }, { path: "contracts/SafeVault.sol", content: SAFE },
+      { path: "README.md", content: "# Educational vault fixture (planted bugs). Written for this experiment.\n" },
+    ], { owner: "acme", repo: "vaults" });
+  });
+  afterAll(async () => { fx?.cleanup(); await db?.drop(); });
+
+  it("acquire -> seal -> map -> hypothesise -> challenge -> dossier, on a real sealed snapshot", async () => {
+    mkdirSync(OUT, { recursive: true });
+    const { runId, stepIds } = await seedRun(db.ownerPool, ["acquire_repository", "analyze_surface", "challenge_hypotheses"]);
+    const worker = new WorkflowWorker(db.pool, "trackb", 120, 3);
+    const lease = async (key: string): Promise<StepLease> => { const s = await worker.claimNext([key]); if (!s) throw new Error(`cannot claim ${key}`); return { stepId: s.id, workerId: "trackb" }; };
+    expect(stepIds).toHaveLength(3);
+
+    // 1. REAL acquisition into the real 5.1 store
+    const l1 = await lease("acquire_repository");
+    const acquired = await acquireRepository({ store, source: new FakeSource(fx), now: () => new Date("2026-11-26T00:00:00Z") }, l1, { repository: "acme/vaults", ref: "main" });
+    const snap = (await db.pool.query("SELECT id, repository, commit_sha, file_count, total_bytes, manifest_sha256, sealed_at FROM repo_snapshots WHERE id = $1", [acquired.snapshotId])).rows[0];
+    expect(snap.sealed_at).not.toBeNull();
+    const verified = await store.verifySnapshot(acquired.snapshotId);
+
+    // 2. read the sealed files back out of the store (what a real analyzer would be given)
+    const files = (await db.pool.query<{ path: string; classification: string; text: string }>(
+      `SELECT f.path, f.classification, convert_from(b.content, 'UTF8') AS text FROM repo_snapshot_files f JOIN research_blobs b ON b.content_sha256 = f.blob_sha256 WHERE f.snapshot_id = $1 ORDER BY f.path COLLATE "C"`, [acquired.snapshotId])).rows;
+    const sol = files.filter((f) => f.path.endsWith(".sol"));
+    await worker.complete(l1.stepId, { status: "sealed", snapshot_id: acquired.snapshotId });
+
+    // legacy (existing) surface rules on the same files, for comparison
+    const legacy = sol.flatMap((f) => SURFACE_RULES.filter((r) => r.extensions.test(f.path)).map((r) => ({ rule: r.id, path: f.path, matches: (f.text.match(new RegExp(r.expression.source, r.expression.flags.includes("g") ? r.expression.flags : r.expression.flags + "g")) ?? []).length })).filter((x) => x.matches > 0));
+
+    // 3. prototype analyzer: attack-surface map + hypotheses with cited spans
+    const l2 = await lease("analyze_surface");
+    const surface: unknown[] = []; const made: Array<{ id: string; c: Candidate; path: string; spanIds: string[] }> = [];
+    for (const f of sol) {
+      const { fns, candidates } = analyze(f.path, f.text);
+      for (const fn of fns) surface.push({ file: f.path, contract: fn.contract, function: fn.name, visibility: fn.visibility, mutability: fn.mutability, modifiers: fn.modifiers, lines: [fn.start, fn.end], entry_point: ["external", "public"].includes(fn.visibility) && !["view", "pure"].includes(fn.mutability), guarded: fn.modifiers.length > 0 });
+      for (const c of candidates) {
+        const spanIds: string[] = [];
+        for (const s of c.spans) spanIds.push(await store.createEvidenceSpan(l2, { snapshotId: acquired.snapshotId, path: f.path, lineStart: s.line, lineEnd: s.end }));
+        const h = await store.createHypothesis(l2, {
+          snapshotId: acquired.snapshotId, family: c.family, claim: c.claim, rationale: c.rationale, requiredChecks: c.checks, alternativeExplanations: c.alternatives,
+          generator: { kind: "deterministic_rule", id: "trackb-prototype-analyzer", version: "0" }, spans: spanIds.map((spanId, i) => ({ spanId, role: c.spans[i]!.role })),
+        });
+        made.push({ id: h.id, c, path: f.path, spanIds });
+      }
+    }
+
+    await worker.complete(l2.stepId, { status: "analyzed", hypotheses: made.length });
+    // 4. prototype independent challenge (separate logic), recorded as evaluations citing spans
+    const l3 = await lease("challenge_hypotheses");
+    const verdicts = new Map<string, Verdict>();
+    for (const m of made) {
+      const v = challenge(m.c); verdicts.set(m.id, v);
+      const spanIds: string[] = [];
+      for (const s of v.spans) spanIds.push(await store.createEvidenceSpan(l3, { snapshotId: acquired.snapshotId, path: m.path, lineStart: s.line, lineEnd: s.end }));
+      await store.recordEvaluation(l3, { hypothesisId: m.id, evaluatorId: "trackb-prototype-challenger", evaluatorVersion: "0", outcome: v.outcome, rationale: v.rationale, spanIds, inputSha256: sha256Hex(m.c.claim + v.rationale) });
+    }
+
+    // 5. dossier from the stored records (status derived by the real hypothesis_status view; spans re-resolved and re-verified)
+    const dossier: unknown[] = [];
+    for (const m of made) {
+      const status = await store.getStatus(m.id);
+      const spans = []; for (const sid of m.spanIds) { const r = await store.resolveSpan(sid); await store.verifySpan(sid); spans.push(r); }
+      dossier.push({ hypothesis_id: m.id, family: m.c.family, claim: m.c.claim, function: `${m.c.fn.contract}.${m.c.fn.name}`, file: m.path, evidence: spans, required_checks: m.c.checks, alternative_explanations: m.c.alternatives,
+        generator: "trackb-prototype-analyzer@0 (deterministic_rule)", challenge: verdicts.get(m.id), derived_status: (status as any)?.status, static_outcome: (status as any)?.static_outcome, human_review: "none recorded" });
+    }
+
+    // 6. controls: planted ground truth vs findings
+    const planted = [["VulnVault.withdraw", "solidity-reentrancy-order"], ["VulnVault.pay", "solidity-reentrancy-order"], ["VulnVault.pay", "solidity-unchecked-call"], ["VulnVault.forward", "solidity-unchecked-call"],
+      ["VulnVault.forward", "solidity-delegatecall-target"], ["VulnVault.setOwner", "solidity-tx-origin"], ["VulnVault.initialize", "solidity-unprotected-initializer"], ["VulnVault.kill", "solidity-unprotected-destruct"]];
+    const found = new Set(made.map((m) => `${m.c.fn.contract}.${m.c.fn.name}|${m.c.family}`));
+    const recall = planted.map(([fn, fam]) => ({ planted: `${fn} (${fam})`, found: found.has(`${fn}|${fam}`) }));
+    const raw = made.map((m) => ({ fn: `${m.c.fn.contract}.${m.c.fn.name}`, family: m.c.family, outcome: verdicts.get(m.id)!.outcome }));
+    const safeRaw = raw.filter((r) => r.fn.startsWith("SafeVault."));
+    const controls = {
+      planted_total: planted.length, planted_found_by_generator: recall.filter((r) => r.found).length, recall,
+      benign_contract_raw_findings: safeRaw, benign_contract_after_challenge_standing: safeRaw.filter((r) => ["supports", "inconclusive"].includes(r.outcome)).length,
+      standing_after_challenge: raw.filter((r) => r.outcome === "supports").length, weakened_or_contradicted: raw.filter((r) => ["weakens", "contradicts"].includes(r.outcome)),
+    };
+
+    const result = {
+      what_ran: "REAL: git fixture -> FakeSource -> acquireRepository -> sealed 5.1 snapshot; research store (spans, hypotheses, evaluations, derived status, span verification). PROTOTYPE (this file only): Solidity analyzer and challenger.",
+      snapshot: { id: acquired.snapshotId, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, total_bytes: Number(snap.total_bytes), manifest_sha256: snap.manifest_sha256, verified },
+      run_id: runId, legacy_surface_rules_on_same_files: legacy, attack_surface_map: surface, hypotheses: dossier, controls,
+    };
+    writeFileSync(join(OUT, "dossier.json"), JSON.stringify(result, null, 2));
+    expect(controls.planted_found_by_generator).toBe(planted.length);
+    expect(made.length).toBeGreaterThan(planted.length - 1);
+  });
+
+  it("negative controls: the fixed contract, and the prototype's known blind spots (no database needed)", () => {
+    const FIXED = VULN
+      .replace("function initialize(address newOwner) external {", "function initialize(address newOwner) external {\n        require(!initialized, \"done\");")
+      .replace("        (bool ok, ) = msg.sender.call{value: amount}(\"\");\n        require(ok, \"send failed\");\n        balances[msg.sender] -= amount;\n        totalDeposits -= amount;",
+        "        balances[msg.sender] -= amount;\n        totalDeposits -= amount;\n        (bool ok, ) = msg.sender.call{value: amount}(\"\");\n        require(ok, \"send failed\");")
+      .replace("require(tx.origin == owner", "require(msg.sender == owner")
+      .replace("function forward(address target, bytes calldata data) external {\n        target.delegatecall(data);", "function forward(address target, bytes calldata data) external {\n        require(msg.sender == owner, \"no\");\n        (bool ok, ) = target.delegatecall(data);\n        require(ok, \"failed\");")
+      .replace("        to.call{value: amount}(\"\");\n        balances[msg.sender] -= amount;", "        balances[msg.sender] -= amount;\n        (bool ok, ) = to.call{value: amount}(\"\");\n        require(ok, \"failed\");")
+      .replace("function kill() external {", "function kill() external {\n        require(msg.sender == owner, \"no\");");
+    const fixedFindings = analyze("contracts/VulnVault.sol", FIXED).candidates.map((c) => ({ fn: `${c.fn.contract}.${c.fn.name}`, family: c.family, challenge: challenge(c).outcome }));
+
+    // Blind spots, written to expose limits (each is a REAL Solidity pattern the prototype handles wrongly)
+    const OZ_STYLE = `contract Guarded {\n    uint256 private _status = 1;\n    mapping(address => uint256) public bal;\n    function withdraw(uint256 a) external {\n        require(_status != 2, "reentrant");\n        _status = 2;\n        (bool ok, ) = msg.sender.call{value: a}("");\n        require(ok);\n        bal[msg.sender] -= a;\n        _status = 1;\n    }\n}\n`;
+    const HELPER = `contract Helper {\n    mapping(address => uint256) public bal;\n    function _send(address to, uint256 a) internal { (bool ok, ) = to.call{value: a}(""); require(ok); }\n    function withdraw(uint256 a) external {\n        _send(msg.sender, a);\n        bal[msg.sender] -= a;\n    }\n}\n`;
+    const lim = {
+      fixed_contract_findings_after_fixes: fixedFindings,
+      false_positive_that_survives_challenge: analyze("g.sol", OZ_STYLE).candidates.map((c) => ({ fn: c.fn.name, family: c.family, challenge: challenge(c).outcome, why: "a hand-rolled _status lock is not recognised by either the analyzer or the challenger" })),
+      false_negative_missed: { fn: "Helper.withdraw", findings: analyze("h.sol", HELPER).candidates.length, why: "the external call is inside an internal helper; there is no inter-procedural analysis" },
+    };
+    writeFileSync(join(OUT, "limits.json"), JSON.stringify(lim, null, 2));
+    expect(true).toBe(true);
+  });
+});

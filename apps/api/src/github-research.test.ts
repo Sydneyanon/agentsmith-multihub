@@ -49,7 +49,7 @@ describe("GitHubResearchClient", () => {
   it("surfaces rate limits and does not follow redirects", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response({}, 403, { "retry-after": "30" }));
     const client = new GitHubResearchClient({ fetcher });
-    await expect(client.getRepository("acme", "vault")).rejects.toMatchObject<Partial<GitHubApiError>>({
+    await expect(client.getRepository("acme", "vault")).rejects.toMatchObject({
       status: 403,
       retryAfterSeconds: 30,
     });

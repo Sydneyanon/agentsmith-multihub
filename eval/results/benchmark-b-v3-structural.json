@@ -1,0 +1,189 @@
+{
+  "runner": "benchmark-runner/1",
+  "benchmark": {
+    "corpus": "benchmark-b",
+    "name": "benchmark-b",
+    "version": 3,
+    "manifest": {
+      "present": true,
+      "ok": true,
+      "manifestSha256": "1dcc1dbadc6ef4f5f610f74982db0eb246a8a83266743382aab7efc5cc54c67d",
+      "mismatches": [],
+      "files": 18
+    },
+    "archivedVersions": {
+      "versions": [
+        "v1",
+        "v2"
+      ],
+      "ok": true,
+      "problems": []
+    }
+  },
+  "analyzer": {
+    "capability": "solidity-structural-specialists@1",
+    "declaredLimitations": [
+      "no accounting, precision, oracle or economic reasoning",
+      "single-function patterns"
+    ],
+    "commit": "4179e8776edf392e9ec4629bc1b86e3e95223091",
+    "analyzerSourceDirty": false
+  },
+  "exposure": "blind",
+  "complete": true,
+  "failures": [],
+  "timing": {
+    "analyzeMs": 34.6,
+    "totalMs": 37.6
+  },
+  "labels": {
+    "total": 16,
+    "vulnerable": 8,
+    "secure": 8,
+    "integrity": {
+      "ok": true,
+      "checked": 16,
+      "problems": [],
+      "viaInternalCall": []
+    }
+  },
+  "deterministic": {
+    "reproducibleAcrossFileOrder": true,
+    "findings": 0,
+    "overall": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 8,
+      "tn": 8,
+      "lineExact": 0,
+      "lineNear": 0,
+      "spanValid": 0,
+      "precision": null,
+      "recall": 0,
+      "falsePositiveRate": 0
+    },
+    "perClass": {
+      "accounting-error": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      },
+      "oracle-manipulation": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      },
+      "state-transition": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      },
+      "protocol-invariant": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      },
+      "business-logic": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      },
+      "economic-attack": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      },
+      "cross-contract": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      },
+      "transaction-ordering": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0,
+        "falsePositiveRate": 0
+      }
+    },
+    "lineExact": 0,
+    "lineWithin2": 0,
+    "misses": [
+      "contracts/AccountingSaleBad.sol:22 buy (accounting-error)",
+      "contracts/OraclePriceBad.sol:24 borrowPower (oracle-manipulation)",
+      "contracts/SalePhaseBad.sol:23 claim (state-transition)",
+      "contracts/SupplyInvariantBad.sol:21 burn (protocol-invariant)",
+      "contracts/ReferralSaleBad.sol:15 buy (business-logic)",
+      "contracts/DonationVaultBad.sol:17 deposit (economic-attack)",
+      "contracts/AirdropTrustBad.sol:25 claim (cross-contract)",
+      "contracts/SwapNoSlippageBad.sol:19 swapAForB (transaction-ordering)"
+    ],
+    "falsePositives": [],
+    "collisions": [],
+    "unscoredFindings": []
+  },
+  "ai": {
+    "usedInDeterministicResult": false,
+    "adjudication": {
+      "mode": "unavailable",
+      "candidates": 0,
+      "results": [],
+      "spentUsd": 0
+    }
+  },
+  "findingsDetail": []
+}

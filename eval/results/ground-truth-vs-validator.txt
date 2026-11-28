@@ -1,0 +1,21 @@
+heldout/ReentVaultA                                                              model=validated    EVM=EXPLOITABLE AGREE
+heldout/ReentVaultB                                                              model=refuted      EVM=not exploitable AGREE
+heldout/ReentHelperA                                                             model=refuted      EVM=not exploitable AGREE
+heldout/ReentHelperB                                                             model=refuted      EVM=not exploitable AGREE
+heldout/ReentRewardsA                                                            model=validated    EVM=EXPLOITABLE AGREE
+heldout/ReentRewardsB                                                            model=refuted      EVM=not exploitable AGREE
+heldout/ReentBankA                                                               model=refuted      EVM=not exploitable AGREE
+heldout/ReentBankB                                                               model=refuted      EVM=not exploitable AGREE
+heldout/ReentCeiBenign                                                           model=refuted      EVM=not exploitable AGREE
+dev/Bank.withdrawBad                                                             model=refuted      EVM=not exploitable AGREE
+dev/Bank.withdrawHelper                                                          model=refuted      EVM=not exploitable AGREE
+dev/Bank.withdrawCei                                                             model=refuted      EVM=not exploitable AGREE
+dev/Bank.withdrawLocked                                                          model=refuted      EVM=not exploitable AGREE
+dev/Bank2.cashOut                                                                model=validated    EVM=EXPLOITABLE AGREE
+dev/Bank2.withdrawUnchecked                                                      model=validated    EVM=EXPLOITABLE AGREE
+dev/Bank2.claimBonus                                                             model=validated    EVM=EXPLOITABLE AGREE
+counterfactual/ReentHelperAUnchecked (HelperA with unchecked subtraction)        model=validated    EVM=EXPLOITABLE AGREE
+counterfactual/ReentBankAUnchecked (BankA with unchecked subtraction)            model=validated    EVM=EXPLOITABLE AGREE
+counterfactual/BankUnchecked.withdrawBad (dev withdrawBad with unchecked subtraction) model=validated    EVM=EXPLOITABLE AGREE
+
+agreement 19/19; disagreements: none; abstentions are counted as disagreements

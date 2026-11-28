@@ -1,0 +1,23 @@
+[
+  {
+    "file": "contracts/AccountingSaleBad.sol",
+    "contract": "AccountingSaleBad",
+    "function": "buy",
+    "class": "accounting-error",
+    "vulnerable": true,
+    "line": 22,
+    "pair": "accounting-sale",
+    "exploitable": true,
+    "note": "buy() multiplies by priceWei instead of dividing, minting far more tokens than paid for; the sale leaks value on every purchase. No external call, so it is not a reentrancy/unchecked-call pattern."
+  },
+  {
+    "file": "contracts/AccountingSaleGood.sol",
+    "contract": "AccountingSaleGood",
+    "function": "buy",
+    "class": "accounting-error",
+    "vulnerable": false,
+    "line": 19,
+    "pair": "accounting-sale",
+    "note": "Matched secure variant: credits msg.value / priceWei tokens, the correct amount. Flagging this is a false positive."
+  }
+]

@@ -3,10 +3,17 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Pool } from "pg";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required to run migrations");
+import { assertMigrationTarget } from "../apps/api/src/db-safety.js";
+import { buildPoolConfig, selectMigrationUrl, stderrWarning } from "../apps/api/src/db-config.js";
 
-const pool = new Pool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 5_000 });
+// Migrations use DIRECT_DATABASE_URL only; DATABASE_URL (the application/pooled URL) is never read here.
+const directUrl = selectMigrationUrl(process.env);
+// Fail closed before any connection: loopback only, unless the remote host is explicitly confirmed.
+assertMigrationTarget(directUrl, process.env.MIGRATE_CONFIRM_REMOTE_HOST);
+
+const pool = new Pool(buildPoolConfig(process.env, {
+  max: 1, defaultConnectTimeoutMs: 5_000, urlVariable: "DIRECT_DATABASE_URL", onWarning: stderrWarning,
+}));
 const lockId = 7_341_109_221;
 
 try {

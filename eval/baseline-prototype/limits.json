@@ -1,0 +1,22 @@
+{
+  "fixed_contract_findings_after_fixes": [
+    {
+      "fn": "VulnVault.forward",
+      "family": "solidity-delegatecall-target",
+      "challenge": "supports"
+    }
+  ],
+  "false_positive_that_survives_challenge": [
+    {
+      "fn": "withdraw",
+      "family": "solidity-reentrancy-order",
+      "challenge": "supports",
+      "why": "a hand-rolled _status lock is not recognised by either the analyzer or the challenger"
+    }
+  ],
+  "false_negative_missed": {
+    "fn": "Helper.withdraw",
+    "findings": 0,
+    "why": "the external call is inside an internal helper; there is no inter-procedural analysis"
+  }
+}

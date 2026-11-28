@@ -1,0 +1,10 @@
+# T-205: every labels file and answer key, pinned. Labels are immutable: a change is a visible manifest change plus a note in the results.
+498dd349caac1a9407c98baba94a846b752e0ecd5dc373273ebcbb4072480693  dev/labels.json
+76c0097e52ee289a147ca2443ffe1bfefe49b4d2a88459872f90e2c545187ea6  heldout/labels.json
+5fe62cf0fb806d453bbb20ce7bad369f8d833dfa020586d0b50ae7a88309ce08  heldout2/labels.json
+d76fed52b4ac44e16399b148c85e4f12a8569fea514a1a5f252b0b732c39cbf6  heldout3/labels.json
+42bb2c49c22bc038341412db63f52b7378cf8702ab54316a12bb3ad1b44ab8c6  heldout4/labels.json
+fe7d094d617743b3773d9dbd0ddec950a75cdedca3202e7ed55cd71921d1d3a4  dev/specialist-probe/answer-key.json
+4bc2b18671ff623fc9dea3c736e1df6d11a2488798a7db6a97854b8ad1958f62  dev/specialist-probe/outputs/round2/prior-art-key.json
+e4bd5ddddc868f8090b86c690a7f119a30e3b3f6916b4384bf07d1803c87ba09  dev/specialist-probe/outputs/round2/repro-criteria.json
+834a9e79fb99c974acbdafc146d9277cdca7f395f308617e28f14b6781862531  benchmark-b/labels.json

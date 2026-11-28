@@ -1,0 +1,205 @@
+{
+  "tool": "eval/ground-truth/adjudicate-heldout3.mjs",
+  "evm": "@ethereumjs/evm (shanghai), solc 0.8.28+commit.7893614a.Emscripten.clang",
+  "results": [
+    {
+      "contract": "EtherShareVault",
+      "mode": "honest",
+      "attackerCredit": "1 ether",
+      "rounds": 1,
+      "attackerEndsWith": "1 ether",
+      "attackerProfit": "0 ether",
+      "victimRecovers": "10 ether",
+      "victimLoss": "0 ether",
+      "log": [
+        "deposit() value 10 ether: ok",
+        "enter() value 1 ether: ok",
+        "honestCycle(1000000000000000000): ok",
+        "exitAll(): ok",
+        "redeem(10000000000000000000): ok"
+      ]
+    },
+    {
+      "contract": "EtherShareVault",
+      "mode": "same-function",
+      "attackerCredit": "1 ether",
+      "rounds": 1,
+      "attackerEndsWith": "1 ether",
+      "attackerProfit": "0 ether",
+      "victimRecovers": "10 ether",
+      "victimLoss": "0 ether",
+      "log": [
+        "deposit() value 10 ether: ok",
+        "enter() value 1 ether: ok",
+        "attackRedeem(1000000000000000000): REVERT revert",
+        "exitAll(): ok",
+        "redeem(10000000000000000000): ok"
+      ]
+    },
+    {
+      "contract": "EtherShareVault",
+      "mode": "cross-function",
+      "attackerCredit": "1 ether",
+      "rounds": 1,
+      "attackerEndsWith": "1.09009009009009 ether",
+      "attackerProfit": "0.0900900900900901 ether",
+      "victimRecovers": "9.90990990990991 ether",
+      "victimLoss": "0.0900900900900901 ether",
+      "log": [
+        "deposit() value 10 ether: ok",
+        "enter() value 1 ether: ok",
+        "attackDeposit(1000000000000000000): ok",
+        "exitAll(): ok",
+        "redeem(10000000000000000000): ok"
+      ]
+    },
+    {
+      "contract": "EtherShareVault",
+      "mode": "honest",
+      "attackerCredit": "2 ether",
+      "rounds": 1,
+      "attackerEndsWith": "2 ether",
+      "attackerProfit": "0 ether",
+      "victimRecovers": "10 ether",
+      "victimLoss": "0 ether",
+      "log": [
+        "deposit() value 10 ether: ok",
+        "enter() value 2 ether: ok",
+        "honestCycle(2000000000000000000): ok",
+        "exitAll(): ok",
+        "redeem(10000000000000000000): ok"
+      ]
+    },
+    {
+      "contract": "EtherShareVault",
+      "mode": "same-function",
+      "attackerCredit": "2 ether",
+      "rounds": 1,
+      "attackerEndsWith": "2 ether",
+      "attackerProfit": "0 ether",
+      "victimRecovers": "10 ether",
+      "victimLoss": "0 ether",
+      "log": [
+        "deposit() value 10 ether: ok",
+        "enter() value 2 ether: ok",
+        "attackRedeem(2000000000000000000): REVERT revert",
+        "exitAll(): ok",
+        "redeem(10000000000000000000): ok"
+      ]
+    },
+    {
+      "contract": "EtherShareVault",
+      "mode": "cross-function",
+      "attackerCredit": "2 ether",
+      "rounds": 1,
+      "attackerEndsWith": "2.32258064516129 ether",
+      "attackerProfit": "0.3225806451612903 ether",
+      "victimRecovers": "9.67741935483871 ether",
+      "victimLoss": "0.3225806451612903 ether",
+      "log": [
+        "deposit() value 10 ether: ok",
+        "enter() value 2 ether: ok",
+        "attackDeposit(2000000000000000000): ok",
+        "exitAll(): ok",
+        "redeem(10000000000000000000): ok"
+      ]
+    },
+    {
+      "contract": "EtherShareVault",
+      "mode": "cross-function",
+      "attackerCredit": "2 ether",
+      "rounds": 5,
+      "attackerEndsWith": "5.413197852482101 ether",
+      "attackerProfit": "3.413197852482101 ether",
+      "victimRecovers": "6.586802147517899 ether",
+      "victimLoss": "3.413197852482101 ether",
+      "log": [
+        "deposit() value 10 ether: ok",
+        "enter() value 2 ether: ok",
+        "attackDeposit(2000000000000000000): ok",
+        "attackDeposit(2400000000000000000): ok",
+        "attackDeposit(2975999999999999999): ok",
+        "attackDeposit(3861657599999999997): ok",
+        "attackDeposit(5352897541963775994): ok",
+        "exitAll(): ok",
+        "redeem(10000000000000000000): ok"
+      ]
+    },
+    {
+      "contract": "MerchantEscrow",
+      "mode": "honest",
+      "attackerPaidIn": "2 ether",
+      "othersPaidIn": "10 ether",
+      "nestedReleases": 0,
+      "attackerEntitled": "1.99 ether",
+      "attackerReceived": "1.99 ether",
+      "attackTx": "succeeded",
+      "merchantEntitled": "9.95 ether",
+      "merchantRelease": "succeeded",
+      "contractBalanceAfter": "0.06 ether",
+      "log": [
+        "pay(0x00000000000000000000000000000000000003e3) value 10 ether: ok",
+        "pay(0x3d73260adb4597c6dce2661ca6fbece211dd4136) value 2 ether: ok",
+        "honest(): ok",
+        "release(): ok"
+      ]
+    },
+    {
+      "contract": "MerchantEscrow",
+      "mode": "reentrant",
+      "attackerPaidIn": "2 ether",
+      "othersPaidIn": "10 ether",
+      "nestedReleases": 1,
+      "attackerEntitled": "1.99 ether",
+      "attackerReceived": "3.98 ether",
+      "attackTx": "succeeded",
+      "merchantEntitled": "9.95 ether",
+      "merchantRelease": "REVERTS (revert): funds gone",
+      "contractBalanceAfter": "8.02 ether",
+      "log": [
+        "pay(0x00000000000000000000000000000000000003e3) value 10 ether: ok",
+        "pay(0x3d73260adb4597c6dce2661ca6fbece211dd4136) value 2 ether: ok",
+        "attack(1): ok",
+        "release(): REVERT revert"
+      ]
+    },
+    {
+      "contract": "MerchantEscrow",
+      "mode": "reentrant",
+      "attackerPaidIn": "2 ether",
+      "othersPaidIn": "10 ether",
+      "nestedReleases": 3,
+      "attackerEntitled": "1.99 ether",
+      "attackerReceived": "7.96 ether",
+      "attackTx": "succeeded",
+      "merchantEntitled": "9.95 ether",
+      "merchantRelease": "REVERTS (revert): funds gone",
+      "contractBalanceAfter": "4.04 ether",
+      "log": [
+        "pay(0x00000000000000000000000000000000000003e3) value 10 ether: ok",
+        "pay(0x3d73260adb4597c6dce2661ca6fbece211dd4136) value 2 ether: ok",
+        "attack(3): ok",
+        "release(): REVERT revert"
+      ]
+    },
+    {
+      "contract": "MerchantEscrow",
+      "mode": "reentrant",
+      "attackerPaidIn": "2 ether",
+      "othersPaidIn": "1 ether",
+      "nestedReleases": 1,
+      "attackerEntitled": "1.99 ether",
+      "attackerReceived": "0 ether",
+      "attackTx": "reverted",
+      "merchantEntitled": "0.995 ether",
+      "merchantRelease": "succeeded",
+      "contractBalanceAfter": "2.005 ether",
+      "log": [
+        "pay(0x00000000000000000000000000000000000003e3) value 1 ether: ok",
+        "pay(0x3d73260adb4597c6dce2661ca6fbece211dd4136) value 2 ether: ok",
+        "attack(1): REVERT revert",
+        "release(): ok"
+      ]
+    }
+  ]
+}

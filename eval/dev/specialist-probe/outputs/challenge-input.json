@@ -1,0 +1,432 @@
+{
+ "claims": [
+  {
+   "id": "C01",
+   "title": "ShareVault.withdraw rounds shares burned down: anyone can withdraw assets while burning 0 shares",
+   "contract": "ShareVault",
+   "functions": [
+    "withdraw"
+   ],
+   "locations": [
+    {
+     "file": "src/ShareVault.sol",
+     "line_start": 35,
+     "line_end": 41
+    }
+   ],
+   "mechanism": "shares = assets * totalSupply / totalAssets() uses floor division, which favours the withdrawer. When totalAssets > totalSupply (any yield or donation), any assets < totalAssets/totalSupply burns 0 shares. balanceOf[msg.sender] -= 0 succeeds even for an address holding no shares.",
+   "preconditions": [
+    "totalAssets > totalSupply, meaning the exchange rate is above 1. This follows from any yield or donation, and from the first-deposit scenario below."
+   ],
+   "impact": "Theft of vault assets by an account with no shares. In the worst case nearly the whole vault is drained. Honest holders' shares are left backed by about 1 wei each or less, and deposits can revert on division by zero once totalAssets reaches 0 while totalSupply > 0."
+  },
+  {
+   "id": "C02",
+   "title": "ShareVault first-depositor share-inflation attack: later deposits mint 0 shares",
+   "contract": "ShareVault",
+   "functions": [
+    "previewDeposit",
+    "deposit"
+   ],
+   "locations": [
+    {
+     "file": "src/ShareVault.sol",
+     "line_start": 21,
+     "line_end": 32
+    }
+   ],
+   "mechanism": "On an empty vault, shares are minted 1:1. totalAssets() is the raw token balance, so a direct transfer raises the exchange rate. previewDeposit rounds down and deposit has no require(shares > 0), so a victim's deposit smaller than the share price mints 0 or few shares and the attacker captures the difference.",
+   "preconditions": [
+    "The vault is empty or has a very small totalSupply. The attacker can front-run the first deposit or deposit first."
+   ],
+   "impact": "Theft of deposits made after the attacker's. A victim loses up to the full deposit. A partial version (losing up to about 1 share's worth, through rounding) applies to any deposit."
+  },
+  {
+   "id": "C03",
+   "title": "RewardPool.stake does not checkpoint the user: new stake claims all historical rewardPerToken",
+   "contract": "RewardPool",
+   "functions": [
+    "stake",
+    "earned",
+    "claim"
+   ],
+   "locations": [
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 48,
+     "line_end": 53
+    },
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 33,
+     "line_end": 35
+    }
+   ],
+   "mechanism": "stake() calls _updatePool() instead of _updateUser(msg.sender). Neither rewards[a] nor userRewardPerTokenPaid[a] is set before staked[a] grows. earned(a) = staked[a] * (rewardPerToken - userRewardPerTokenPaid[a]) then applies the full accumulated rewardPerToken to the new stake. For a fresh address userRewardPerTokenPaid = 0, so the stake is credited with every reward since deployment. An existing staker who tops up has the added amount credited back to their last checkpoint.",
+   "preconditions": [
+    "rewardPerTokenStored > 0, meaning the pool has been running with stakers. The reward-token balance is enough to pay out."
+   ],
+   "impact": "Reward tokens are created out of thin air relative to emissions, and the reward reserve is drained. Honest stakers' claims then revert for lack of reward tokens, and rewards they earned are lost."
+  },
+  {
+   "id": "C04",
+   "title": "LendingPool.setPair is unauthenticated: anyone can swap in a fake price oracle and borrow everything",
+   "contract": "LendingPool",
+   "functions": [
+    "setPair",
+    "price",
+    "borrow",
+    "withdrawCollateral"
+   ],
+   "locations": [
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 22,
+     "line_end": 24
+    },
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 29,
+     "line_end": 32
+    }
+   ],
+   "mechanism": "setPair lacks onlyOwner. price() reads getReserves() from whatever contract is stored in pair, so an attacker can set it to a contract returning (1, 2^112 - 1), or one that reverts.",
+   "preconditions": [
+    "None"
+   ],
+   "impact": "Total loss of the pool's debtToken liquidity. An alternative griefing route freezes all collateral."
+  },
+  {
+   "id": "C05",
+   "title": "LendingPool prices collateral from manipulable SimplePair spot reserves (donate token1 + public sync)",
+   "contract": "LendingPool",
+   "functions": [
+    "price",
+    "borrow",
+    "withdrawCollateral"
+   ],
+   "locations": [
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 29,
+     "line_end": 32
+    },
+    {
+     "file": "src/SimplePair.sol",
+     "line_start": 17,
+     "line_end": 20
+    },
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 39,
+     "line_end": 45
+    }
+   ],
+   "mechanism": "price = reserve1 * 1e18 / reserve0 comes from instantaneous reserves. Anyone can raise reserve1 by sending token1 to the pair and calling the public sync(). The borrow check uses that price in the same transaction, and nothing ever re-checks the position (there is no liquidation).",
+   "preconditions": [
+    "Pair liquidity is shallow relative to the debtToken available in the pool and the attacker's collateral."
+   ],
+   "impact": "Bad debt and theft of lender funds up to the pool's debtToken balance."
+  },
+  {
+   "id": "C06",
+   "title": "PayoutSplitter.distribute is all-or-nothing push payment; one failing recipient locks all funds permanently",
+   "contract": "PayoutSplitter",
+   "functions": [
+    "distribute"
+   ],
+   "locations": [
+    {
+     "file": "src/PayoutSplitter.sol",
+     "line_start": 22,
+     "line_end": 27
+    },
+    {
+     "file": "src/PayoutSplitter.sol",
+     "line_start": 13,
+     "line_end": 19
+    }
+   ],
+   "mechanism": "distribute loops over the immutable recipient list and requires every token.transfer to succeed. There is no pull-based claim, no way to change recipients, and no rescue function (owner is stored but unused). If any single transfer reverts or returns false - recipient blacklisted by the token (e.g. USDC-style), recipient is address(0) for a token that rejects it, a 0-bps share (or small balance) yields a zero-amount transfer on a revert-on-zero token, or the list is so long that the loop of external transfers exceeds the block gas limit - every distribution reverts.",
+   "preconditions": [
+    "A recipient whose transfer fails, or a token that reverts on zero/blacklisted transfers, or a very large recipient list"
+   ],
+   "impact": "Permanent loss of access to the entire splitter balance for all recipients."
+  },
+  {
+   "id": "C07",
+   "title": "LendingPool has no liquidation path, so debt can exceed collateral value permanently",
+   "contract": "LendingPool",
+   "functions": [
+    "borrow",
+    "withdrawCollateral",
+    "repay"
+   ],
+   "locations": [
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 8,
+     "line_end": 63
+    }
+   ],
+   "mechanism": "The LTV invariant is enforced only when a borrower acts. After a price fall (r1/r0 drops, which anyone can cause with swap0For1), nobody has a function to seize collateral, and the borrower has no incentive to repay debt that exceeds the collateral's value.",
+   "preconditions": [
+    "The price moves against the collateral."
+   ],
+   "impact": "Bad debt builds up and lenders bear the losses. This is a design-level solvency failure."
+  },
+  {
+   "id": "C08",
+   "title": "ShareVault deposit/withdraw division by zero once totalAssets reaches 0 with shares outstanding",
+   "contract": "ShareVault",
+   "functions": [
+    "previewDeposit",
+    "deposit",
+    "withdraw",
+    "redeem"
+   ],
+   "locations": [
+    {
+     "file": "src/ShareVault.sol",
+     "line_start": 21,
+     "line_end": 24
+    },
+    {
+     "file": "src/ShareVault.sol",
+     "line_start": 36,
+     "line_end": 36
+    }
+   ],
+   "mechanism": "previewDeposit and withdraw divide by totalAssets() whenever totalSupply > 0. If assets reach 0 (for example drained through the 0-share withdraw finding) while shares remain, deposits revert permanently and redeem pays 0.",
+   "preconditions": [
+    "totalAssets == 0 while totalSupply > 0."
+   ],
+   "impact": "The vault is permanently unusable (follow-on effect of the rounding bug)."
+  },
+  {
+   "id": "C09",
+   "title": "RewardPool emissions lost during empty periods and through rounding-to-zero updates",
+   "contract": "RewardPool",
+   "functions": [
+    "rewardPerToken",
+    "_updatePool",
+    "stake"
+   ],
+   "locations": [
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 28,
+     "line_end": 40
+    }
+   ],
+   "mechanism": "When totalStaked == 0, rewardPerToken returns the stored value but _updatePool still moves lastUpdate forward, so those emissions are never assigned. When dt * rewardRate * 1e18 < totalStaked, the increment floors to 0 and lastUpdate still advances. Anyone can call stake(0) each block to keep throwing away accrual.",
+   "preconditions": [
+    "A small rewardRate relative to totalStaked (for the griefing case), or periods with zero stakers."
+   ],
+   "impact": "Stakers lose rewards and reward tokens are stranded. No direct theft."
+  },
+  {
+   "id": "C10",
+   "title": "SimplePair swap input can be stolen between transfer and swap; uint112 truncation in sync",
+   "contract": "SimplePair",
+   "functions": [
+    "swap0For1",
+    "sync"
+   ],
+   "locations": [
+    {
+     "file": "src/SimplePair.sol",
+     "line_start": 17,
+     "line_end": 30
+    }
+   ],
+   "mechanism": "swap0For1 treats any token0 balance above reserve0 as the caller's input. If a user transfers token0 and calls swap in a separate transaction, anyone can call swap0For1 first and take the output, or call sync() to absorb the input. Separately, sync casts the balance to uint112 without checking, so a balance >= 2^112 truncates the reserve (for example 2^112 + 1 becomes 1), which would inflate LendingPool.price.",
+   "preconditions": [
+    "Non-atomic use (an EOA transfers and swaps in separate transactions). For truncation, a token supply above 2^112 units."
+   ],
+   "impact": "Loss of a user's swap input. Truncation is a theoretical lever for the oracle."
+  },
+  {
+   "id": "C11",
+   "title": "LendingPool.borrowers grows unboundedly with duplicates; borrowerCount miscounts",
+   "contract": "LendingPool",
+   "functions": [
+    "borrow",
+    "borrowerCount"
+   ],
+   "locations": [
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 40,
+     "line_end": 40
+    },
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 60,
+     "line_end": 62
+    }
+   ],
+   "mechanism": "The push happens whenever debtOf == 0 before the borrow, including borrow(0) and every re-borrow after a full repay. The array is never pruned, so the count is inflated and the view loop's gas cost grows without bound.",
+   "preconditions": [
+    "None"
+   ],
+   "impact": "Off-chain monitoring gets wrong numbers, and borrowerCount() can eventually exceed the gas limit. No loss of funds."
+  },
+  {
+   "id": "C12",
+   "title": "RewardPool overflow in rewardPerToken permanently freezes withdraw, claim, stake and setRewardRate",
+   "contract": "RewardPool",
+   "functions": [
+    "setRewardRate",
+    "rewardPerToken",
+    "_updatePool",
+    "withdraw",
+    "claim",
+    "stake"
+   ],
+   "locations": [
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 23,
+     "line_end": 26
+    },
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 28,
+     "line_end": 31
+    },
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 37,
+     "line_end": 40
+    },
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 55,
+     "line_end": 60
+    }
+   ],
+   "mechanism": "rewardPerToken computes (block.timestamp - lastUpdate) * rewardRate * 1e18 with checked arithmetic and no cap on rewardRate. Every state-changing path (stake, withdraw, claim, setRewardRate) calls _updatePool first. If the product overflows, all of them revert - including setRewardRate, so the owner cannot lower the rate to recover. withdraw has no emergency path that skips reward accounting, so principal is locked too.",
+   "preconditions": [
+    "Owner privilege to set an extreme rewardRate",
+    "totalStaked > 0"
+   ],
+   "impact": "Permanent, irrecoverable lock of all staked principal and rewards. Needs privilege, but is irreversible once set."
+  },
+  {
+   "id": "C13",
+   "title": "RewardPool.claim is all-or-nothing and reverts for late claimants when reward balance is short",
+   "contract": "RewardPool",
+   "functions": [
+    "claim",
+    "stake"
+   ],
+   "locations": [
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 62,
+     "line_end": 67
+    },
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 48,
+     "line_end": 53
+    }
+   ],
+   "mechanism": "Rewards are accrued at rewardRate with no check that the contract holds enough rewardToken, and claim transfers the full accrued amount with require. Additionally stake() does not checkpoint the user (no _updateUser), so a fresh staker has userRewardPerTokenPaid=0 and is credited staked*rewardPerToken immediately, which can drain the reward balance. Once the balance is below a user's accrued amount, that user's claim reverts; there is no partial claim.",
+   "preconditions": [
+    "rewardPerTokenStored > 0 (any time after rewards began), or simply underfunding by owner"
+   ],
+   "impact": "Honest stakers cannot claim rewards (stake principal remains withdrawable since withdraw does not pay rewards). Temporary if owner refunds; the root accounting bug is a theft-class issue."
+  },
+  {
+   "id": "C14",
+   "title": "Reentrant swap0For1 reuses the same input with callback-bearing token1",
+   "contract": "SimplePair",
+   "functions": [
+    "swap0For1"
+   ],
+   "locations": [
+    {
+     "file": "src/SimplePair.sol",
+     "line_start": 23,
+     "line_end": 30
+    }
+   ],
+   "mechanism": "token1.transfer occurs before sync(), no lock; reentrant call recomputes in0 against stale reserve0 and k against stale reserves.",
+   "preconditions": [
+    "token1 invokes a recipient hook (ERC777-like)"
+   ],
+   "impact": "Drain of pair token1 reserves; also corrupts LendingPool price."
+  },
+  {
+   "id": "C15",
+   "title": "Fee-on-transfer tokens over-credit deposits across LendingPool, RewardPool and ShareVault",
+   "contract": "LendingPool, RewardPool, ShareVault",
+   "functions": [
+    "depositCollateral",
+    "repay",
+    "stake",
+    "deposit"
+   ],
+   "locations": [
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 34,
+     "line_end": 37
+    },
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 47,
+     "line_end": 50
+    },
+    {
+     "file": "src/RewardPool.sol",
+     "line_start": 48,
+     "line_end": 53
+    },
+    {
+     "file": "src/ShareVault.sol",
+     "line_start": 26,
+     "line_end": 32
+    }
+   ],
+   "mechanism": "Credited amount is the nominal argument, not the received balance delta.",
+   "preconditions": [
+    "Fee-on-transfer or deflationary token"
+   ],
+   "impact": "Insolvency; last withdrawers cannot exit."
+  },
+  {
+   "id": "C16",
+   "title": "LendingPool collateral withdrawal depends on a live, non-empty pair even for debt-free users",
+   "contract": "LendingPool",
+   "functions": [
+    "withdrawCollateral",
+    "price"
+   ],
+   "locations": [
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 29,
+     "line_end": 32
+    },
+    {
+     "file": "src/LendingPool.sol",
+     "line_start": 52,
+     "line_end": 55
+    },
+    {
+     "file": "src/SimplePair.sol",
+     "line_start": 17,
+     "line_end": 20
+    }
+   ],
+   "mechanism": "Independently of setPair, price() reverts whenever the configured SimplePair has reserve0 == 0: before the pair is seeded/synced, or if sync() truncates a token0 balance that is a multiple of 2^112 to uint112 0. Because withdrawCollateral always calls price(), users with zero debt cannot get their collateral back in that state.",
+   "preconditions": [
+    "reserve0 == 0 on the configured pair"
+   ],
+   "impact": "Temporary-to-indefinite freeze of all collateral until reserves are non-zero; truncation variant needs ~5.2e33 base units of token0 so is impractical for normal tokens."
+  }
+ ]
+}

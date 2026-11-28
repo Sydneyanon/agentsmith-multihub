@@ -1,23 +1,127 @@
 name: CI
 
+# This repository uses stacked pull requests: each PR targets the previous PR's branch, not `main`.
+# `pull_request` therefore has NO branch filter, so every PR in a stack is checked.
+# Nothing here uses secrets, deploys, pushes an image, or contacts any production system: the database
+# is a disposable service container on the runner's loopback, and the container smoke test runs with
+# no database at all.
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: lockfile, typecheck, unit tests, build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+          cache: npm
+      - run: npm ci
       - run: npm run typecheck
+      # Unit tests include the production build-output test (compiles with tsconfig.build.json and inspects the result).
       - run: npm run test
       - run: npm run build
+
+  integration:
+    name: integration tests (disposable Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-disposable-loopback-only
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # The test harness refuses any non-loopback host and creates/drops its own agentsmith_test_<hex> databases.
+      TEST_DATABASE_URL: postgres://postgres:ci-disposable-loopback-only@127.0.0.1:5432/postgres
+      REQUIRE_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # REQUIRE_INTEGRATION=1: a missing or unreachable database FAILS the job; it is never reported as a pass.
+      - run: npm run test:integration
+      # The same suite with the code under test connected as the least-privilege runtime role.
+      - run: npm run test:integration:restricted
+
+  image:
+    name: genuine Docker build and container smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image from the Dockerfile
+        run: docker build --tag agentsmith-hub:ci .
+      - name: Inspect the image contents
+        run: |
+          set -eu
+          docker image inspect agentsmith-hub:ci --format 'image id: {{.Id}}  os/arch: {{.Os}}/{{.Architecture}}  size: {{.Size}}' | tee image-id.txt
+          docker run --rm --entrypoint sh agentsmith-hub:ci -c '
+            set -eu
+            test "$(id -u)" != 0
+            test -f /app/dist/apps/api/src/server.js
+            test -f /app/dist/scripts/migrate.js
+            test -f /app/dist/scripts/apply-runtime-grants.js
+            test -f /app/db/runtime-grants.json
+            test "$(ls /app/db/migrations/*.sql | wc -l)" = 8
+            test -z "$(find /app/dist \( -name "*.test.js" -o -name "*.d.ts" -o -name "*.map" -o -path "*/integration/*" -o -path "*/testing/*" \) | head -1)"
+            test ! -e /app/node_modules/typescript
+            test ! -e /app/node_modules/vitest
+            test -z "$(find /app -maxdepth 2 \( -name ".env*" -o -name ".git" -o -name "*.pem" \) | head -1)"
+          '
+      - name: Start the container exactly as production does (no database) and probe it
+        run: |
+          set -eu
+          TOKEN="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n')"
+          docker run -d --name hub -p 127.0.0.1:18080:8080 \
+            -e NODE_ENV=production -e PORT=8080 -e API_BEARER_TOKEN="$TOKEN" -e HUB_ALLOWED_HOSTS=hub.ci.example \
+            agentsmith-hub:ci
+          for i in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:18080/health/live && break; sleep 1; done
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          H='Host: hub.ci.example'
+          test "$(code http://127.0.0.1:18080/health/live)" = 200
+          test "$(code -H "$H" http://127.0.0.1:18080/hub/)" = 200
+          test "$(code -H "$H" http://127.0.0.1:18080/v1/research/overview)" = 401
+          # authentication happens before the body is parsed: malformed JSON from an unauthenticated client is 401, not 400
+          test "$(code -H "$H" -X POST -H 'content-type: application/json' -d '{not json' http://127.0.0.1:18080/v1/intake)" = 401
+          test "$(code -H 'Host: other.example' http://127.0.0.1:18080/hub/)" = 421
+          # a valid token is never refused as unauthenticated or throttled, even after a burst of wrong tokens
+          for i in $(seq 1 12); do code -H "$H" -H 'Authorization: Bearer wrong' http://127.0.0.1:18080/v1/research/overview >/dev/null; done
+          test "$(code -H "$H" -H 'Authorization: Bearer wrong' http://127.0.0.1:18080/v1/research/overview)" = 429
+          test "$(code -H "$H" -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18080/v1/research/overview)" = 503
+          docker logs hub 2>&1 | grep -q "$TOKEN" && { echo "token appeared in the log"; exit 1; } || true
+          docker rm -f hub >/dev/null
+      - name: Record the image
+        if: always()
+        run: |
+          {
+            echo '### Docker image built from the Dockerfile'
+            echo "commit: $GITHUB_SHA"
+            echo '```'
+            cat image-id.txt 2>/dev/null || echo 'build did not complete'
+            echo '```'
+            echo 'This is a local runner image. It is not pushed anywhere and is not the registry digest.'
+          } >> "$GITHUB_STEP_SUMMARY"

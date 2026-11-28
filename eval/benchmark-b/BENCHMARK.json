@@ -1,0 +1,21 @@
+{
+  "schema": "agentsmith-benchmark/1",
+  "name": "benchmark-b",
+  "version": 3,
+  "frozen": "2026-11-27",
+  "purpose": "Semantic vulnerability classes the deterministic structural analyzer has no capability for; matched vulnerable/secure pairs.",
+  "pairs": 8,
+  "labels": { "total": 16, "vulnerable": 8, "secure": 8 },
+  "classes": ["accounting-error", "oracle-manipulation", "state-transition", "protocol-invariant", "business-logic", "economic-attack", "cross-contract", "transaction-ordering"],
+  "groundTruth": {
+    "compilation": "all 16 contracts compile with solc 0.8.28+commit.7893614a (solcjs), see eval/ground-truth/compile-corpus.mjs",
+    "behaviour": "verify-behaviour.mjs executes every pair in an in-memory EVM: each vulnerable variant exhibits its labelled defect, each secure variant does not (8/8 at freeze)",
+    "labelLines": "every label line lies inside its labelled function and is non-empty (checked by eval/bench/benchmark.ts checkLabels)"
+  },
+  "manifest": "MANIFEST.sha256 covers contracts/, labels.json and verify-behaviour.mjs; MANIFEST.sha256.sum is the hash of the manifest",
+  "versions": [
+    { "version": 1, "commit": "75e9e50", "pairs": 1, "archive": "versions/v1" },
+    { "version": 2, "commit": "4179e87", "pairs": 4, "archive": "versions/v2" },
+    { "version": 3, "commit": "this version (see AMENDMENTS.md)", "pairs": 8 }
+  ]
+}

@@ -21,6 +21,12 @@ A step state is queued, running, awaiting_approval, succeeded, failed, rejected 
 ## Independent verification
 The investigator records a hypothesis and supporting evidence. The PoC builder produces a minimal, safe reproduction where permitted. The independent judge evaluates evidence against program rules and reproduction criteria. The judge can reject or downgrade a finding without changing the investigator's original record.
 
+## Opportunity discovery (Phase 5.0)
+Discovery runs **before** repository scanning. Every source (Immunefi, Code4rena, Sherlock, official GitHub organisations, later Cantina, HackenProof and project pages, plus operator-pasted URLs including X posts) is a separate adapter feeding **one** opportunity model with provenance, change history and cross-source identity; a source never becomes its own research system. An opportunity is selected by a human, acquired through the pipeline below, then researched. Source access is limited to what each platform's official terms permit and is recorded per source; where it is unresolved (Immunefi) the source stays permanent but unpolled and the manual-import route applies. See `docs/ROADMAP.md` (decision H) and `docs/immunefi-scout.md`. The current approval record is not tamper-proof against a compromised runtime database role (ROADMAP section 5).
+
+## Evidence acquisition
+Repository content enters the system only through acquisition (`docs/repository-acquisition.md`): one repository at one resolved commit SHA becomes one sealed snapshot in the research state (`repo_snapshots`, `repo_snapshot_files`, content-addressed `research_blobs`). Acquisition is passive reading of a public repository: it executes, installs, builds and follows nothing, treats every byte as hostile, verifies the archive against the commit's own git tree (object ids, sizes, completeness, commit identity), accounts for every entry (stored, or skipped with an explicit reason), writes nothing until the whole archive is verified, and is idempotent and resumable. There is one snapshot model; later stages (discovery, structural analysis, specialists, challenge, dossier) read sealed snapshots and cite them by span.
+
 ## Learning loop
 Learning uses reviewed outcomes, not raw model confidence. Store source observations, decision, action or non-action, expected result, actual result and reviewer verdict. Policy changes are versioned, evaluated against a frozen baseline and approved before deployment.
 

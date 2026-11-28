@@ -1,0 +1,286 @@
+[
+ {
+  "file": "contracts/Bank.sol",
+  "contract": "Bank",
+  "function": "withdrawBad",
+  "class": "reentrancy",
+  "vulnerable": true,
+  "line": 15,
+  "note": "call before write (checked 0.8 subtraction: not drainable, see validator)",
+  "exploitable": false
+ },
+ {
+  "file": "contracts/Bank.sol",
+  "contract": "Bank",
+  "function": "withdrawCei",
+  "class": "reentrancy",
+  "vulnerable": false,
+  "line": 29,
+  "note": "effects before interaction"
+ },
+ {
+  "file": "contracts/Bank.sol",
+  "contract": "Bank",
+  "function": "withdrawLocked",
+  "class": "reentrancy",
+  "vulnerable": false,
+  "line": 38,
+  "note": "custom lock"
+ },
+ {
+  "file": "contracts/Bank.sol",
+  "contract": "Bank",
+  "function": "withdrawHelper",
+  "class": "reentrancy",
+  "vulnerable": true,
+  "line": 47,
+  "note": "call in helper before write",
+  "exploitable": false
+ },
+ {
+  "file": "contracts/Bank2.sol",
+  "contract": "Bank2",
+  "function": "cashOut",
+  "class": "reentrancy",
+  "vulnerable": true,
+  "line": 14,
+  "note": "zeroing after call",
+  "exploitable": true
+ },
+ {
+  "file": "contracts/Bank2.sol",
+  "contract": "Bank2",
+  "function": "withdrawUnchecked",
+  "class": "reentrancy",
+  "vulnerable": true,
+  "line": 22,
+  "note": "unchecked subtraction after call",
+  "exploitable": true
+ },
+ {
+  "file": "contracts/Bank2.sol",
+  "contract": "Bank2",
+  "function": "claimBonus",
+  "class": "reentrancy",
+  "vulnerable": true,
+  "line": 30,
+  "note": "flag set after payout",
+  "exploitable": true
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "setOracleOpen",
+  "class": "access-control",
+  "vulnerable": true,
+  "line": 21,
+  "note": "unguarded authority write"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "setOracleGuarded",
+  "class": "access-control",
+  "vulnerable": false,
+  "line": 22,
+  "note": "modifier via helper"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "setOracleInBody",
+  "class": "access-control",
+  "vulnerable": false,
+  "line": 23,
+  "note": "in-body require"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "setOracleIf",
+  "class": "access-control",
+  "vulnerable": false,
+  "line": 24,
+  "note": "if-revert guard"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "addMinter",
+  "class": "access-control",
+  "vulnerable": true,
+  "line": 25,
+  "note": "unguarded role grant"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "addMinterRole",
+  "class": "access-control",
+  "vulnerable": false,
+  "line": 26,
+  "note": "role check"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "transferOwner",
+  "class": "access-control",
+  "vulnerable": false,
+  "line": 27,
+  "note": "reverting check after write undoes it"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "mint",
+  "class": "access-control",
+  "vulnerable": true,
+  "line": 28,
+  "note": "unguarded mint"
+ },
+ {
+  "file": "contracts/Admin.sol",
+  "contract": "Config",
+  "function": "setFeeOpen",
+  "class": "access-control",
+  "vulnerable": true,
+  "line": 20,
+  "note": "unguarded fee change"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "initOpen",
+  "class": "initializer",
+  "vulnerable": true,
+  "line": 10,
+  "note": "open initializer"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "initOnce",
+  "class": "initializer",
+  "vulnerable": false,
+  "line": 11,
+  "note": "one-time flag"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "fwdOpen",
+  "class": "delegatecall",
+  "vulnerable": true,
+  "line": 13,
+  "note": "param target"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "fwdOwner",
+  "class": "delegatecall",
+  "vulnerable": false,
+  "line": 14,
+  "note": "owner only"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "fwdImpl",
+  "class": "delegatecall",
+  "vulnerable": true,
+  "line": 15,
+  "note": "target set by open setter"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "ignored",
+  "class": "unchecked-call",
+  "vulnerable": true,
+  "line": 18,
+  "note": "result ignored"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "checked",
+  "class": "unchecked-call",
+  "vulnerable": false,
+  "line": 19,
+  "note": "checked inline"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "viaHelper",
+  "class": "unchecked-call",
+  "vulnerable": true,
+  "line": 22,
+  "note": "helper returns flag, caller ignores"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "viaHelperChecked",
+  "class": "unchecked-call",
+  "vulnerable": false,
+  "line": 23,
+  "note": "caller requires flag"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "viaOrigin",
+  "class": "tx-origin",
+  "vulnerable": true,
+  "line": 25,
+  "note": "tx.origin authorisation"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "eoaGate",
+  "class": "tx-origin",
+  "vulnerable": false,
+  "line": 28,
+  "note": "anti-contract check"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "killOpen",
+  "class": "selfdestruct",
+  "vulnerable": true,
+  "line": 29,
+  "note": "unguarded"
+ },
+ {
+  "file": "contracts/Misc.sol",
+  "contract": "Misc",
+  "function": "killOwner",
+  "class": "selfdestruct",
+  "vulnerable": false,
+  "line": 30,
+  "note": "guarded"
+ },
+ {
+  "file": "contracts/ModArg.sol",
+  "contract": "ModArg",
+  "function": "setOtherGuarded",
+  "class": "access-control",
+  "vulnerable": false,
+  "line": 9,
+  "note": "modifier argument is the authority"
+ },
+ {
+  "file": "contracts/ModArg.sol",
+  "contract": "ModArg",
+  "function": "setOtherWrongArg",
+  "class": "access-control",
+  "vulnerable": true,
+  "line": 10,
+  "note": "modifier argument is caller-supplied, so the check is meaningless"
+ }
+]

@@ -1,0 +1,222 @@
+{
+ "_comment": "Least-privilege manifest for the runtime role. Applied by scripts/apply-runtime-grants.ts; verified against the catalog by runtime-role.integration.test.ts. Adding a table or function without an entry here fails that test.",
+ "schema": "public",
+ "tables": {
+  "ai_budget_reservations": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "ai_model_prices": [
+   "SELECT"
+  ],
+  "approvals": [
+   "SELECT"
+  ],
+  "assets": [
+   "SELECT"
+  ],
+  "audit_events": [
+   "SELECT",
+   "INSERT"
+  ],
+  "bounty_collection_runs": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_duplicate_candidates": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_imports": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_observations": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_opportunities": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_program_changes": [
+   "SELECT",
+   "INSERT"
+  ],
+  "bounty_programs": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_repository_mappings": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_research_links": [
+   "SELECT",
+   "INSERT"
+  ],
+  "bounty_scores": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_source_checks": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "bounty_sources": [
+   "SELECT",
+   "UPDATE"
+  ],
+  "budget_policies": [
+   "SELECT"
+  ],
+  "discovery_observations": [
+   "SELECT",
+   "INSERT"
+  ],
+  "discovery_sources": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "evaluation_evidence": [
+   "SELECT",
+   "INSERT"
+  ],
+  "evidence_spans": [
+   "SELECT",
+   "INSERT"
+  ],
+  "finding_evidence": [
+   "SELECT"
+  ],
+  "findings": [
+   "SELECT"
+  ],
+  "hunt_gate_definitions": [
+   "SELECT"
+  ],
+  "hunt_gate_results": [
+   "SELECT"
+  ],
+  "hypotheses": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "hypothesis_evaluations": [
+   "SELECT",
+   "INSERT"
+  ],
+  "hypothesis_events": [
+   "SELECT",
+   "INSERT"
+  ],
+  "hypothesis_evidence": [
+   "SELECT",
+   "INSERT"
+  ],
+  "hypothesis_reviews": [
+   "SELECT",
+   "INSERT"
+  ],
+  "hypothesis_status": [
+   "SELECT"
+  ],
+  "knowledge_items": [
+   "SELECT"
+  ],
+  "knowledge_links": [
+   "SELECT"
+  ],
+  "model_usage_events": [
+   "SELECT",
+   "INSERT"
+  ],
+  "opportunity_events": [
+   "SELECT",
+   "INSERT"
+  ],
+  "program_assets": [
+   "SELECT"
+  ],
+  "program_scope_versions": [
+   "SELECT"
+  ],
+  "programs": [
+   "SELECT"
+  ],
+  "repo_snapshot_files": [
+   "SELECT",
+   "INSERT"
+  ],
+  "repo_snapshots": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "repository_monitor_checks": [
+   "SELECT",
+   "INSERT"
+  ],
+  "repository_monitors": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "research_blob_evictions": [
+   "SELECT"
+  ],
+  "research_blobs": [
+   "SELECT",
+   "INSERT"
+  ],
+  "research_storage_stats": [
+   "SELECT"
+  ],
+  "schema_migrations": [],
+  "source_snapshots": [
+   "SELECT",
+   "INSERT"
+  ],
+  "verification_reviews": [
+   "SELECT"
+  ],
+  "workflow_runs": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ],
+  "workflow_steps": [
+   "SELECT",
+   "INSERT",
+   "UPDATE"
+  ]
+ },
+ "functions_executable": [
+  "verify_repo_snapshot",
+  "verify_evidence_span",
+  "repo_snapshot_manifest",
+  "research_span_check",
+  "research_split_lines",
+  "research_reviewer_saw_valid"
+ ],
+ "sequences_usable": "all",
+ "functions_denied": [
+  "evict_research_blob"
+ ],
+ "_notes": {
+  "hypotheses UPDATE": "Row-lock only. hypothesis_evidence_guard() runs SELECT ... FOR UPDATE on hypotheses as the invoking role, which needs UPDATE. Any actual UPDATE is rejected by the hypotheses_immutable trigger, which the runtime role cannot disable (it owns nothing and has no TRIGGER privilege).",
+  "bounty_* (0011)": "Bounty collection: no DELETE anywhere (delisted listings are marked, merged programmes keep their row); program changes are append-only; sources are seeded by the migration and only their state columns are updated."
+ }
+}

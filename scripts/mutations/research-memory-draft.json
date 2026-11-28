@@ -1,0 +1,65 @@
+{
+ "command": "REQUIRE_INTEGRATION=1 npx vitest run apps/api/src/integration/research-memory-draft",
+ "mutations": [
+  {
+   "name": "draft T-144: confirmed without the independence check",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "AND e.outcome = 'supports' AND e.evaluator_id <> gen) THEN",
+   "new": "AND e.outcome = 'supports') THEN"
+  },
+  {
+   "name": "draft T-144: confirmed accepts a blinded review",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "AND r.reviewer_kind = 'human' AND r.review_mode = 'disclosed_adjudication' AND r.verdict = 'supports') THEN",
+   "new": "AND r.reviewer_kind = 'human' AND r.verdict = 'supports') THEN"
+  },
+  {
+   "name": "draft T-144: basis evaluations from another hypothesis accepted",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "WHERE e.id = b.id AND e.hypothesis_id = NEW.hypothesis_id)) THEN",
+   "new": "WHERE e.id = b.id)) THEN"
+  },
+  {
+   "name": "draft T-144: missed without a human hypothesis",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "IF gen_kind <> 'human' THEN",
+   "new": "IF false THEN"
+  },
+  {
+   "name": "draft T-144: missed without a linked run",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "IF NOT EXISTS (SELECT 1 FROM missed_in_runs m WHERE m.hypothesis_id = NEW.hypothesis_id) THEN",
+   "new": "IF false THEN"
+  },
+  {
+   "name": "draft T-144: refuted without grounds",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "RAISE EXCEPTION 'refuted requires",
+   "new": "RAISE NOTICE 'refuted requires"
+  },
+  {
+   "name": "draft T-144: model may sign off an adjudication",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "CHECK (human_sign_off <> 'signed' OR (adjudicator_kind = 'human' AND signed_by IS NOT NULL)),",
+   "new": "CHECK (human_sign_off <> 'signed' OR signed_by IS NOT NULL),"
+  },
+  {
+   "name": "draft T-144: outcomes not append-only",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "CREATE TRIGGER hypothesis_outcomes_immutable BEFORE UPDATE OR DELETE ON hypothesis_outcomes FOR EACH ROW EXECUTE FUNCTION research_reject_mutation();",
+   "new": ""
+  },
+  {
+   "name": "draft T-144: coverage on unsealed snapshots",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "AND s.sealed_at IS NOT NULL) THEN",
+   "new": "AND true) THEN"
+  },
+  {
+   "name": "draft T-144: outcomes writable by a model",
+   "file": "db/drafts/t144-research-memory/0009_research_memory.sql",
+   "old": "CHECK (decided_by_kind = 'human')",
+   "new": "CHECK (decided_by_kind IN ('human','model'))"
+  }
+ ]
+}

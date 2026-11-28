@@ -1,0 +1,170 @@
+[
+  {
+    "file": "contracts/AccountingSaleBad.sol",
+    "contract": "AccountingSaleBad",
+    "function": "buy",
+    "class": "accounting-error",
+    "vulnerable": true,
+    "line": 22,
+    "pair": "accounting-sale",
+    "exploitable": true,
+    "note": "buy() multiplies by priceWei instead of dividing, minting far more tokens than paid for; the sale leaks value on every purchase. No external call, so it is not a reentrancy/unchecked-call pattern."
+  },
+  {
+    "file": "contracts/AccountingSaleGood.sol",
+    "contract": "AccountingSaleGood",
+    "function": "buy",
+    "class": "accounting-error",
+    "vulnerable": false,
+    "line": 19,
+    "pair": "accounting-sale",
+    "note": "Matched secure variant: credits msg.value / priceWei tokens, the correct amount. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/OraclePriceBad.sol",
+    "contract": "OraclePriceBad",
+    "function": "borrowPower",
+    "class": "oracle-manipulation",
+    "vulnerable": true,
+    "line": 24,
+    "pair": "oracle-price",
+    "exploitable": true,
+    "note": "Values collateral at the manipulable instantaneous spot price; an attacker moves the spot within one transaction and borrows against inflated collateral. The call is a view, so no reentrancy pattern."
+  },
+  {
+    "file": "contracts/OraclePriceGood.sol",
+    "contract": "OraclePriceGood",
+    "function": "borrowPower",
+    "class": "oracle-manipulation",
+    "vulnerable": false,
+    "line": 23,
+    "pair": "oracle-price",
+    "note": "Matched secure variant: uses a TWAP with a staleness check, which a single-transaction spot move cannot shift. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/SalePhaseBad.sol",
+    "contract": "SalePhaseBad",
+    "function": "claim",
+    "class": "state-transition",
+    "vulnerable": true,
+    "line": 23,
+    "pair": "sale-phase",
+    "exploitable": true,
+    "note": "claim() guards on `phase != Setup` instead of `phase == Ended`, allowing claims during Active before allocations are finalised."
+  },
+  {
+    "file": "contracts/SalePhaseGood.sol",
+    "contract": "SalePhaseGood",
+    "function": "claim",
+    "class": "state-transition",
+    "vulnerable": false,
+    "line": 20,
+    "pair": "sale-phase",
+    "note": "Matched secure variant: claim() correctly requires `phase == Ended`. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/SupplyInvariantBad.sol",
+    "contract": "SupplyInvariantBad",
+    "function": "burn",
+    "class": "protocol-invariant",
+    "vulnerable": true,
+    "line": 21,
+    "pair": "supply-invariant",
+    "exploitable": true,
+    "note": "burn() decrements the holder balance but not totalSupply, breaking sum(balances) == totalSupply; every calculation that trusts totalSupply is then corrupted."
+  },
+  {
+    "file": "contracts/SupplyInvariantGood.sol",
+    "contract": "SupplyInvariantGood",
+    "function": "burn",
+    "class": "protocol-invariant",
+    "vulnerable": false,
+    "line": 18,
+    "pair": "supply-invariant",
+    "note": "Matched secure variant: burn() decrements both balance and totalSupply, preserving the invariant. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/ReferralSaleBad.sol",
+    "contract": "ReferralSaleBad",
+    "function": "buy",
+    "class": "business-logic",
+    "vulnerable": true,
+    "line": 15,
+    "pair": "referral-sale",
+    "exploitable": true,
+    "note": "buy() grants the 10% referral discount for any non-zero referrer, including the buyer themself or a non-customer, so every buyer can pay 90%. Verified in the EVM: a self-referred purchase at 0.9 ether is accepted."
+  },
+  {
+    "file": "contracts/ReferralSaleGood.sol",
+    "contract": "ReferralSaleGood",
+    "function": "buy",
+    "class": "business-logic",
+    "vulnerable": false,
+    "line": 13,
+    "pair": "referral-sale",
+    "note": "Matched secure variant: discount only for an existing customer other than the buyer; self-referral is rejected, a genuine referral is honoured (positive control). Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/DonationVaultBad.sol",
+    "contract": "DonationVaultBad",
+    "function": "deposit",
+    "class": "economic-attack",
+    "vulnerable": true,
+    "line": 17,
+    "pair": "donation-vault",
+    "exploitable": true,
+    "note": "Shares priced against the donatable raw ETH balance: first depositor mints 1 share for 1 wei, donates, and later deposits round down to 0 shares. Verified in the EVM: victim deposits 5 ether for 0 shares, attacker nets +5 ether."
+  },
+  {
+    "file": "contracts/DonationVaultGood.sol",
+    "contract": "DonationVaultGood",
+    "function": "deposit",
+    "class": "economic-attack",
+    "vulnerable": false,
+    "line": 15,
+    "pair": "donation-vault",
+    "note": "Matched secure variant: shares priced against internally tracked assets that a donation does not change; the same attack leaves the victim whole and costs the attacker the donation. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/AirdropTrustBad.sol",
+    "contract": "AirdropTrustBad",
+    "function": "claim",
+    "class": "cross-contract",
+    "vulnerable": true,
+    "line": 25,
+    "pair": "airdrop-trust",
+    "exploitable": true,
+    "note": "claim() trusts an eligibility contract supplied by the caller; an attacker passes a contract that always says yes. Verified in the EVM: an ineligible caller claims 100 ether of airdrop."
+  },
+  {
+    "file": "contracts/AirdropTrustGood.sol",
+    "contract": "AirdropTrustGood",
+    "function": "claim",
+    "class": "cross-contract",
+    "vulnerable": false,
+    "line": 22,
+    "pair": "airdrop-trust",
+    "note": "Matched secure variant: claim() consults only the eligibility contract fixed at construction; the ineligible caller is reverted. Flagging this is a false positive."
+  },
+  {
+    "file": "contracts/SwapNoSlippageBad.sol",
+    "contract": "SwapNoSlippageBad",
+    "function": "swapAForB",
+    "class": "transaction-ordering",
+    "vulnerable": true,
+    "line": 19,
+    "pair": "swap-slippage",
+    "exploitable": true,
+    "note": "swapAForB() has no minimum-output bound, so a front-run trade sets the victim execution price (sandwich). Verified in the EVM: after a front-run the victim receives 8.19 vs a quoted 9.90."
+  },
+  {
+    "file": "contracts/SwapNoSlippageGood.sol",
+    "contract": "SwapNoSlippageGood",
+    "function": "swapAForB",
+    "class": "transaction-ordering",
+    "vulnerable": false,
+    "line": 17,
+    "pair": "swap-slippage",
+    "note": "Matched secure variant: caller-chosen minOut bound; the front-run victim swap reverts instead of executing at the worse price. Flagging this is a false positive."
+  }
+]

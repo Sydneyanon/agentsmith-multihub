@@ -1,0 +1,47 @@
+{
+ "command": "npx vitest run apps/api/src/auth apps/api/src/route-coverage",
+ "mutations": [
+  {
+   "name": "auth runs at preHandler (after body parsing)",
+   "file": "apps/api/src/auth.ts",
+   "old": "app.addHook(\"onRequest\", async (request, reply) => {\n    if (isPublicRequest",
+   "new": "app.addHook(\"preHandler\", async (request, reply) => {\n    if (isPublicRequest"
+  },
+  {
+   "name": "auth only guards /v1/ prefix (not default-deny)",
+   "file": "apps/api/src/auth.ts",
+   "old": "if (isPublicRequest(request.method, request.url)) return;",
+   "new": "if (!request.url.startsWith(\"/v1/\")) return;"
+  },
+  {
+   "name": "non-GET/HEAD methods allowed on public paths",
+   "file": "apps/api/src/auth.ts",
+   "old": "if (method !== \"GET\" && method !== \"HEAD\") return false;",
+   "new": ""
+  },
+  {
+   "name": "public asset pattern widened to any /hub/ path",
+   "file": "apps/api/src/auth.ts",
+   "old": "/^\\/hub\\/assets\\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/",
+   "new": "/^\\/hub\\/.*$/"
+  },
+  {
+   "name": "query string not stripped before matching (prefix confusion)",
+   "file": "apps/api/src/auth.ts",
+   "old": "  return q === -1 ? rawUrl : rawUrl.slice(0, q);",
+   "new": "  return rawUrl;"
+  },
+  {
+   "name": "health prefix public (/health/*)",
+   "file": "apps/api/src/auth.ts",
+   "old": "PUBLIC_EXACT.has(path) ||",
+   "new": "PUBLIC_EXACT.has(path) || path.startsWith(\"/health\") ||"
+  },
+  {
+   "name": "unconfigured token runs open",
+   "file": "apps/api/src/auth.ts",
+   "old": "if (!configuredToken) return reply.code(503)",
+   "new": "if (!configuredToken) return; if (false) return reply.code(503)"
+  }
+ ]
+}

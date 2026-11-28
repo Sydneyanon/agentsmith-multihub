@@ -1,0 +1,44 @@
+## baseline-prototype on /home/user/agentsmith-multihub/eval/heldout4/contracts
+labels: 79; findings: 24; reproducible across file order: true; findings in unlabelled functions (unscored): 5
+TOTAL tp=12 fp=6 fn=26 tn=35 precision=0.667 recall=0.316; key line exact 6/12, within 2 lines 11/12
+  reentrancy      tp=2 fp=1 fn=2 tn=2 precision=0.667 recall=0.5
+  access-control  tp=0 fp=0 fn=6 tn=8 precision=null recall=0
+  tx-origin       tp=1 fp=0 fn=2 tn=2 precision=1 recall=0.333
+  unchecked-call  tp=3 fp=0 fn=1 tn=2 precision=1 recall=0.75
+  initializer     tp=1 fp=1 fn=10 tn=9 precision=0.5 recall=0.091
+  delegatecall    tp=4 fp=4 fn=2 tn=7 precision=0.5 recall=0.667
+  selfdestruct    tp=1 fp=0 fn=3 tn=5 precision=1 recall=0.25
+MISSED (false negatives):
+  contracts/R03_StakingRewards.sol:89 claim (reentrancy)
+  contracts/R07_GenesisPass.sol:65 mint (reentrancy)
+  contracts/A01_GovernanceToken.sol:39 mint (access-control)
+  contracts/A03_ProtocolTreasury.sol:29 setOperator (access-control)
+  contracts/A06_TokenVesting.sol:46 _payout (access-control)
+  contracts/T04_StrategyManager.sol:17 evacuate (tx-origin)
+  contracts/T04_StrategyManager.sol:17 handover (tx-origin)
+  contracts/U05_TokenAirdrop.sol:27 claim (unchecked-call)
+  contracts/I01_YieldVault.sol:100 initialize (initializer)
+  contracts/I03_RewardsVault.sol:59 __Ownable_init (initializer)
+  contracts/I05_LendingPoolV1.sol:155 initialize (initializer)
+  contracts/I07_MarketplaceV2.sol:110 initializeV2 (initializer)
+  contracts/I08_PoolConfigurator.sol:24 initialize (initializer)
+  contracts/I12_CreatorVaultBeacon.sol:107 upgradeTo (initializer)
+  contracts/I13_GaugeController.sol:177 _authorizeUpgrade (initializer)
+  contracts/I15_TransparentProxy.sol:76 upgradeTo (initializer)
+  contracts/D02_CrowdsaleProxy.sol:57 fallback (delegatecall)
+  contracts/D07_RateModelRouter.sol:36 setMathLib (access-control)
+  contracts/D10_ModularRouter.sol:41 fallback (delegatecall)
+  contracts/D10_ModularRouter.sol:22 setModule (access-control)
+  contracts/S03_MultisigWallet.sol:32 initWallet (initializer)
+  contracts/S03_MultisigWallet.sol:53 kill (selfdestruct)
+  contracts/S06_VestingFactory.sol:63 initialize (initializer)
+  contracts/S06_VestingFactory.sol:89 revoke (selfdestruct)
+  contracts/S08_LotteryPot.sol:18 transferOwnership (access-control)
+  contracts/S08_LotteryPot.sol:51 terminate (selfdestruct)
+FALSE POSITIVES:
+  contracts/R05_SavingsBank.sol:33 withdraw (reentrancy) flagged at line 33
+  contracts/I06_LendingPoolV1.sol:115 upgradeToAndCall (delegatecall) flagged at line 111
+  contracts/I10_BridgeEscrow.sol:21 initialize (initializer) flagged at line 20
+  contracts/D05_SmartAccount.sol:40 executeModule (delegatecall) flagged at line 37
+  contracts/D06_PositionManager.sol:8 multicall (delegatecall) flagged at line 5
+  contracts/D08_RateModelRouter.sol:48 compute (delegatecall) flagged at line 47

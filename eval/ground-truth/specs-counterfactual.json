@@ -1,0 +1,98 @@
+[
+ {
+  "id": "counterfactual/ReentHelperAUnchecked (HelperA with unchecked subtraction)",
+  "file": "counterfactual/ReentHelperAUnchecked.sol",
+  "contract": "ReentHelperAUnchecked",
+  "labelled": "counterfactual",
+  "fund": [
+   {
+    "as": "attacker",
+    "fn": "fund",
+    "args": [],
+    "value": "$CREDIT"
+   },
+   {
+    "as": "victim",
+    "fn": "fund",
+    "args": [],
+    "value": "10"
+   }
+  ],
+  "entry": {
+   "fn": "withdraw",
+   "args": [
+    "$AMT"
+   ]
+  },
+  "again": {
+   "fn": "withdraw",
+   "args": [
+    "$AMT"
+   ]
+  }
+ },
+ {
+  "id": "counterfactual/ReentBankAUnchecked (BankA with unchecked subtraction)",
+  "file": "counterfactual/ReentBankAUnchecked.sol",
+  "contract": "ReentBankAUnchecked",
+  "labelled": "counterfactual",
+  "fund": [
+   {
+    "as": "attacker",
+    "fn": "mint",
+    "args": [],
+    "value": "$CREDIT"
+   },
+   {
+    "as": "victim",
+    "fn": "mint",
+    "args": [],
+    "value": "10"
+   }
+  ],
+  "entry": {
+   "fn": "redeem",
+   "args": [
+    "$AMT"
+   ]
+  },
+  "again": {
+   "fn": "redeem",
+   "args": [
+    "$AMT"
+   ]
+  }
+ },
+ {
+  "id": "counterfactual/BankUnchecked.withdrawBad (dev withdrawBad with unchecked subtraction)",
+  "file": "counterfactual/BankUnchecked.sol",
+  "contract": "BankUnchecked",
+  "labelled": "counterfactual",
+  "fund": [
+   {
+    "as": "attacker",
+    "fn": "deposit",
+    "args": [],
+    "value": "$CREDIT"
+   },
+   {
+    "as": "victim",
+    "fn": "deposit",
+    "args": [],
+    "value": "10"
+   }
+  ],
+  "entry": {
+   "fn": "withdrawBad",
+   "args": [
+    "$AMT"
+   ]
+  },
+  "again": {
+   "fn": "withdrawBad",
+   "args": [
+    "$AMT"
+   ]
+  }
+ }
+]

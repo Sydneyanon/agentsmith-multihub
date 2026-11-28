@@ -1,0 +1,52 @@
+## baseline-prototype on eval/heldout2/contracts
+labels: 96; findings: 30; reproducible across file order: true; findings in unlabelled functions (unscored): 0
+TOTAL tp=13 fp=16 fn=24 tn=43 precision=0.448 recall=0.351; key line exact 10/13, within 2 lines 13/13
+  reentrancy      tp=6 fp=4 fn=3 tn=5 precision=0.6 recall=0.667
+  access-control  tp=0 fp=0 fn=11 tn=15 precision=null recall=0
+  initializer     tp=1 fp=2 fn=4 tn=4 precision=0.333 recall=0.2
+  delegatecall    tp=1 fp=4 fn=2 tn=5 precision=0.2 recall=0.333
+  selfdestruct    tp=1 fp=2 fn=1 tn=4 precision=0.333 recall=0.5
+  tx-origin       tp=2 fp=4 fn=0 tn=1 precision=0.333 recall=1
+  unchecked-call  tp=2 fp=0 fn=3 tn=9 precision=1 recall=0.4
+MISSED (false negatives):
+  contracts/Escrow.sol:23 release (reentrancy)
+  contracts/Pool.sol:19 exit (reentrancy)
+  contracts/Hooks.sol:43 take (reentrancy)
+  contracts/Minter.sol:17 mint (access-control)
+  contracts/Minter.sol:23 halt (access-control)
+  contracts/RoleBoard.sol:33 unpause (access-control)
+  contracts/Dock.sol:26 setSink (access-control)
+  contracts/Registry.sol:19 setOracle (access-control)
+  contracts/Registry.sol:24 setOwner (access-control)
+  contracts/Throttle.sol:16 setLimit (access-control)
+  contracts/Tap.sol:30 setSteward (access-control)
+  contracts/Tap.sol:35 setFlowLoose (access-control)
+  contracts/Purse.sol:18 sweepTo (access-control)
+  contracts/Staking.sol:25 reconfigure (initializer)
+  contracts/Hub.sol:22 upgradeTo (initializer)
+  contracts/Vesting.sol:11 init (initializer)
+  contracts/Gateway.sol:27 bootstrap (initializer)
+  contracts/Conduit.sol:24 fallback (delegatecall)
+  contracts/Conduit.sol:9 setLogic (access-control)
+  contracts/Module.sol:6 runCustom (delegatecall)
+  contracts/Outbox.sol:12 payOut (unchecked-call)
+  contracts/Settler.sol:19 settleQuiet (unchecked-call)
+  contracts/Caller.sol:8 ping (unchecked-call)
+  contracts/Winder.sol:22 shutdown (selfdestruct)
+FALSE POSITIVES:
+  contracts/Strongbox.sol:25 redeem (reentrancy) flagged at line 25
+  contracts/Strongbox.sol:33 redeemTo (reentrancy) flagged at line 33
+  contracts/Dispenser.sol:31 pullChecked (reentrancy) flagged at line 31
+  contracts/Kiosk.sol:41 exitAll (reentrancy) flagged at line 41
+  contracts/Enrollment.sol:12 initialize (initializer) flagged at line 9
+  contracts/Gateway.sol:17 initialize (initializer) flagged at line 14
+  contracts/Switchboard.sol:19 forward (delegatecall) flagged at line 17
+  contracts/Plugins.sol:26 invoke (delegatecall) flagged at line 23
+  contracts/Plugins.sol:32 invokeFromFactory (delegatecall) flagged at line 30
+  contracts/Plugins.sol:38 batch (delegatecall) flagged at line 36
+  contracts/Notes.sol:12 describe (tx-origin) flagged at line 12
+  contracts/Retire.sol:17 close (selfdestruct) flagged at line 15
+  contracts/Expiry.sol:19 expire (selfdestruct) flagged at line 17
+  contracts/Tracker.sol:16 touch (tx-origin) flagged at line 16
+  contracts/Tracker.sol:20 refund (tx-origin) flagged at line 20
+  contracts/Tracker.sol:24 approveVia (tx-origin) flagged at line 24

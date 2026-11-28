@@ -1,0 +1,26 @@
+## benchmark-b v3 — solidity-structural-specialists@1 @ 4179e8776edf
+runner benchmark-runner/1; exposure: blind; complete: true; manifest: OK (18 files, sha256 1dcc1dbadc6ef4f5…)
+labels: 16 (8 vulnerable / 8 secure); label integrity: OK
+time: analyze 34.6 ms, total 37.6 ms; reproducible across file order: true
+OVERALL tp=0 fp=0 fn=8 tn=8 precision=null recall=0 fpRate=0
+  accounting-error       tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+  oracle-manipulation    tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+  state-transition       tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+  protocol-invariant     tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+  business-logic         tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+  economic-attack        tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+  cross-contract         tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+  transaction-ordering   tp=0 fp=0 fn=1 tn=1 precision=null recall=0 fpRate=0
+collisions (other detectors firing on labelled functions): 0
+unscored findings (unlabelled functions): 0
+MISSED:
+  contracts/AccountingSaleBad.sol:22 buy (accounting-error)
+  contracts/OraclePriceBad.sol:24 borrowPower (oracle-manipulation)
+  contracts/SalePhaseBad.sol:23 claim (state-transition)
+  contracts/SupplyInvariantBad.sol:21 burn (protocol-invariant)
+  contracts/ReferralSaleBad.sol:15 buy (business-logic)
+  contracts/DonationVaultBad.sol:17 deposit (economic-attack)
+  contracts/AirdropTrustBad.sol:25 claim (cross-contract)
+  contracts/SwapNoSlippageBad.sol:19 swapAForB (transaction-ordering)
+declared analyzer limitations: no accounting, precision, oracle or economic reasoning; single-function patterns
+AI adjudication (separate from the deterministic result): {"mode":"unavailable","candidates":0,"spentUsd":0}

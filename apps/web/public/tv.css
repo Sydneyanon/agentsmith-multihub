@@ -1,0 +1,50 @@
+/* AgentSmith TV board. Deliberately old-browser-safe for ~2016 Samsung Tizen (Chromium ~47):
+   no CSS custom properties, no grid, no color-mix, no clamp. Literal colours, flexbox + tables only,
+   big 10-foot type, and generous overscan padding so nothing is lost behind the bezel. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #040806; color: #dbf5e4; }
+body {
+  font-family: "DejaVu Sans Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 2vh; line-height: 1.35;
+  background-image: radial-gradient(ellipse at 50% -10%, #0c2a1a 0%, #040806 62%);
+  background-repeat: no-repeat;
+}
+.safe { padding: 4vh 4vw; min-height: 100vh; }
+
+/* header */
+.hd { display: flex; align-items: center; border-bottom: 1px solid #163a2a; padding-bottom: 1.6vh; margin-bottom: 2.2vh; }
+.logo { display: inline-block; width: 1.9em; height: 1.9em; line-height: 1.9em; text-align: center;
+  background: #2bff88; color: #031a0d; font-weight: 700; border-radius: 0.35em; margin-right: 0.6em;
+  box-shadow: 0 0 2.2vh rgba(43,255,136,0.45); }
+.brand { font-size: 3.4vh; font-weight: 700; letter-spacing: 0.04em; color: #2bff88; text-shadow: 0 0 2.4vh rgba(43,255,136,0.4); }
+.brand b { color: #dbf5e4; font-weight: 400; margin-left: 0.4em; }
+.clock { margin-left: auto; color: #6f9a82; font-size: 1.9vh; letter-spacing: 0.03em; }
+
+/* stat row */
+.stats { display: flex; margin-bottom: 2.4vh; }
+.stat { flex: 1 1 0; text-align: center; background: #0a1613; border: 1px solid #163a2a; border-radius: 1.1vh;
+  padding: 1.8vh 1vw; margin-right: 1.4vw; }
+.stat:last-child { margin-right: 0; }
+.stat .v { display: block; font-size: 4.6vh; font-weight: 700; color: #2bff88; text-shadow: 0 0 2vh rgba(43,255,136,0.3); }
+.stat.amber .v { color: #f5c044; text-shadow: 0 0 2vh rgba(245,192,68,0.3); }
+.stat.teal .v { color: #2bd4b0; text-shadow: 0 0 2vh rgba(43,212,176,0.3); }
+.stat .l { display: block; font-size: 1.7vh; color: #6f9a82; text-transform: uppercase; letter-spacing: 0.12em; margin-top: 0.3vh; }
+
+/* board table */
+.board { width: 100%; border-collapse: collapse; font-size: 2.1vh; }
+.board th { text-align: left; color: #6f9a82; text-transform: uppercase; letter-spacing: 0.1em; font-size: 1.6vh;
+  font-weight: 400; padding: 0 1vw 1.2vh; border-bottom: 1px solid #1f5a3d; }
+.board td { padding: 1.5vh 1vw; border-bottom: 1px solid #11261c; vertical-align: middle; }
+.board tr:last-child td { border-bottom: 0; }
+.board .proj { color: #ffffff; font-weight: 700; }
+.board .plat { color: #9fcbb3; text-transform: capitalize; }
+.board .reward { color: #f5c044; font-weight: 700; white-space: nowrap; }
+.board .reward.none { color: #5f7d6c; font-weight: 400; }
+.pill { display: inline-block; padding: 0.3vh 0.9vw; border-radius: 2vh; font-size: 1.5vh; letter-spacing: 0.04em;
+  border: 1px solid #1f5a3d; color: #6f9a82; }
+.pill.eligible { color: #2bff88; border-color: #2a7a4e; background: #07160f; }
+.pill.needs_verification { color: #f5c044; border-color: #7d6320; background: #171206; }
+
+/* footer */
+.ft { margin-top: 2.6vh; padding-top: 1.6vh; border-top: 1px solid #163a2a; color: #5f7d6c; font-size: 1.6vh; }
+.empty { text-align: center; color: #6f9a82; padding: 8vh 0; font-size: 2.4vh; }

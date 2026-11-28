@@ -1,0 +1,463 @@
+{
+  "score": {
+    "name": "baseline-prototype",
+    "labels": 31,
+    "perClass": {
+      "reentrancy": {
+        "tp": 4,
+        "fp": 1,
+        "fn": 1,
+        "tn": 1,
+        "lineExact": 4,
+        "lineNear": 4,
+        "spanValid": 4,
+        "precision": 0.8,
+        "recall": 0.8
+      },
+      "access-control": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 5,
+        "tn": 6,
+        "lineExact": 0,
+        "lineNear": 0,
+        "spanValid": 0,
+        "precision": null,
+        "recall": 0
+      },
+      "initializer": {
+        "tp": 1,
+        "fp": 1,
+        "fn": 0,
+        "tn": 0,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 0.5,
+        "recall": 1
+      },
+      "delegatecall": {
+        "tp": 2,
+        "fp": 1,
+        "fn": 0,
+        "tn": 0,
+        "lineExact": 2,
+        "lineNear": 2,
+        "spanValid": 2,
+        "precision": 0.667,
+        "recall": 1
+      },
+      "unchecked-call": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 1,
+        "tn": 2,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 1,
+        "recall": 0.5
+      },
+      "tx-origin": {
+        "tp": 1,
+        "fp": 1,
+        "fn": 0,
+        "tn": 0,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 0.5,
+        "recall": 1
+      },
+      "selfdestruct": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1,
+        "lineExact": 1,
+        "lineNear": 1,
+        "spanValid": 1,
+        "precision": 1,
+        "recall": 1
+      }
+    },
+    "total": {
+      "tp": 10,
+      "fp": 4,
+      "fn": 7,
+      "tn": 10,
+      "lineExact": 10,
+      "lineNear": 10,
+      "spanValid": 10,
+      "precision": 0.714,
+      "recall": 0.588
+    },
+    "misses": [
+      "contracts/Bank.sol:47 withdrawHelper (reentrancy)",
+      "contracts/Admin.sol:21 setOracleOpen (access-control)",
+      "contracts/Admin.sol:25 addMinter (access-control)",
+      "contracts/Admin.sol:28 mint (access-control)",
+      "contracts/Admin.sol:20 setFeeOpen (access-control)",
+      "contracts/Misc.sol:22 viaHelper (unchecked-call)",
+      "contracts/ModArg.sol:10 setOtherWrongArg (access-control)"
+    ],
+    "falsePos": [
+      "contracts/Bank.sol:38 withdrawLocked (reentrancy) flagged at line 33",
+      "contracts/Misc.sol:11 initOnce (initializer) flagged at line 11",
+      "contracts/Misc.sol:14 fwdOwner (delegatecall) flagged at line 14",
+      "contracts/Misc.sol:28 eoaGate (tx-origin) flagged at line 27"
+    ],
+    "unlabelledFindings": 1,
+    "detail": [
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawBad",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 15,
+        "note": "call before write (checked 0.8 subtraction: not drainable, see validator)",
+        "exploitable": false,
+        "reported": true,
+        "reportedLine": 15
+      },
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawCei",
+        "class": "reentrancy",
+        "vulnerable": false,
+        "line": 29,
+        "note": "effects before interaction",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawLocked",
+        "class": "reentrancy",
+        "vulnerable": false,
+        "line": 38,
+        "note": "custom lock",
+        "reported": true,
+        "reportedLine": 33
+      },
+      {
+        "file": "contracts/Bank.sol",
+        "contract": "Bank",
+        "function": "withdrawHelper",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 47,
+        "note": "call in helper before write",
+        "exploitable": false,
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Bank2.sol",
+        "contract": "Bank2",
+        "function": "cashOut",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 14,
+        "note": "zeroing after call",
+        "exploitable": true,
+        "reported": true,
+        "reportedLine": 14
+      },
+      {
+        "file": "contracts/Bank2.sol",
+        "contract": "Bank2",
+        "function": "withdrawUnchecked",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 22,
+        "note": "unchecked subtraction after call",
+        "exploitable": true,
+        "reported": true,
+        "reportedLine": 22
+      },
+      {
+        "file": "contracts/Bank2.sol",
+        "contract": "Bank2",
+        "function": "claimBonus",
+        "class": "reentrancy",
+        "vulnerable": true,
+        "line": 30,
+        "note": "flag set after payout",
+        "exploitable": true,
+        "reported": true,
+        "reportedLine": 30
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleOpen",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 21,
+        "note": "unguarded authority write",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleGuarded",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 22,
+        "note": "modifier via helper",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleInBody",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 23,
+        "note": "in-body require",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setOracleIf",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 24,
+        "note": "if-revert guard",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "addMinter",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 25,
+        "note": "unguarded role grant",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "addMinterRole",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 26,
+        "note": "role check",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "transferOwner",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 27,
+        "note": "reverting check after write undoes it",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "mint",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 28,
+        "note": "unguarded mint",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Admin.sol",
+        "contract": "Config",
+        "function": "setFeeOpen",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 20,
+        "note": "unguarded fee change",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "initOpen",
+        "class": "initializer",
+        "vulnerable": true,
+        "line": 10,
+        "note": "open initializer",
+        "reported": true,
+        "reportedLine": 10
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "initOnce",
+        "class": "initializer",
+        "vulnerable": false,
+        "line": 11,
+        "note": "one-time flag",
+        "reported": true,
+        "reportedLine": 11
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "fwdOpen",
+        "class": "delegatecall",
+        "vulnerable": true,
+        "line": 13,
+        "note": "param target",
+        "reported": true,
+        "reportedLine": 13
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "fwdOwner",
+        "class": "delegatecall",
+        "vulnerable": false,
+        "line": 14,
+        "note": "owner only",
+        "reported": true,
+        "reportedLine": 14
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "fwdImpl",
+        "class": "delegatecall",
+        "vulnerable": true,
+        "line": 15,
+        "note": "target set by open setter",
+        "reported": true,
+        "reportedLine": 15
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "ignored",
+        "class": "unchecked-call",
+        "vulnerable": true,
+        "line": 18,
+        "note": "result ignored",
+        "reported": true,
+        "reportedLine": 18
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "checked",
+        "class": "unchecked-call",
+        "vulnerable": false,
+        "line": 19,
+        "note": "checked inline",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "viaHelper",
+        "class": "unchecked-call",
+        "vulnerable": true,
+        "line": 22,
+        "note": "helper returns flag, caller ignores",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "viaHelperChecked",
+        "class": "unchecked-call",
+        "vulnerable": false,
+        "line": 23,
+        "note": "caller requires flag",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "viaOrigin",
+        "class": "tx-origin",
+        "vulnerable": true,
+        "line": 25,
+        "note": "tx.origin authorisation",
+        "reported": true,
+        "reportedLine": 25
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "eoaGate",
+        "class": "tx-origin",
+        "vulnerable": false,
+        "line": 28,
+        "note": "anti-contract check",
+        "reported": true,
+        "reportedLine": 27
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "killOpen",
+        "class": "selfdestruct",
+        "vulnerable": true,
+        "line": 29,
+        "note": "unguarded",
+        "reported": true,
+        "reportedLine": 29
+      },
+      {
+        "file": "contracts/Misc.sol",
+        "contract": "Misc",
+        "function": "killOwner",
+        "class": "selfdestruct",
+        "vulnerable": false,
+        "line": 30,
+        "note": "guarded",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/ModArg.sol",
+        "contract": "ModArg",
+        "function": "setOtherGuarded",
+        "class": "access-control",
+        "vulnerable": false,
+        "line": 9,
+        "note": "modifier argument is the authority",
+        "reported": false,
+        "reportedLine": null
+      },
+      {
+        "file": "contracts/ModArg.sol",
+        "contract": "ModArg",
+        "function": "setOtherWrongArg",
+        "class": "access-control",
+        "vulnerable": true,
+        "line": 10,
+        "note": "modifier argument is caller-supplied, so the check is meaningless",
+        "reported": false,
+        "reportedLine": null
+      }
+    ]
+  },
+  "validation": null,
+  "reproducible": true,
+  "findings": 16
+}

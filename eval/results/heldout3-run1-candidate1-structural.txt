@@ -1,0 +1,33 @@
+## structural-analyzer on /home/user/agentsmith-multihub/eval/heldout3/contracts
+labels: 79; findings: 38; reproducible across file order: true; findings in unlabelled functions (unscored): 10
+TOTAL tp=18 fp=2 fn=13 tn=46 precision=0.9 recall=0.581; key line exact 12/18, within 2 lines 17/18
+  reentrancy      tp=4 fp=1 fn=2 tn=9 precision=0.8 recall=0.667
+  access-control  tp=4 fp=0 fn=1 tn=10 precision=1 recall=0.8
+  initializer     tp=2 fp=0 fn=4 tn=8 precision=1 recall=0.333
+  delegatecall    tp=2 fp=1 fn=2 tn=6 precision=0.667 recall=0.5
+  unchecked-call  tp=2 fp=0 fn=2 tn=4 precision=1 recall=0.5
+  selfdestruct    tp=1 fp=0 fn=2 tn=4 precision=1 recall=0.333
+  tx-origin       tp=3 fp=0 fn=0 tn=5 precision=1 recall=1
+MISSED (false negatives):
+  contracts/NativeStakingPool.sol:76 unstake (reentrancy)
+  contracts/EthLiquidityPool.sol:46 removeLiquidity (reentrancy)
+  contracts/YieldController.sol:76 setVaultStrategy (access-control)
+  contracts/RewardsControllerV1.sol:89 upgradeToAndCall (initializer)
+  contracts/PriceFeedAdapterV1.sol:61 initialize (initializer)
+  contracts/AdminSlotProxy.sol:73 changeAdmin (initializer)
+  contracts/MarketLogic.sol:24 initialize (initializer)
+  contracts/SharedWallet.sol:65 fallback (delegatecall)
+  contracts/SimpleUpgradeProxy.sol:67 fallback (delegatecall)
+  contracts/TokenFeeCollector.sol:53 sweep (unchecked-call)
+  contracts/RelayBatchExecutor.sol:59 executeBatch (unchecked-call)
+  contracts/MarketLogic.sol:39 emergencyRetire (selfdestruct)
+  contracts/VaultFactory.sol:30 retireVault (selfdestruct)
+FALSE POSITIVES:
+  contracts/PrepaidCreditLedger.sol:27 withdraw (reentrancy) flagged at line 27
+  contracts/EmissionsControllerV1.sol:44 upgradeToAndCall (delegatecall) flagged at line 44
+REENTRANCY VALIDATION (execution):
+  contracts/AirdropDistributor.sol:claim -> inconclusive (label vulnerable=true) some scenarios could not be modelled (external call points.mint); the rest found no exploit
+  contracts/EtherShareVault.sol:redeem -> refuted (label vulnerable=true) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (division by zero)
+  contracts/MerchantEscrow.sol:release -> refuted (label vulnerable=true) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -)
+  contracts/PrepaidCreditLedger.sol:withdraw -> refuted (label vulnerable=false) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (revert at line 25); the r
+  contracts/ReserveAuction.sol:withdrawRefund -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering w

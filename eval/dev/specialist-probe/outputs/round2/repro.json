@@ -1,0 +1,46 @@
+{
+  "specialist": "reproduction",
+  "results": [
+    {
+      "issue": 1,
+      "test": "test_freshStakerStealsPastRewards",
+      "file": "work/test/RewardPool.t.sol",
+      "command": "forge test --offline --match-test test_freshStakerStealsPastRewards -vv",
+      "result": "passed",
+      "demonstrates": "impact",
+      "impact_measured": "stake() calls _updatePool() but never _updateUser(), so a fresh staker's userRewardPerTokenPaid stays 0. Alice stakes 100 and accrues 100 reward units over 100s; Bob then stakes 100 and is immediately credited (and claims) 100 reward tokens for 0 seconds of staking. Pool only accrued 100 units total, yet Alice (100) and Bob (100) are both owed 100 => double-counting / drains the reward reserve.",
+      "limits": "Phantom reward is capped at Bob.stake * rewardPerTokenStored-at-join and is bounded by the rewardToken balance funded into the pool; if the pool is underfunded the final claim() transfer would revert. The claim moving tokens is the demonstrated impact, not just a revert."
+    },
+    {
+      "issue": 2,
+      "test": "test_spotPriceManipulationOverBorrow",
+      "file": "work/test/LendingPoolOracle.t.sol",
+      "command": "forge test --offline --match-test test_spotPriceManipulationOverBorrow -vv",
+      "result": "passed",
+      "demonstrates": "impact",
+      "impact_measured": "price() reads pair.getReserves() spot. Starting from a fair 10:10 pair (price 1e18), attacker donates 10e18 debt token to the pair and calls public sync(), moving price to 2e18. With 1000e18 collateral (true value 1000e18) it borrows 1500e18. Pool bad debt at the undistorted price = debt(1500e18) - trueCollateralValue(1000e18) = 500e18. Attacker net profit if it abandons = 1500 - 1000 - 10 = 490e18.",
+      "limits": "Profitability depends on the pair's reserves being small relative to collateral (donation cost 10e18 << 500e18 stolen). The fixture SimplePair only exposes swap0For1 (which LOWERS r1/r0), so the price was raised via donation+sync rather than a reversible swap; a swap-only manipulation in the raising direction is not possible with this pair."
+    },
+    {
+      "issue": 3,
+      "test": "test_nonOwnerSetsPairAndDrains",
+      "file": "work/test/LendingPoolSetPair.t.sol",
+      "command": "forge test --offline --match-test test_nonOwnerSetsPairAndDrains -vv",
+      "result": "passed",
+      "demonstrates": "impact",
+      "impact_measured": "setPair() has no onlyOwner modifier. A non-owner attacker (pool.owner() != attacker asserted) installs its own SimplePair reporting price 1e42 (reserves 1 : 1e24), deposits 1e18 collateral, and borrows the pool's entire 1000e18 debt-token balance. Pool drained to 0; attacker holds 1000e18 debt tokens backed by 1e18 real collateral.",
+      "limits": "Impact scales with the pool's debt-token liquidity; the attacker takes whatever is available. No price-manipulation or timing needed since the oracle itself is attacker-chosen."
+    },
+    {
+      "issue": 4,
+      "test": "test_oneFailingRecipientLocksAllFunds",
+      "file": "work/test/PayoutSplitter.t.sol",
+      "command": "forge test --offline --match-test test_oneFailingRecipientLocksAllFunds -vv",
+      "result": "passed",
+      "demonstrates": "impact",
+      "impact_measured": "distribute() wraps each transfer in require(...), so a token whose transfer to recipient bob returns false reverts the whole call. All three recipients receive 0 (including alice whose leg runs first, rolled back by the revert), and all 1000e18 remains in the splitter. Repeated distribute() keeps reverting; there is no owner withdraw or escape function, so the funds are permanently locked. A control test with a healthy token distributes 300/400/300e18 correctly, isolating the cause to the failing recipient.",
+      "limits": "Demonstrated with the returns-false path; a transfer that reverts would also revert the whole distribution identically. Lock persists only while the blocking recipient's transfer keeps failing; funds are not destroyed, just frozen given the fixed recipient list and absent recovery path."
+    }
+  ],
+  "notes": "Minimal Foundry project at work/ (foundry.toml pins solc-0.8.28, offline). Fixture sources copied verbatim into work/src (unmodified). Helpers.sol provides MockERC20, BlockingERC20, and an IVm cheatcode interface (warp). Users are modeled as small actor contracts calling the targets directly (no forge-std). All 4 reported issues CONFIRMED with quantified impact (not revert-only); none refuted. Re-run all: cd work && forge test --offline -vv (5 tests pass, incl. 1 control)."
+}

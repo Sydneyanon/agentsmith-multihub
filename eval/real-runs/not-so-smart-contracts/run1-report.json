@@ -1,0 +1,16 @@
+{
+  "repository": "crytic/not-so-smart-contracts",
+  "ref": "020dbdbde3e0c2e8de5f3944e7455e438b0995d5",
+  "commit_sha": "020dbdbde3e0c2e8de5f3944e7455e438b0995d5",
+  "manifest_sha256": "b0d4fb23c8487a77a609f1f60f1ef7da294ede37adcd8457b9b6a36575b838f4",
+  "files": 47,
+  "completeness": "complete",
+  "contracts": 53,
+  "functions": 243,
+  "leads": 62,
+  "parse_problems": [],
+  "dossier_content_sha256": "6e4d467b7c5a4e9aba7000233b52f7a1147e9b6c626d219f102debc045754676",
+  "seconds": 1,
+  "passive_only": true,
+  "note": "Leads are unverified; no human review is recorded."
+}

@@ -1,0 +1,14 @@
+{"note":"A local corpus of previously disclosed findings (paraphrased, generic). Treat it as the prior-art database for this exercise.","disclosures":[
+ {"id":"PA-01","title":"Vault first-depositor inflation","text":"An ERC4626-style vault computes shares from the raw token balance; the first depositor mints 1 wei of shares, donates tokens, and later deposits round down to zero shares. Mitigation: virtual shares/offset or minimum initial deposit."},
+ {"id":"PA-02","title":"Staking stake() missing reward checkpoint","text":"In a reward-per-token staking contract, stake() updated the global accumulator but not the user's paid index, so a new staker was credited rewards accrued before staking."},
+ {"id":"PA-03","title":"Spot AMM reserves used as lending oracle","text":"A lending market priced collateral from an AMM pair's getReserves(); a flash loan or donation plus sync() moved the price within one transaction and allowed over-borrowing."},
+ {"id":"PA-04","title":"withdraw(assets) rounds shares in the user's favour","text":"Converting an exact asset amount to shares to burn used floor division; it should round up. With share price above 1, small withdrawals burn zero shares."},
+ {"id":"PA-05","title":"Unprotected oracle setter","text":"The function that sets the price source lacked an owner check; anyone could install a malicious price source."},
+ {"id":"PA-06","title":"Fee splitter blocked by one recipient","text":"A splitter paid every recipient in a loop; one recipient whose transfer reverted (e.g. a blacklisted USDC address) blocked all distributions; recipients were immutable."},
+ {"id":"PA-07","title":"Reward rate set without funding","text":"An admin could set a reward rate not backed by deposited rewards, making the pool insolvent for late claimers."},
+ {"id":"PA-08","title":"No liquidation mechanism","text":"The lending pool had no way to liquidate undercollateralised positions, so bad debt accumulated after price moves."},
+ {"id":"PA-09","title":"Pair input theft between transactions","text":"In a pair that measures input as balance minus reserves, tokens transferred in one transaction and swapped in another can be swapped by anyone first."},
+ {"id":"PA-10","title":"Callback token reentrancy in a swap","text":"A pair transferred output before updating reserves; a token with transfer hooks allowed re-entering swap and reusing the same input."},
+ {"id":"PA-11","title":"Division by zero when supply is zero","text":"Share conversion divided by totalSupply, reverting when no shares existed (e.g. redeem/previewRedeem on an empty vault)."},
+ {"id":"PA-12","title":"Fee-on-transfer tokens over-credit deposits","text":"Contracts credited the nominal amount instead of the received balance, over-crediting deposits of fee-on-transfer tokens."}
+]}

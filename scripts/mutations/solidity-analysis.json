@@ -1,0 +1,221 @@
+{
+ "command": "npx vitest run apps/api/src/analysis",
+ "mutations": [
+  {
+   "name": "specialists: a reverting check after the write no longer protects",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "((g.reverting && !target.ret) || i < idx)",
+   "new": "(i < idx)"
+  },
+  {
+   "name": "specialists: a lock engaged before the call is ignored",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "      if (locked) continue;\n",
+   "new": "\n"
+  },
+  {
+   "name": "specialists: unchecked-call ignores whether the result was checked",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "c.checked !== \"unchecked\" || ",
+   "new": "false || "
+  },
+  {
+   "name": "trace: modifier arguments are not treated as authorities",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (this.isAuthority(a, ctx)) mctx.authLocals.add(p.name);",
+   "new": ""
+  },
+  {
+   "name": "trace: internal helpers are not inlined (first call site)",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee) { this.inline(callee, ctx.contract, e, ctx, usage); return; }",
+   "new": "      const callee = this.ix.findFunction(ctx.contract, n, e.args.length);\n      if (callee && false) { this.inline(callee, ctx.contract, e, ctx, usage); return; }"
+  },
+  {
+   "name": "trace: a helper's returned success flag is never resolved by its caller",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "ev.checked === \"returned\") ev.checked = used;",
+   "new": "ev.checked === \"returned\") ev.checked = \"unchecked\";"
+  },
+  {
+   "name": "trace: tx.origin == msg.sender counts as authorisation",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (msgSender) { if (kind === \"other\") kind = \"eoa-check\"; } else kind = \"auth\";",
+   "new": "kind = \"auth\";"
+  },
+  {
+   "name": "simulate: arithmetic never reverts (pre-0.8 semantics everywhere)",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "if (r < 0n || r >= MAX) { if (f.unchecked)",
+   "new": "if (r < 0n || r >= MAX) { if (true)"
+  },
+  {
+   "name": "simulate: any re-entrant payout counts as an exploit",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "if (sim.w.received > honest) {",
+   "new": "if (sim.w.received >= honest) {"
+  },
+  {
+   "name": "simulate: a reverting re-entrant call is not rolled back",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "this.w.restore(snapshot); this.w.trace.push",
+   "new": "this.w.trace.push"
+  },
+  {
+   "name": "lexer: line comments are read as code",
+   "file": "apps/api/src/analysis/solidity/lexer.ts",
+   "old": "if (c === \"/\" && source[i + 1] === \"/\") { while (i < n && source[i] !== \"\\n\") i++; continue; }",
+   "new": "if (false) { continue; }"
+  },
+  {
+   "name": "parser: unchecked blocks are treated as checked",
+   "file": "apps/api/src/analysis/solidity/parser.ts",
+   "old": "body: parseBlockBody(ps), unchecked: true, line }]",
+   "new": "body: parseBlockBody(ps), unchecked: false, line }]"
+  },
+  {
+   "name": "index: pre-0.8 pragma is ignored",
+   "file": "apps/api/src/analysis/solidity/index.ts",
+   "old": "Number(ver[1]) === 0 && Number(ver[2]) < 8 : legacyMarkers",
+   "new": "false : legacyMarkers"
+  },
+  {
+   "name": "challenge: privileged addresses default to the zero address instead of a third party",
+   "file": "apps/api/src/analysis/solidity/challenge.ts",
+   "old": "it.entryFn = entry; it.thirdPartyAddressDefault = true;",
+   "new": "it.entryFn = entry; it.thirdPartyAddressDefault = false;"
+  },
+  {
+   "name": "challenge: unchecked-call challenge does not model a failing call",
+   "file": "apps/api/src/analysis/solidity/challenge.ts",
+   "old": "it.failCalls = true;",
+   "new": "it.failCalls = false;"
+  },
+  {
+   "name": "simulate: statements reached are not recorded",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "this.reached.add(`${f.fn.file}:${s.line}`);",
+   "new": ""
+  },
+  {
+   "name": "specialists: an early-return path is protected by a later reverting check",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "((g.reverting && !target.ret) || i < idx)",
+   "new": "(g.reverting || i < idx)"
+  },
+  {
+   "name": "trace: arguments passed to helpers do not carry authority into the helper",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (this.isAuthority(a, ctx)) sub.authLocals.add(p.name); });",
+   "new": "});"
+  },
+  {
+   "name": "specialists: a stored allow-list does not restrict a delegatecall target",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "      if (ev.some((g) => g.k === \"guard\" && g.reverting && !g.cond && g.text.includes(`[${c.targetText}]`))) continue; // the target must be a member of a stored allow-list\n",
+   "new": "\n"
+  },
+  {
+   "name": "trace: a helper parameter is not traced back to its argument",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (e.k === \"id\" && ctx.aliases.has(e.name)) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "index: same-name functions are not constructors",
+   "file": "apps/api/src/analysis/solidity/index.ts",
+   "old": "if (f.kind === \"function\" && f.name === c.name) f.kind = \"constructor\";",
+   "new": ""
+  },
+  {
+   "name": "parser: legacy .call.value(v)() is not normalised",
+   "file": "apps/api/src/analysis/solidity/parser.ts",
+   "old": "if (!changed || fn.k !== \"member\"",
+   "new": "if (true || fn.k !== \"member\""
+  },
+  {
+   "name": "parser: throw; is not a revert",
+   "file": "apps/api/src/analysis/solidity/parser.ts",
+   "old": "case \"throw\": if (ps.is(\";\", 1)) { ps.p += 2; return [{ k: \"revert\", line }]; } break;",
+   "new": ""
+  },
+  {
+   "name": "trace: `_` inside an authorised branch does not protect the body",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "ctx.branch = { cond: saved.cond || mctx.branch.cond, prot: saved.prot || mctx.branch.prot, ret: saved.ret || mctx.branch.ret };",
+   "new": "ctx.branch = saved;"
+  },
+  {
+   "name": "specialists (via shared state roles): authorities are not derived from authorising guards",
+   "file": "apps/api/src/analysis/solidity/state-roles.ts",
+   "old": "      for (const g of tr.events) if (g.k === \"guard\" && g.auth && !g.assumed && (g.contract === c.name",
+   "new": "      for (const g of [] as typeof tr.events) if (g.k === \"guard\" && g.auth && !g.assumed && (g.contract === c.name"
+  },
+  {
+   "name": "specialists: name-based leads fire with no notion of privilege",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "e.k === \"write\" && auth.size > 0 && PRIV_NAME.test(fn.name)",
+   "new": "e.k === \"write\" && PRIV_NAME.test(fn.name)"
+  },
+  {
+   "name": "trace: helper parameters standing for msg.sender are not recognised",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "return isCaller(al.expr) || (al.expr.k === \"id\" && this.aliasIsCaller(al.expr.name, al.ctx));",
+   "new": "return false;"
+  },
+  {
+   "name": "A: internal calls switch to the callee's declaring contract",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "if (callee) { this.inline(callee, ctx.contract, e, ctx, usage); return; }\n      for (const a of e.args)",
+   "new": "if (callee) { this.inline(callee, callee.contract, e, ctx, usage); return; }\n      for (const a of e.args)"
+  },
+  {
+   "name": "A: modifiers run in their declaring contract",
+   "file": "apps/api/src/analysis/solidity/trace.ts",
+   "old": "const mctx: Ctx = { ...this.newCtx(def, ctx.contract,",
+   "new": "const mctx: Ctx = { ...this.newCtx(def, def.contract,"
+  },
+  {
+   "name": "A: inherited functions keep the base as context",
+   "file": "apps/api/src/analysis/solidity/index.ts",
+   "old": "out.push(f.contract === contract ? f : { ...f, contract });",
+   "new": "out.push(f);"
+  },
+  {
+   "name": "A: abstract bases analysed standalone even when deployed through a child",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "if (c.kind === \"abstract\" && inherited.has(c.name)) continue;",
+   "new": "if (false) continue;"
+  },
+  {
+   "name": "A: duplicate findings across deployed contexts",
+   "file": "apps/api/src/analysis/solidity/specialists.ts",
+   "old": "if (seen.has(k)) continue; seen.add(k); out.push(f);",
+   "new": "out.push(f);"
+  },
+  {
+   "name": "V1: aggregates not seeded",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "for (const a of aggregates) it.writeVar(a, [], (credit + 10n) * ETHER);",
+   "new": ""
+  },
+  {
+   "name": "V2: unexplored payable targets ignored",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "if (payableTargets.length) return",
+   "new": "if (false) return"
+  },
+  {
+   "name": "V2: every payable target blocks refutation",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "g.mutability === \"payable\" && pricesFromStale(g)",
+   "new": "g.mutability === \"payable\""
+  },
+  {
+   "name": "V3: named returns not modelled",
+   "file": "apps/api/src/analysis/solidity/simulate.ts",
+   "old": "for (const r of fn.returns) if (r.name && !locals.has(r.name)) locals.set(r.name, this.defaultFor(r.type));",
+   "new": ""
+  }
+ ]
+}

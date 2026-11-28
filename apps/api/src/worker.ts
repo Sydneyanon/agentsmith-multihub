@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
+import { LeaseLostError } from "./step-errors.js";
 
 export type ClaimedStep = {
   id: string;
@@ -17,14 +18,15 @@ export class WorkflowWorker {
     private readonly pool: Pool,
     private readonly workerId: string,
     private readonly leaseSeconds = 90,
-    private readonly maxAttempts = 3,
+    readonly maxAttempts = 3,
   ) {
     if (!workerId.trim()) throw new Error("workerId is required");
     if (!Number.isInteger(leaseSeconds) || leaseSeconds < 10) throw new Error("leaseSeconds must be at least 10");
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error("maxAttempts must be positive");
   }
 
-  async claimNext(allowedStepKeys?: readonly string[]): Promise<ClaimedStep | null> {
+  /** `onlyRunId` limits the claim to one run (the operator CLI and R1's temporary worker execute exactly the run they were given). */
+  async claimNext(allowedStepKeys?: readonly string[], onlyRunId?: string): Promise<ClaimedStep | null> {
     if (allowedStepKeys && allowedStepKeys.length === 0) return null;
     const client = await this.pool.connect();
     try {
@@ -41,6 +43,7 @@ export class WorkflowWorker {
              )
              AND s.attempt < $3
              AND ($4::text[] IS NULL OR s.step_key = ANY($4::text[]))
+             AND ($5::uuid IS NULL OR s.workflow_run_id = $5::uuid)
              AND NOT EXISTS (
                SELECT 1 FROM workflow_steps prior
                WHERE prior.workflow_run_id = s.workflow_run_id
@@ -62,7 +65,7 @@ export class WorkflowWorker {
          RETURNING s.id, s.workflow_run_id, s.step_key, s.sequence, s.role,
                    s.attempt, s.input,
                    (SELECT r.correlation_id FROM workflow_runs r WHERE r.id = s.workflow_run_id) AS correlation_id`,
-        [this.workerId, this.leaseSeconds, this.maxAttempts, allowedStepKeys ? [...allowedStepKeys] : null],
+        [this.workerId, this.leaseSeconds, this.maxAttempts, allowedStepKeys ? [...allowedStepKeys] : null, onlyRunId ?? null],
       );
       if (!claimed.rowCount) {
         await client.query("COMMIT");
@@ -165,7 +168,7 @@ export class WorkflowWorker {
          FOR UPDATE`,
         [stepId, this.workerId],
       );
-      if (!owned.rowCount) throw new Error("Step lease lost before source snapshot persistence");
+      if (!owned.rowCount) throw new LeaseLostError("Step lease lost before source snapshot persistence");
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO source_snapshots
           (workflow_run_id, workflow_step_id, source_uri, source_kind, content_sha256, content)
@@ -205,7 +208,7 @@ export class WorkflowWorker {
            (SELECT correlation_id FROM workflow_runs WHERE id = workflow_run_id) AS correlation_id`,
         [stepId, this.workerId, JSON.stringify(output)],
       );
-      if (!updated.rowCount) throw new Error("Step lease lost or step is not owned by this worker");
+      if (!updated.rowCount) throw new LeaseLostError("Step lease lost or step is not owned by this worker");
       const runId = updated.rows[0]!.workflow_run_id;
       const remaining = await client.query(
         `SELECT count(*)::int AS count FROM workflow_steps
@@ -246,7 +249,7 @@ export class WorkflowWorker {
          RETURNING workflow_run_id, attempt`,
         [stepId, this.workerId, retryable, this.maxAttempts, reason],
       );
-      if (!failed.rowCount) throw new Error("Step lease lost or step is not owned by this worker");
+      if (!failed.rowCount) throw new LeaseLostError("Step lease lost or step is not owned by this worker");
       const row = failed.rows[0]!;
       if (row.attempt >= this.maxAttempts || !retryable) {
         await client.query(

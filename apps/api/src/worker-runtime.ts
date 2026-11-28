@@ -1,8 +1,19 @@
 import { createHash } from "node:crypto";
+import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext } from "./acquisition/step.js";
+import { ANALYSIS_STEP_KEYS, SLITHER_STEP_KEY, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
+import { slitherScanClaimable } from "./analysis/solidity/slither-step.js";
+import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
+import { dispatchEngineStep, ENGINE_LOOP_SWITCH, ENGINE_STEP_KEYS } from "./engine/steps.js";
+import { githubSourceFromEnv, type RepositorySource } from "./acquisition/github-source.js";
 import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { WorkflowWorker, type ClaimedStep } from "./worker.js";
 import { resolveSourceReference } from "./source-resolver.js";
+import { outboundFetch } from "./net/outbound.js";
+import { githubApiAuthHeader } from "./net/github-auth.js";
+import { MONITOR_STEP_KEY, ensureDueMonitorRuns, processMonitorSourceStep } from "./discovery/step.js";
+import { LeaseLostError, httpStatusError } from "./step-errors.js";
+import { defaultLog, runWorkerLoop, type LogFn, type WorkerLoopOptions } from "./worker-loop.js";
 
 type IntakeStepInput = {
   intake_kind?: unknown;
@@ -112,13 +123,14 @@ export async function processProjectIdentification(worker: WorkflowWorker, step:
   }
 
   const endpoint = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
-  const response = await fetch(endpoint, {
+  const response = await outboundFetch(endpoint, {
     method: "GET",
     redirect: "manual",
     headers: {
       accept: "application/vnd.github+json",
       "x-github-api-version": "2022-11-28",
       "user-agent": "AgentSmith-MultiHub/0.1",
+      ...githubApiAuthHeader(), // api.github.com only (both callers use fixed api.github.com URLs; redirects are refused)
     },
     signal: AbortSignal.timeout(8_000),
   });
@@ -136,7 +148,7 @@ export async function processProjectIdentification(worker: WorkflowWorker, step:
     });
     return { status: "completed", stepId: step.id };
   }
-  if (!response.ok) throw new Error(`GitHub API returned HTTP ${response.status}`);
+  if (!response.ok) throw httpStatusError("GitHub API", response);
 
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
   if (Number.isFinite(declaredLength) && declaredLength > 128_000) {
@@ -251,20 +263,21 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
 }
 
 async function githubGet(url: string, maxBytes: number): Promise<{ response: Response; body: string }> {
-  const response = await fetch(url, {
+  const response = await outboundFetch(url, {
     method: "GET",
     redirect: "manual",
     headers: {
       accept: "application/vnd.github+json",
       "x-github-api-version": "2022-11-28",
       "user-agent": "AgentSmith-MultiHub/0.1",
+      ...(new URL(url).origin === "https://api.github.com" ? githubApiAuthHeader() : {}), // api.github.com only (both callers use fixed api.github.com URLs; redirects are refused)
     },
     signal: AbortSignal.timeout(10_000),
   });
   if (response.status >= 300 && response.status < 400) {
     throw new Error("GitHub API redirect rejected by source-fetch policy");
   }
-  if (!response.ok) throw new Error(`GitHub API returned HTTP ${response.status}`);
+  if (!response.ok) throw httpStatusError("GitHub API", response);
   return { response, body: await readBoundedResponse(response, maxBytes) };
 }
 
@@ -305,7 +318,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   }
   const [owner, name] = fullName.split("/");
   const treeUrl = `https://api.github.com/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(name!)}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
-  if (!await worker.heartbeat(step.id)) throw new Error("Repository acquisition lost its worker lease before tree retrieval");
+  if (!await worker.heartbeat(step.id)) throw new LeaseLostError("Repository acquisition lost its worker lease before tree retrieval");
   const treeResult = await githubGet(treeUrl, 2_000_000);
   const treeParsed: unknown = JSON.parse(treeResult.body);
   if (!isRecord(treeParsed) || !Array.isArray(treeParsed.tree)) {
@@ -336,12 +349,12 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
   const files: Array<{ path: string; blob_sha: string; size: number; content: string; truncated: boolean }> = [];
   let totalBytes = 0;
   for (const entry of candidates) {
-    if (!await worker.heartbeat(step.id)) throw new Error("Repository acquisition lost its worker lease during source retrieval");
+    if (!await worker.heartbeat(step.id)) throw new LeaseLostError("Repository acquisition lost its worker lease during source retrieval");
     const remaining = 512_000 - totalBytes;
     if (remaining <= 0) break;
     const encodedBranch = branch.split("/").map(encodeURIComponent).join("/");
     const url = `https://raw.githubusercontent.com/${owner}/${name}/${encodedBranch}/${entry.path.split("/").map(encodeURIComponent).join("/")}`;
-    const response = await fetch(url, {
+    const response = await outboundFetch(url, {
       method: "GET",
       redirect: "manual",
       headers: { "user-agent": "AgentSmith-MultiHub/0.1", accept: "text/plain" },
@@ -349,7 +362,7 @@ export async function processRepositoryAcquisition(pool: Pool, worker: WorkflowW
     });
     if (response.status >= 300 && response.status < 400) throw new Error("Raw GitHub redirect rejected");
     if (response.status === 404) continue;
-    if (!response.ok) throw new Error(`Raw GitHub returned HTTP ${response.status} for ${entry.path}`);
+    if (!response.ok) throw httpStatusError("Raw GitHub", response, ` for ${entry.path}`);
     const content = await readBoundedResponse(response, Math.min(48_000, remaining));
     const bytes = new TextEncoder().encode(content).byteLength;
     totalBytes += bytes;
@@ -422,7 +435,7 @@ export async function processAuthorizationGate(pool: Pool, worker: WorkflowWorke
 }
 
 type SnapshotFile = { path: string; blob_sha: string; size: number; content: string; truncated: boolean };
-const SURFACE_RULES: Array<{ id: string; family: string; description: string; expression: RegExp; extensions: RegExp }> = [
+export const SURFACE_RULES: Array<{ id: string; family: string; description: string; expression: RegExp; extensions: RegExp }> = [
   { id: "SOL-EXT-ENTRY", family: "solidity-entrypoint", description: "Externally callable or public Solidity function", expression: /\bfunction\s+[A-Za-z_$][\w$]*\s*\([^)]*\)[^{;]*(?:external|public)\b/g, extensions: /\.sol$/ },
   { id: "SOL-LOWLEVEL-CALL", family: "solidity-low-level-call", description: "Low-level call, delegatecall or staticcall site", expression: /\.(?:call|delegatecall|staticcall)\s*(?:\{|\()/g, extensions: /\.sol$/ },
   { id: "SOL-TX-ORIGIN", family: "solidity-authentication", description: "tx.origin reference; review authentication context", expression: /\btx\s*\.\s*origin\b/g, extensions: /\.sol$/ },
@@ -527,7 +540,7 @@ export async function processAttackSurfaceMapping(pool: Pool, worker: WorkflowWo
 }
 
 
-const HYPOTHESIS_TEMPLATES: Record<string, { question: string; checks: string[]; alternatives: string[] }> = {
+export const HYPOTHESIS_TEMPLATES: Record<string, { question: string; checks: string[]; alternatives: string[] }> = {
   "solidity-entrypoint": {
     question: "Does this externally callable entry point enforce the intended caller, state and value invariants?",
     checks: ["Trace all state writes and external calls reachable from the entry point", "Identify authorization modifiers and any alternate call paths", "Check preconditions and postconditions across repeated calls"],
@@ -659,7 +672,7 @@ export async function processHypothesisGeneration(pool: Pool, worker: WorkflowWo
 }
 
 
-const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvidence: string[] }> = {
+export const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvidence: string[] }> = {
   "solidity-authentication": {
     counterquestions: [
       "Is the tx.origin occurrence actually part of an authorization decision, or is it telemetry, a test, or unrelated logic?",
@@ -668,7 +681,7 @@ const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvide
     ],
     minimumEvidence: ["Containing function and complete modifier chain", "All authorization conditions and inherited guards", "Reachability and caller-controlled path analysis"],
   },
-  "solidity-lowlevel-call": {
+  "solidity-low-level-call": {
     counterquestions: [
       "Is the call target fixed and trusted, or can an untrusted party influence it?",
       "Are return values checked and state changes ordered safely?",
@@ -734,11 +747,22 @@ const CHALLENGE_RULES: Record<string, { counterquestions: string[]; minimumEvide
   },
 };
 
+/**
+ * What the independent_challenge step actually is. A succeeded step means the
+ * deterministic checklist ran; it never means a reviewer examined the work.
+ */
+const DETERMINISTIC_CHECKLIST_REVIEW = {
+  review_kind: "deterministic_checklist",
+  reviewer: null,
+  independent_review_completed: false,
+  requires_human_or_separate_model_review: true,
+} as const;
+
 export async function processIndependentChallenge(pool: Pool, worker: WorkflowWorker, step: ClaimedStep): Promise<ProcessResult> {
   if (step.step_key !== "independent_challenge") {
     throw new Error(`Unsupported step for independent challenge: ${step.step_key}`);
   }
-  const result = await pool.query<{ output: unknown }>(
+  const result = await pool.query<{ step_key: string; output: unknown }>(
     `SELECT step_key, output FROM workflow_steps
      WHERE workflow_run_id = $1 AND step_key IN ('generate_hypotheses', 'map_attack_surface')
        AND status = 'succeeded'`,
@@ -763,6 +787,17 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     isRecord(item) && typeof item.rule_id === "string" && typeof item.family === "string" &&
     typeof item.path === "string" && typeof item.id === "string"
   );
+  if (hypotheses.length === 0) {
+    await worker.complete(step.id, {
+      status: "not_applicable",
+      reason: "No hypotheses were generated, so there is nothing to challenge",
+      challenge_count: 0,
+      ...DETERMINISTIC_CHECKLIST_REVIEW,
+      execution_mode: "passive_only",
+      authorization_status: "unverified",
+    });
+    return { status: "completed", stepId: step.id };
+  }
   const mapLeads = Array.isArray(mapped.leads) ? mapped.leads.filter(isRecord) : [];
   const hypothesisSnapshotId = isRecord(generated.evidence) && typeof generated.evidence.snapshot_id === "string"
     ? generated.evidence.snapshot_id : null;
@@ -772,7 +807,7 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     ? generated.evidence.content_sha256 : null;
   const mapHash = isRecord(mapped.evidence) && typeof mapped.evidence.content_sha256 === "string"
     ? mapped.evidence.content_sha256 : null;
-  const validSnapshotId = (id: string | null) =>
+  const validSnapshotId = (id: string | null): id is string =>
     id !== null && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const snapshotIds = [hypothesisSnapshotId, mapSnapshotId].filter(validSnapshotId);
   const persistedSnapshots = snapshotIds.length
@@ -832,15 +867,14 @@ export async function processIndependentChallenge(pool: Pool, worker: WorkflowWo
     content,
   });
   await worker.complete(step.id, {
-    status: "challenged",
+    status: "checklist_applied",
     challenge_count: challenges.length,
     challenges,
     evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
+    ...DETERMINISTIC_CHECKLIST_REVIEW,
     execution_mode: "passive_only",
     authorization_status: "unverified",
     active_testing_allowed: false,
-    independent_review_completed: false,
-    requires_human_or_separate_model_review: true,
   });
   return { status: "completed", stepId: step.id };
 }
@@ -873,16 +907,56 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
     "independent_challenge",
   ] as const;
   const missingStepKeys = requiredStepKeys.filter((key) => !outputs.has(key));
+  // A stage can succeed (the handler ran) while doing nothing for this input.
+  const notApplicableStepKeys = requiredStepKeys.filter((key) => {
+    const out = outputs.get(key);
+    return isRecord(out) && (out.status === "not_applicable" || out.status === "not_found");
+  });
+  const syntheticSeededStepKeys = requiredStepKeys.filter((key) => {
+    const out = outputs.get(key);
+    return isRecord(out) && out.seeded_synthetic === true;
+  });
+  const stageExecution = missingStepKeys.length > 0 ? "partial"
+    : notApplicableStepKeys.length > 0 ? "not_applicable_stages" : "all_stages_executed";
   const hypotheses = isRecord(hypothesesOutput) && Array.isArray(hypothesesOutput.hypotheses)
     ? hypothesesOutput.hypotheses.filter(isRecord) : [];
   const challenges = isRecord(challengeOutput) && Array.isArray(challengeOutput.challenges)
     ? challengeOutput.challenges.filter(isRecord) : [];
   const leads = isRecord(mapOutput) && Array.isArray(mapOutput.leads) ? mapOutput.leads.filter(isRecord) : [];
+  // Research completeness is separate from stage execution: a stage that ran
+  // over zero leads, or a bounded sample, is not a completed assessment.
+  const sourceSampled = isRecord(sourceOutput) && sourceOutput.status === "source_sampled";
+  const surfaceMapped = isRecord(mapOutput) && mapOutput.status === "mapped";
+  const researchCompleteness = !sourceSampled || !surfaceMapped ? "not_assessable"
+    : leads.length === 0 ? "no_leads_in_bounded_sample" : "preliminary_unreviewed";
+  // Only an explicit claim is a claim; an absent flag is just an absent flag.
+  const challengeClaimsReview = isRecord(challengeOutput) &&
+    challengeOutput.independent_review_completed === true;
+  const checklistApplied = isRecord(challengeOutput) && challengeOutput.status === "checklist_applied";
   const brief = {
     brief_version: "passive-research-brief-v1",
     research_status: "preliminary_passive_review",
-    completeness: missingStepKeys.length === 0 ? "all_pipeline_stages_present" : "partial_pipeline",
+    completeness: stageExecution === "partial" ? "partial_pipeline" : stageExecution,
+    stage_execution_note: "completeness describes which pipeline stages produced output, not whether the research is complete",
+    research_completeness: researchCompleteness,
+    research_completeness_note: researchCompleteness === "no_leads_in_bounded_sample"
+      ? "No pattern leads were found in a bounded sample; this is not evidence that the project is free of vulnerabilities"
+      : researchCompleteness === "not_assessable"
+        ? "No bounded source sample and attack-surface map were available to assess"
+        : "Leads exist; no independent human or model review or verification has been completed",
+    verification: {
+      independent_review_completed: false,
+      independent_review_status: "not_performed",
+      checklist_kind_applied: checklistApplied ? "deterministic_checklist" : null,
+      verified_findings: 0,
+      ...(challengeClaimsReview ? { warning: "challenge_output_claimed_review_without_reviewer_evidence_ignored" } : {}),
+    },
+    provenance: {
+      synthetic_marker_present: syntheticSeededStepKeys.length > 0,
+      synthetic_seeded_step_keys: syntheticSeededStepKeys,
+    },
     missing_step_keys: missingStepKeys,
+    not_applicable_step_keys: notApplicableStepKeys,
     repository: isRecord(repositoryOutput) && isRecord(repositoryOutput.repository)
       ? repositoryOutput.repository : null,
     source_sample: isRecord(sourceOutput) ? {
@@ -928,8 +1002,11 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   });
   await worker.complete(step.id, {
     status: "brief_prepared",
-    pipeline_completeness: missingStepKeys.length === 0 ? "complete" : "partial",
+    pipeline_completeness: stageExecution,
+    research_completeness: researchCompleteness,
+    independent_review_completed: false,
     missing_step_keys: missingStepKeys,
+    not_applicable_step_keys: notApplicableStepKeys,
     brief,
     evidence: { snapshot_id: evidence.id, content_sha256: evidence.contentSha256 },
     execution_mode: "passive_only",
@@ -940,37 +1017,69 @@ export async function processResearchBrief(pool: Pool, worker: WorkflowWorker, s
   return { status: "completed", stepId: step.id };
 }
 
-export async function runIntakeWorker(pool: Pool, workerId: string, signal: AbortSignal, pollMs = 2_000): Promise<void> {
-  const worker = new WorkflowWorker(pool, workerId);
-  while (!signal.aborted) {
-    await worker.reapExhaustedLeases();
-    const step = await worker.claimNext(["resolve_source", "identify_project", "locate_official_repositories", "establish_authorization", "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief"]);
-    if (!step) {
-      await new Promise<void>((resolve) => {
-        let timer: ReturnType<typeof setTimeout>;
-        const finish = () => {
-          clearTimeout(timer);
-          signal.removeEventListener("abort", finish);
-          resolve();
-        };
-        timer = setTimeout(finish, pollMs);
-        signal.addEventListener("abort", finish, { once: true });
-        if (signal.aborted) finish();
-      });
-      continue;
-    }
-    try {
-      if (step.step_key === "resolve_source") await processIntakeResolution(worker, step);
-      else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
-      else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
-      else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
-      else if (step.step_key === "map_attack_surface") await processAttackSurfaceMapping(pool, worker, step);
-      else if (step.step_key === "generate_hypotheses") await processHypothesisGeneration(pool, worker, step);
-      else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
-      else await processResearchBrief(pool, worker, step);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Unknown intake resolution error";
-      await worker.fail(step.id, reason, false);
-    }
-  }
+const INTAKE_STEP_KEYS = [
+  "resolve_source", "identify_project", "locate_official_repositories", "establish_authorization",
+  "map_attack_surface", "generate_hypotheses", "independent_challenge", "prepare_research_brief",
+  ACQUIRE_STEP_KEY, MONITOR_STEP_KEY,
+] as const;
+
+/** The step keys a worker claims. The analysis stages are included ONLY when the switch is exactly "true"; otherwise they stay queued and untouched. */
+export function intakeStepKeys(env: Record<string, string | undefined>): readonly string[] {
+  if (env[STRUCTURAL_ANALYSIS_SWITCH] !== "true") return INTAKE_STEP_KEYS;
+  // research-loop assignments need BOTH switches (exactly "true"); both are off everywhere by default
+  const keys: string[] = env[ENGINE_LOOP_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS] : [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS];
+  // the optional Slither stage additionally needs SLITHER_SCAN_ENABLED=true AND both pinned binaries configured (off by default)
+  if (slitherScanClaimable(env) && !keys.includes(SLITHER_STEP_KEY)) keys.push(SLITHER_STEP_KEY);
+  return keys;
 }
+
+async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep, acquire: Omit<AcquireStepContext, "pool" | "worker">): Promise<void> {
+  if (step.step_key === "resolve_source") await processIntakeResolution(worker, step);
+  else if (step.step_key === "identify_project") await processProjectIdentification(worker, step);
+  else if (step.step_key === "locate_official_repositories") await processRepositoryAcquisition(pool, worker, step);
+  else if (step.step_key === "establish_authorization") await processAuthorizationGate(pool, worker, step);
+  else if (step.step_key === "map_attack_surface") await processAttackSurfaceMapping(pool, worker, step);
+  else if (step.step_key === "generate_hypotheses") await processHypothesisGeneration(pool, worker, step);
+  else if (step.step_key === "independent_challenge") await processIndependentChallenge(pool, worker, step);
+  else if (step.step_key === "prepare_research_brief") await processResearchBrief(pool, worker, step);
+  else if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ pool, worker, ...acquire }, step);
+  else if (step.step_key === MONITOR_STEP_KEY) await processMonitorSourceStep({ pool, worker }, step);
+  else if (await dispatchAnalysisStep({ pool, worker, workerId: acquire.workerId }, step)) { /* handled */ }
+  else if (await dispatchEngineStep({ pool, worker, workerId: acquire.workerId }, step)) { /* handled */ }
+  else throw new Error(`No handler registered for step: ${step.step_key}`);
+}
+
+/**
+ * An idle pooled connection can emit 'error' (database restart, network drop).
+ * Without a listener Node treats that as an uncaught exception and kills the worker.
+ */
+export function attachPoolErrorHandler(pool: Pick<Pool, "on">, log: LogFn = defaultLog): void {
+  pool.on("error", (error: Error) => {
+    log("error", "idle_database_connection_error", { error: error.message });
+  });
+}
+
+export async function runIntakeWorker(
+  pool: Pool,
+  workerId: string,
+  signal: AbortSignal,
+  // `source` is injectable for tests and offline rehearsals (e.g. a local clone); production always uses GitHubSource.
+  options: (WorkerLoopOptions & { onlyRunId?: string; source?: RepositorySource }) | number = {},
+): Promise<void> {
+  const worker = new WorkflowWorker(pool, workerId);
+  const source = (typeof options === "number" ? undefined : options.source) ?? githubSourceFromEnv();
+  const loopOptions = typeof options === "number" ? { pollMs: options } : options;
+  // Discovery is double-gated: this switch AND at least one source a human has enabled. With either off, nothing is ever fetched.
+  const scheduler = process.env.DISCOVERY_ENABLED === "true"
+    ? setInterval(() => { ensureDueMonitorRuns(pool).catch((error: unknown) => defaultLog("error", "discovery_schedule_failed", { error: error instanceof Error ? error.message : String(error) })); }, 60_000)
+    : undefined;
+  signal.addEventListener("abort", () => { if (scheduler) clearInterval(scheduler); }, { once: true });
+  await runWorkerLoop({
+    reapExhaustedLeases: () => worker.reapExhaustedLeases(),
+    claimNext: () => worker.claimNext(intakeStepKeys(process.env), typeof options === "number" ? undefined : options.onlyRunId),
+    fail: (stepId, reason, retryable) => worker.fail(stepId, reason, retryable),
+    execute: (step) => dispatchIntakeStep(pool, worker, step, { workerId, source }),
+    maxAttempts: worker.maxAttempts,
+  }, signal, loopOptions);
+}
+

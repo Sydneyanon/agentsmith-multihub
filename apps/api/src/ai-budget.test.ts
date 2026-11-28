@@ -28,7 +28,7 @@ describe("initial AI budget policy", () => {
   });
 
   it("blocks spend that would cross the monthly ceiling", () => {
-    const snapshot = { ...createEmptyBudgetSnapshot(), monthlySpentUsd: 24.98 };
+    const snapshot = { ...createEmptyBudgetSnapshot(), monthlySpentUsd: 24.995 };
     expect(checkModelCallBudget("classify", 0.01, snapshot)).toMatchObject({
       allowed: false,
       reason: "monthly_cap_exceeded",

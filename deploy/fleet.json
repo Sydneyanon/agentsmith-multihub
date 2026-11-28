@@ -1,0 +1,17 @@
+{
+  "schema": "agentsmith-fleet/1",
+  "app": "agentsmith-hub",
+  "region": "syd",
+  "note": "The desired production fleet. Every machine runs the SAME release image; scripts/fleet-plan.ts compares this with `fly machines list` and prints the gated commands to converge. It never executes anything. `fly deploy` only updates the `app` process group, so every other machine must be updated explicitly on each release.",
+  "machines": [
+    { "name": "late-meadow-8506", "role": "api", "processGroup": "app", "managedBy": "fly deploy", "gate": "deploy" },
+    { "name": "bounty-collector", "role": "job", "schedule": "hourly", "cmd": ["dist/apps/api/src/bounties/collect-main.js"], "gate": "deploy" },
+    { "name": "bounty-enrich", "role": "job", "schedule": "daily", "cmd": ["dist/apps/api/src/bounties/enrich-main.js", "--max", "10"], "gate": "deploy + production write", "requires": ["migration 0014 applied", "sherlock/hackenproof enabled"] },
+    { "name": "bounty-bridge", "role": "job", "schedule": "hourly", "cmd": ["dist/apps/api/src/bounties/promote-main.js", "--structural", "--max", "2"], "gate": "deploy + production write", "requires": ["migration 0012 applied", "research-worker running"] },
+    { "name": "bounty-monitor", "role": "job", "schedule": "daily", "cmd": ["dist/apps/api/src/bounties/monitor-main.js", "--structural", "--max", "5"], "gate": "deploy + production write", "requires": ["migrations 0012, 0013 applied"] },
+    { "name": "research-worker", "role": "worker", "restart": "always", "cmd": ["dist/apps/api/src/worker-main.js"],
+      "env": { "STRUCTURAL_ANALYSIS_ENABLED": "true", "HUB_REQUIRE_RESTRICTED_DB_ROLE": "true" },
+      "secrets": ["WORKER_DATABASE_URL (the restricted agentsmith_worker user, R1)"],
+      "gate": "worker activation", "requires": ["R1 user agentsmith_worker created", "migrations 0012-0014 applied", "runtime grants applied"] }
+  ]
+}

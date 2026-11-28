@@ -1,0 +1,35 @@
+## structural-analyzer on eval/heldout2/contracts
+labels: 96; findings: 49; reproducible across file order: true; findings in unlabelled functions (unscored): 0
+TOTAL tp=31 fp=8 fn=6 tn=51 precision=0.795 recall=0.838; key line exact 30/31, within 2 lines 30/31
+  reentrancy      tp=7 fp=1 fn=2 tn=8 precision=0.875 recall=0.778
+  access-control  tp=11 fp=2 fn=0 tn=13 precision=0.846 recall=1
+  initializer     tp=2 fp=0 fn=3 tn=6 precision=1 recall=0.4
+  delegatecall    tp=3 fp=2 fn=0 tn=7 precision=0.6 recall=1
+  selfdestruct    tp=2 fp=1 fn=0 tn=5 precision=0.667 recall=1
+  tx-origin       tp=2 fp=1 fn=0 tn=4 precision=0.667 recall=1
+  unchecked-call  tp=4 fp=1 fn=1 tn=8 precision=0.8 recall=0.8
+MISSED (false negatives):
+  contracts/Kiosk.sol:16 sweep (reentrancy)
+  contracts/Hooks.sol:43 take (reentrancy)
+  contracts/Staking.sol:25 reconfigure (initializer)
+  contracts/Hub.sol:22 upgradeTo (initializer)
+  contracts/Gateway.sol:27 bootstrap (initializer)
+  contracts/Settler.sol:19 settleQuiet (unchecked-call)
+FALSE POSITIVES:
+  contracts/Dispenser.sol:31 pullChecked (reentrancy) flagged at line 31
+  contracts/Tap.sol:26 setFlow (access-control) flagged at line 26
+  contracts/Operators.sol:12 join (access-control) flagged at line 26
+  contracts/Plugins.sol:26 invoke (delegatecall) flagged at line 26
+  contracts/Plugins.sol:32 invokeFromFactory (delegatecall) flagged at line 32
+  contracts/Caller.sol:12 pingLogged (unchecked-call) flagged at line 12
+  contracts/Expiry.sol:19 expire (selfdestruct) flagged at line 19
+  contracts/Tracker.sol:24 approveVia (tx-origin) flagged at line 24
+REENTRANCY VALIDATION (execution):
+  contracts/Cashier.sol:cashOut -> refuted (label vulnerable=true) no exploit in 4 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant transaction reverts (require failed: ledger[ms
+  contracts/Dispenser.sol:pull -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering p
+  contracts/Dispenser.sol:pullChecked -> refuted (label vulnerable=false) no exploit in 20 bounded scenarios: the re-entrant transaction reverts (arithmetic underflow in -); the re-entrant run extracted no more than an honest sequence
+  contracts/Dispenser.sol:claim -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering c
+  contracts/Dispenser.sol:drip -> refuted (label vulnerable=true) no exploit in 20 bounded scenarios: the re-entrant transaction reverts (require failed: taken + n <= cap)
+  contracts/Escrow.sol:release -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering r
+  contracts/Lockbox.sol:redeem -> validated (label vulnerable=true) a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering r
+  contracts/Pool.sol:exit -> inconclusive (label vulnerable=true) some scenarios could not be modelled (external call IListener(hooks[msg.sender]).onFunds); the rest found no exploit

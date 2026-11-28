@@ -1,0 +1,673 @@
+{
+  "what_ran": "REAL: git fixture -> FakeSource -> acquireRepository -> sealed 5.1 snapshot; research store (spans, hypotheses, evaluations, derived status, span verification). PROTOTYPE (this file only): Solidity analyzer and challenger.",
+  "snapshot": {
+    "id": "297c82ae-1bd1-4d9d-83cb-9698fd811b6d",
+    "repository": "acme/vaults",
+    "commit_sha": "061020f7dd5e93708a25a08e3d77f377d0e16ca8",
+    "file_count": 3,
+    "total_bytes": 2391,
+    "manifest_sha256": "45d08cdc648502da74f7cca29c03d5fadce4bf5302db9fa1401c62c24ec50339",
+    "verified": {
+      "ok": true,
+      "sealed": true,
+      "evicted_blobs": 0,
+      "hash_mismatches": 0,
+      "manifest_matches": true,
+      "stored_manifest_sha256": "45d08cdc648502da74f7cca29c03d5fadce4bf5302db9fa1401c62c24ec50339",
+      "recomputed_manifest_sha256": "45d08cdc648502da74f7cca29c03d5fadce4bf5302db9fa1401c62c24ec50339"
+    }
+  },
+  "run_id": "2dc8cfa6-3c9e-4302-ba1d-22d1e6d063de",
+  "legacy_surface_rules_on_same_files": [
+    {
+      "rule": "SOL-EXT-ENTRY",
+      "path": "contracts/SafeVault.sol",
+      "matches": 4
+    },
+    {
+      "rule": "SOL-LOWLEVEL-CALL",
+      "path": "contracts/SafeVault.sol",
+      "matches": 2
+    },
+    {
+      "rule": "SOL-TX-ORIGIN",
+      "path": "contracts/SafeVault.sol",
+      "matches": 1
+    },
+    {
+      "rule": "SOL-EXT-ENTRY",
+      "path": "contracts/VulnVault.sol",
+      "matches": 7
+    },
+    {
+      "rule": "SOL-LOWLEVEL-CALL",
+      "path": "contracts/VulnVault.sol",
+      "matches": 3
+    },
+    {
+      "rule": "SOL-TX-ORIGIN",
+      "path": "contracts/VulnVault.sol",
+      "matches": 1
+    },
+    {
+      "rule": "SOL-SELFDESTRUCT",
+      "path": "contracts/VulnVault.sol",
+      "matches": 1
+    },
+    {
+      "rule": "SOL-DELEGATECALL",
+      "path": "contracts/VulnVault.sol",
+      "matches": 1
+    }
+  ],
+  "attack_surface_map": [
+    {
+      "file": "contracts/SafeVault.sol",
+      "contract": "SafeVault",
+      "function": "deposit",
+      "visibility": "external",
+      "mutability": "payable",
+      "modifiers": [],
+      "lines": [
+        25,
+        27
+      ],
+      "entry_point": true,
+      "guarded": false
+    },
+    {
+      "file": "contracts/SafeVault.sol",
+      "contract": "SafeVault",
+      "function": "withdraw",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [
+        "nonReentrant"
+      ],
+      "lines": [
+        29,
+        34
+      ],
+      "entry_point": true,
+      "guarded": true
+    },
+    {
+      "file": "contracts/SafeVault.sol",
+      "contract": "SafeVault",
+      "function": "sweep",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [
+        "onlyOwner"
+      ],
+      "lines": [
+        36,
+        39
+      ],
+      "entry_point": true,
+      "guarded": true
+    },
+    {
+      "file": "contracts/SafeVault.sol",
+      "contract": "SafeVault",
+      "function": "isEoa",
+      "visibility": "external",
+      "mutability": "view",
+      "modifiers": [],
+      "lines": [
+        41,
+        43
+      ],
+      "entry_point": false,
+      "guarded": false
+    },
+    {
+      "file": "contracts/VulnVault.sol",
+      "contract": "VulnVault",
+      "function": "initialize",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [],
+      "lines": [
+        10,
+        13
+      ],
+      "entry_point": true,
+      "guarded": false
+    },
+    {
+      "file": "contracts/VulnVault.sol",
+      "contract": "VulnVault",
+      "function": "deposit",
+      "visibility": "external",
+      "mutability": "payable",
+      "modifiers": [],
+      "lines": [
+        15,
+        18
+      ],
+      "entry_point": true,
+      "guarded": false
+    },
+    {
+      "file": "contracts/VulnVault.sol",
+      "contract": "VulnVault",
+      "function": "withdraw",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [],
+      "lines": [
+        20,
+        26
+      ],
+      "entry_point": true,
+      "guarded": false
+    },
+    {
+      "file": "contracts/VulnVault.sol",
+      "contract": "VulnVault",
+      "function": "setOwner",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [],
+      "lines": [
+        28,
+        31
+      ],
+      "entry_point": true,
+      "guarded": false
+    },
+    {
+      "file": "contracts/VulnVault.sol",
+      "contract": "VulnVault",
+      "function": "forward",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [],
+      "lines": [
+        33,
+        35
+      ],
+      "entry_point": true,
+      "guarded": false
+    },
+    {
+      "file": "contracts/VulnVault.sol",
+      "contract": "VulnVault",
+      "function": "pay",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [],
+      "lines": [
+        37,
+        40
+      ],
+      "entry_point": true,
+      "guarded": false
+    },
+    {
+      "file": "contracts/VulnVault.sol",
+      "contract": "VulnVault",
+      "function": "kill",
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "modifiers": [],
+      "lines": [
+        42,
+        44
+      ],
+      "entry_point": true,
+      "guarded": false
+    }
+  ],
+  "hypotheses": [
+    {
+      "hypothesis_id": "c4602398-a738-4ecc-a4f3-eb6fdad92015",
+      "family": "solidity-tx-origin",
+      "claim": "SafeVault.isEoa references tx.origin (line 42).",
+      "function": "SafeVault.isEoa",
+      "file": "contracts/SafeVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "080f7850-13e5-48fb-8e1e-b54739db5597",
+          "path": "contracts/SafeVault.sol",
+          "lineStart": 42,
+          "lineEnd": 42,
+          "text": "        return tx.origin == msg.sender;"
+        }
+      ],
+      "required_checks": [
+        "Determine whether tx.origin is used for authorization or only as an EOA check",
+        "Identify who can be tricked into calling a malicious contract"
+      ],
+      "alternative_explanations": [
+        "It may be an anti-contract check (tx.origin == msg.sender) rather than authorization"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "weakens",
+        "rationale": "tx.origin is compared with msg.sender, which is an anti-contract (EOA) check, not authorization.",
+        "spans": [
+          {
+            "line": 42,
+            "end": 42
+          }
+        ]
+      },
+      "derived_status": "weakened_by_static_check",
+      "static_outcome": "weakens",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "bebdaaa6-a725-4bb8-add1-05c41ab57451",
+      "family": "solidity-unprotected-initializer",
+      "claim": "VulnVault.initialize sets the owner with no caller check and no one-time guard (line 11).",
+      "function": "VulnVault.initialize",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "cbe739a7-6b33-4b2b-849c-3b2b28ca177d",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 10,
+          "lineEnd": 10,
+          "text": "    function initialize(address newOwner) external {"
+        },
+        {
+          "ok": true,
+          "spanId": "cda61ae3-9267-4d81-a7da-b27bb407b862",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 11,
+          "lineEnd": 11,
+          "text": "        owner = newOwner;"
+        }
+      ],
+      "required_checks": [
+        "Confirm no modifier or inherited guard applies",
+        "Confirm the function is reachable in the deployed configuration"
+      ],
+      "alternative_explanations": [
+        "Access control may be enforced by a proxy or deployment script outside this file"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "No modifier, msg.sender comparison or one-time flag guards the privileged action.",
+        "spans": [
+          {
+            "line": 10,
+            "end": 10
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "c8a66e8e-e4cf-4a88-99b6-de701de25fb5",
+      "family": "solidity-reentrancy-order",
+      "claim": "VulnVault.withdraw makes an external call (line 22) before updating state (line 24); a re-entering receiver could observe stale state.",
+      "function": "VulnVault.withdraw",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "55de1d48-952c-4631-9dee-dbfce1719817",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 22,
+          "lineEnd": 22,
+          "text": "        (bool ok, ) = msg.sender.call{value: amount}(\"\");"
+        },
+        {
+          "ok": true,
+          "spanId": "71eae975-3705-46bc-bb0d-c00159edb9c9",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 24,
+          "lineEnd": 24,
+          "text": "        balances[msg.sender] -= amount;"
+        }
+      ],
+      "required_checks": [
+        "Confirm the callee can re-enter this contract",
+        "Confirm no reentrancy lock or earlier state write protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A nonReentrant modifier may guard this function",
+        "State may be updated before the call elsewhere in the path"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "No reentrancy modifier or lock is present and no balance write precedes the call; the write after the call is reachable by a re-entering receiver.",
+        "spans": [
+          {
+            "line": 20,
+            "end": 20
+          },
+          {
+            "line": 22,
+            "end": 22
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "f9d078e3-3e5d-4895-8708-c747dfa02395",
+      "family": "solidity-tx-origin",
+      "claim": "VulnVault.setOwner references tx.origin (line 29).",
+      "function": "VulnVault.setOwner",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "6ab52f4f-8b27-42f4-b364-6e882208e498",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 29,
+          "lineEnd": 29,
+          "text": "        require(tx.origin == owner, \"not owner\");"
+        }
+      ],
+      "required_checks": [
+        "Determine whether tx.origin is used for authorization or only as an EOA check",
+        "Identify who can be tricked into calling a malicious contract"
+      ],
+      "alternative_explanations": [
+        "It may be an anti-contract check (tx.origin == msg.sender) rather than authorization"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "tx.origin is compared with the owner inside a require: it is used as authorization.",
+        "spans": [
+          {
+            "line": 29,
+            "end": 29
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "74dc5369-be5d-4025-a08d-1f63f5b72654",
+      "family": "solidity-unchecked-call",
+      "claim": "VulnVault.forward ignores the success flag of a low-level call (line 34).",
+      "function": "VulnVault.forward",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "b1cb9abf-cf37-41d4-a193-44a1868e796a",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 34,
+          "lineEnd": 34,
+          "text": "        target.delegatecall(data);"
+        }
+      ],
+      "required_checks": [
+        "Confirm the return value is never used on any path",
+        "Find what state is updated assuming success"
+      ],
+      "alternative_explanations": [
+        "The function may be intended best-effort"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "The call's result is never captured or tested in the rest of the function.",
+        "spans": [
+          {
+            "line": 34,
+            "end": 34
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "628ef9cc-b854-4883-b5cc-d6e6d52a64c3",
+      "family": "solidity-delegatecall-target",
+      "claim": "VulnVault.forward delegatecalls (line 34); the target may be caller-controlled.",
+      "function": "VulnVault.forward",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "e2ee8c6b-7c4c-48c2-b8cd-f5915e0a0106",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 33,
+          "lineEnd": 33,
+          "text": "    function forward(address target, bytes calldata data) external {"
+        },
+        {
+          "ok": true,
+          "spanId": "b1cb9abf-cf37-41d4-a193-44a1868e796a",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 34,
+          "lineEnd": 34,
+          "text": "        target.delegatecall(data);"
+        }
+      ],
+      "required_checks": [
+        "Determine whether the target is a parameter or mutable storage",
+        "Check for an access modifier"
+      ],
+      "alternative_explanations": [
+        "The target may be a constant trusted implementation"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "The delegatecall target \"target\" is a function parameter and the function has no access modifier: any caller chooses the code that runs.",
+        "spans": [
+          {
+            "line": 33,
+            "end": 33
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "29ee5090-577c-4792-bf01-7d91e288af96",
+      "family": "solidity-reentrancy-order",
+      "claim": "VulnVault.pay makes an external call (line 38) before updating state (line 39); a re-entering receiver could observe stale state.",
+      "function": "VulnVault.pay",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "31f12f5f-bb32-40bc-b96a-f13e4680cb59",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 38,
+          "lineEnd": 38,
+          "text": "        to.call{value: amount}(\"\");"
+        },
+        {
+          "ok": true,
+          "spanId": "c18732ea-8ce4-45dc-9ee8-f7273a38980e",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 39,
+          "lineEnd": 39,
+          "text": "        balances[msg.sender] -= amount;"
+        }
+      ],
+      "required_checks": [
+        "Confirm the callee can re-enter this contract",
+        "Confirm no reentrancy lock or earlier state write protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A nonReentrant modifier may guard this function",
+        "State may be updated before the call elsewhere in the path"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "No reentrancy modifier or lock is present and no balance write precedes the call; the write after the call is reachable by a re-entering receiver.",
+        "spans": [
+          {
+            "line": 37,
+            "end": 37
+          },
+          {
+            "line": 38,
+            "end": 38
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "520ee7ad-884c-4d9c-801a-696854571a16",
+      "family": "solidity-unchecked-call",
+      "claim": "VulnVault.pay ignores the success flag of a low-level call (line 38).",
+      "function": "VulnVault.pay",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "31f12f5f-bb32-40bc-b96a-f13e4680cb59",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 38,
+          "lineEnd": 38,
+          "text": "        to.call{value: amount}(\"\");"
+        }
+      ],
+      "required_checks": [
+        "Confirm the return value is never used on any path",
+        "Find what state is updated assuming success"
+      ],
+      "alternative_explanations": [
+        "The function may be intended best-effort"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "The call's result is never captured or tested in the rest of the function.",
+        "spans": [
+          {
+            "line": 38,
+            "end": 38
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "630ca06f-60f3-4aaf-a9d1-4a4f245247cd",
+      "family": "solidity-unprotected-destruct",
+      "claim": "VulnVault.kill can selfdestruct with no access control (line 43).",
+      "function": "VulnVault.kill",
+      "file": "contracts/VulnVault.sol",
+      "evidence": [
+        {
+          "ok": true,
+          "spanId": "cea31ad8-8f0b-45c6-a7be-80e4a3d63434",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 42,
+          "lineEnd": 42,
+          "text": "    function kill() external {"
+        },
+        {
+          "ok": true,
+          "spanId": "8bef9106-a4c2-4740-8aaf-3059e7dfe744",
+          "path": "contracts/VulnVault.sol",
+          "lineStart": 43,
+          "lineEnd": 43,
+          "text": "        selfdestruct(payable(msg.sender));"
+        }
+      ],
+      "required_checks": [
+        "Confirm no modifier or inherited guard applies",
+        "Confirm the function is reachable in the deployed configuration"
+      ],
+      "alternative_explanations": [
+        "Access control may be enforced by a proxy or deployment script outside this file"
+      ],
+      "generator": "trackb-prototype-analyzer@0 (deterministic_rule)",
+      "challenge": {
+        "outcome": "supports",
+        "rationale": "No modifier, msg.sender comparison or one-time flag guards the privileged action.",
+        "spans": [
+          {
+            "line": 42,
+            "end": 42
+          }
+        ]
+      },
+      "derived_status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    }
+  ],
+  "controls": {
+    "planted_total": 8,
+    "planted_found_by_generator": 8,
+    "recall": [
+      {
+        "planted": "VulnVault.withdraw (solidity-reentrancy-order)",
+        "found": true
+      },
+      {
+        "planted": "VulnVault.pay (solidity-reentrancy-order)",
+        "found": true
+      },
+      {
+        "planted": "VulnVault.pay (solidity-unchecked-call)",
+        "found": true
+      },
+      {
+        "planted": "VulnVault.forward (solidity-unchecked-call)",
+        "found": true
+      },
+      {
+        "planted": "VulnVault.forward (solidity-delegatecall-target)",
+        "found": true
+      },
+      {
+        "planted": "VulnVault.setOwner (solidity-tx-origin)",
+        "found": true
+      },
+      {
+        "planted": "VulnVault.initialize (solidity-unprotected-initializer)",
+        "found": true
+      },
+      {
+        "planted": "VulnVault.kill (solidity-unprotected-destruct)",
+        "found": true
+      }
+    ],
+    "benign_contract_raw_findings": [
+      {
+        "fn": "SafeVault.isEoa",
+        "family": "solidity-tx-origin",
+        "outcome": "weakens"
+      }
+    ],
+    "benign_contract_after_challenge_standing": 0,
+    "standing_after_challenge": 8,
+    "weakened_or_contradicted": [
+      {
+        "fn": "SafeVault.isEoa",
+        "family": "solidity-tx-origin",
+        "outcome": "weakens"
+      }
+    ]
+  }
+}

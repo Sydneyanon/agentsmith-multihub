@@ -1,0 +1,11 @@
+{
+ "_comment": "DRAFT overlay for db/runtime-grants.json, merged by the draft test only. Append-only tables: the runtime role may read and insert, never update or delete.",
+ "tables": {
+  "external_references": ["SELECT", "INSERT"],
+  "research_coverage": ["SELECT", "INSERT"],
+  "research_effort": ["SELECT", "INSERT"],
+  "missed_in_runs": ["SELECT", "INSERT"],
+  "hypothesis_outcomes": ["SELECT", "INSERT"],
+  "ground_truth_adjudications": ["SELECT", "INSERT"]
+ }
+}

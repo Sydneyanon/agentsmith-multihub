@@ -1,52 +1,34 @@
-import Fastify from "fastify";
 import { Pool } from "pg";
 import { config } from "./config.js";
-import { isValidBearerToken } from "./auth.js";
-import { registerIntakeRoutes } from "./intake.js";
-import { registerWorkflowRoutes } from "./workflows.js";
+import { buildApp } from "./app.js";
+import { buildPoolConfig, stderrWarning } from "./db-config.js";
+import { runRoleGuard } from "./db-roles.js";
+import { API_APP_NAME } from "./engine-status.js";
 
-const pool = config.databaseUrl
-  ? new Pool({
-      connectionString: config.databaseUrl,
-      max: 5,
-      connectionTimeoutMillis: 3_000,
-      idleTimeoutMillis: 30_000,
-      ...(config.environment === "production" ? { ssl: { rejectUnauthorized: true } } : {}),
-    })
-  : undefined;
+const pool = config.databaseUrl ? new Pool(buildPoolConfig(process.env, { max: 5, onWarning: stderrWarning, applicationName: API_APP_NAME })) : undefined;
 
 export function buildServer() {
-  const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
-  app.addHook("preHandler", async (request, reply) => {
-    if (!request.url.startsWith("/v1/")) return;
-    if (!config.apiBearerToken) {
-      return reply.code(503).send({ error: "api_auth_not_configured" });
-    }
-    if (!isValidBearerToken(request.headers.authorization, config.apiBearerToken)) {
-      return reply.code(401).send({ error: "unauthorized" });
-    }
-  });
-  app.get("/", async () => ({ service: "agentsmith-multihub-api", version: "0.1.0", status: "scaffolded" }));
-  app.get("/health/live", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
-  app.get("/health/ready", async (_request, reply) => {
-    if (!pool) return reply.code(503).send({ status: "not_ready", reason: "database_not_configured" });
-    try {
-      await pool.query("select 1");
-      return { status: "ready", dependencies: { postgres: "ok" } };
-    } catch (error) {
-      app.log.error({ err: error }, "Readiness check failed");
-      return reply.code(503).send({ status: "not_ready", dependencies: { postgres: "error" } });
-    }
-  });
-  registerIntakeRoutes(app, pool);
-  registerWorkflowRoutes(app, pool);
-  app.addHook("onClose", async () => { await pool?.end(); });
-  return app;
+  return buildApp({ pool, apiBearerToken: config.apiBearerToken, hubAllowedHosts: config.hubAllowedHosts, trustedProxyCidrs: config.trustedProxyCidrs, logLevel: config.logLevel, engineInfo: { dataKind: config.dataKind } });
 }
 
 const app = buildServer();
+// An idle client killed by the database (restart, auto-pause) must not crash the process with an unhandled event.
+pool?.on("error", (error) => app.log.error({ err: error }, "idle database client error"));
 try {
   await app.listen({ host: config.host, port: config.port });
+  if (config.environment === "production" && config.hubAllowedHosts.length === 0) app.log.warn("HUB_ALLOWED_HOSTS is not set: any Host header is served in production");
+  // After listening and not awaited: an unreachable or paused database must never delay or prevent boot (liveness and honest readiness first).
+  if (pool && config.environment === "production") {
+    void runRoleGuard(pool, {
+      require: config.requireRestrictedDbRole,
+      warn: (m) => app.log.warn(m),
+      fatal: (m) => {
+        app.log.fatal(m);
+        setTimeout(() => process.exit(1), 5000).unref(); // never wait indefinitely for in-flight requests
+        void app.close().finally(() => process.exit(1));
+      },
+    });
+  }
 } catch (error) {
   app.log.error(error);
   await app.close();

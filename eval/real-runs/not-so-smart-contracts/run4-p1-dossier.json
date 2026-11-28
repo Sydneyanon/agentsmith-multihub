@@ -1,0 +1,3608 @@
+{
+  "snapshot": {
+    "id": "4009370d-0c80-413e-a228-736daa642c3f",
+    "repository": "crytic/not-so-smart-contracts",
+    "commit_sha": "020dbdbde3e0c2e8de5f3944e7455e438b0995d5",
+    "file_count": 47,
+    "manifest_sha256": "b0d4fb23c8487a77a609f1f60f1ef7da294ede37adcd8457b9b6a36575b838f4",
+    "verified": true
+  },
+  "summary": {
+    "unreviewed": 34
+  },
+  "entries": [
+    {
+      "hypothesis_id": "285f264b-7e4e-4ded-922c-967e2913d7bf",
+      "class": "access-control",
+      "function": "CEOThrone.Stake",
+      "claim": "CEOThrone.Stake writes the authority variable owner (honeypots/KOTH/KOTH.sol:22) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/KOTH/KOTH.sol",
+          "lines": "19-19",
+          "role": "context",
+          "text": "function Stake() public payable {",
+          "verified": true
+        },
+        {
+          "path": "honeypots/KOTH/KOTH.sol",
+          "lines": "22-22",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs Stake to completion and reaches honeypots/KOTH/KOTH.sol:22: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls Stake(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "d17309bc-1adf-4c54-90b3-55ec1a40cf7d",
+      "class": "unchecked-call",
+      "function": "KingOfTheEtherThrone.claimThrone",
+      "claim": "KingOfTheEtherThrone.claimThrone ignores the success flag of a low-level send to msg.sender (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:101).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "101-101",
+          "role": "primary",
+          "text": "msg.sender.send(valuePaid);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: not modelled: parameters of claimThrone cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "4457fbf6-bc50-42a4-bbdd-1e012b5bb2bc",
+      "class": "unchecked-call",
+      "function": "KingOfTheEtherThrone.fallback",
+      "claim": "KingOfTheEtherThrone.fallback ignores the success flag of a low-level send to msg.sender (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:101) inside claimThrone.",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "101-101",
+          "role": "primary",
+          "text": "msg.sender.send(valuePaid);",
+          "verified": true
+        },
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "91-91",
+          "role": "supporting",
+          "text": "claimThrone(string(msg.data));",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "none: function not found."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "bd096925-8367-4a00-9176-c5d4680297c9",
+      "class": "unchecked-call",
+      "function": "KingOfTheEtherThrone.sweepCommission",
+      "claim": "KingOfTheEtherThrone.sweepCommission ignores the success flag of a low-level send to wizardAddress (unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:162).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+          "lines": "162-162",
+          "role": "primary",
+          "text": "wizardAddress.send(amount);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "bd18e2e9-11fe-4fcf-ba1e-1c120a2e65ab",
+      "class": "reentrancy",
+      "function": "LedgerChannel.LCOpenTimeout",
+      "claim": "LedgerChannel.LCOpenTimeout makes an external call that hands control to Channels[_lcID].token (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:422) and only afterwards updates Channels[_lcID] (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:428), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "422-422",
+          "role": "primary",
+          "text": "require(Channels[_lcID].token.transfer(Channels[_lcID].partyAddresses[0], Channels[_lcID].erc20Balances[0]),\"CreateChannel: token transfer failure\");",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "428-428",
+          "role": "supporting",
+          "text": "delete Channels[_lcID];",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (index base Channels[_lcID].partyAddresses); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "2bd02bf7-0a84-4808-8a48-cedc387bf578",
+      "class": "access-control",
+      "function": "LedgerChannel.byzantineCloseChannel",
+      "claim": "LedgerChannel.byzantineCloseChannel sends ether to the caller-supplied address channel.partyAddresses[0] (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:790) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "748-748",
+          "role": "context",
+          "text": "function byzantineCloseChannel(bytes32 _lcID) public {",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "790-790",
+          "role": "primary",
+          "text": "channel.partyAddresses[0].transfer(ethbalanceA);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: member channel.isOpen."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "05360c9f-72c4-4ff1-9137-ae4b9b1153a9",
+      "class": "access-control",
+      "function": "LedgerChannel.closeVirtualChannel",
+      "claim": "LedgerChannel.closeVirtualChannel writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:724) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "717-717",
+          "role": "context",
+          "text": "function closeVirtualChannel(bytes32 _lcID, bytes32 _vcID) public {",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "724-724",
+          "role": "primary",
+          "text": "Channels[_lcID].numOpenVC--;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: member Channels[_lcID].isOpen."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "5f8f469c-854e-4498-9e3f-bdf66edc041d",
+      "class": "access-control",
+      "function": "LedgerChannel.consensusCloseChannel",
+      "claim": "LedgerChannel.consensusCloseChannel writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:523) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "487-487",
+          "role": "context",
+          "text": "function consensusCloseChannel(",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "523-523",
+          "role": "primary",
+          "text": "Channels[_lcID].isOpen = false;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of consensusCloseChannel cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "f7fa88fe-23e0-420e-b514-aaf7a841141b",
+      "class": "access-control",
+      "function": "LedgerChannel.createChannel",
+      "claim": "LedgerChannel.createChannel writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:391) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "374-374",
+          "role": "context",
+          "text": "function createChannel(",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "391-391",
+          "role": "primary",
+          "text": "Channels[_lcID].partyAddresses[0] = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: index base Channels[_lcID].partyAddresses."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "3796e0f9-2791-4206-a5f8-2faf4047abd7",
+      "class": "reentrancy",
+      "function": "LedgerChannel.deposit",
+      "claim": "LedgerChannel.deposit makes an external call that hands control to Channels[_lcID].token (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:465) and only afterwards updates Channels[_lcID,2] (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:466), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "465-465",
+          "role": "primary",
+          "text": "require(Channels[_lcID].token.transferFrom(msg.sender, this, _balance),\"deposit: token transfer failure\");",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "466-466",
+          "role": "supporting",
+          "text": "Channels[_lcID].erc20Balances[2] += _balance;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (member Channels[_lcID].isOpen); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "2a0da9a0-4321-4dba-881b-bc150f205c78",
+      "class": "access-control",
+      "function": "LedgerChannel.deposit",
+      "claim": "LedgerChannel.deposit writes the authority variable Channels (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:466) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "457-457",
+          "role": "context",
+          "text": "function deposit(bytes32 _lcID, address recipient, uint256 _balance, bool isToken) public payable {",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "466-466",
+          "role": "primary",
+          "text": "Channels[_lcID].erc20Balances[2] += _balance;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: member Channels[_lcID].isOpen."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "8919793f-335a-4e5e-988b-11bc867b1cde",
+      "class": "access-control",
+      "function": "LedgerChannel.settleVC",
+      "claim": "LedgerChannel.settleVC changes the state variable virtualChannels (privileged-looking function name \"settleVC\") (reentrancy/SpankChain_source_code/SpankChain_Payment.sol:703) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "654-654",
+          "role": "context",
+          "text": "function settleVC(",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+          "lines": "703-703",
+          "role": "primary",
+          "text": "virtualChannels[_vcID].challenger = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: parameters of settleVC cannot be modelled."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "a354a841-832b-4461-9678-0ae8484114f6",
+      "class": "access-control",
+      "function": "Missing.IamMissing",
+      "claim": "Missing.IamMissing writes the authority variable owner (wrong_constructor_name/incorrect_constructor.sol:16) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/incorrect_constructor.sol",
+          "lines": "13-13",
+          "role": "context",
+          "text": "function IamMissing()",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/incorrect_constructor.sol",
+          "lines": "16-16",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs IamMissing to completion and reaches wrong_constructor_name/incorrect_constructor.sol:16: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls IamMissing(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "5dd99e77-da31-47c2-9c26-a82b799b8c0f",
+      "class": "access-control",
+      "function": "NEW_YEARS_GIFT.SetPass",
+      "claim": "NEW_YEARS_GIFT.SetPass writes the authority variable sender (honeypots/GiftBox/GiftBox.sol:24) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/GiftBox/GiftBox.sol",
+          "lines": "17-17",
+          "role": "context",
+          "text": "function SetPass(bytes32 hash)",
+          "verified": true
+        },
+        {
+          "path": "honeypots/GiftBox/GiftBox.sol",
+          "lines": "24-24",
+          "role": "primary",
+          "text": "sender = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): the sensitive statement is not reachable even by the privileged deployer in the model (statement not executed), so the model cannot judge it."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "4d03ee0d-256e-4802-b7af-e52c00cd17bd",
+      "class": "reentrancy",
+      "function": "Private_Bank.CashOut",
+      "claim": "Private_Bank.CashOut makes an external call that hands control to msg.sender (honeypots/PrivateBank/PrivateBank.sol:32) and only afterwards updates balances[msg.sender] (honeypots/PrivateBank/PrivateBank.sol:34), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "honeypots/PrivateBank/PrivateBank.sol",
+          "lines": "32-32",
+          "role": "primary",
+          "text": "if(msg.sender.call.value(_am)())",
+          "verified": true
+        },
+        {
+          "path": "honeypots/PrivateBank/PrivateBank.sol",
+          "lines": "34-34",
+          "role": "supporting",
+          "text": "balances[msg.sender]-=_am;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (external call TransferLog.AddMessage); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e92e7e54-5caf-4bf0-8d73-50e59419049b",
+      "class": "access-control",
+      "function": "RaceCondition.buy",
+      "claim": "RaceCondition.buy writes the authority variable owner (race_condition/RaceCondition.sol:42) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "race_condition/RaceCondition.sol",
+          "lines": "32-32",
+          "role": "context",
+          "text": "function buy(uint new_price) payable",
+          "verified": true
+        },
+        {
+          "path": "race_condition/RaceCondition.sol",
+          "lines": "42-42",
+          "role": "primary",
+          "text": "owner = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: right is not a number."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "c3aa6608-8ba4-4d12-b6e2-2aaab151e841",
+      "class": "reentrancy",
+      "function": "Reentrance.withdrawBalance",
+      "claim": "Reentrance.withdrawBalance makes an external call that hands control to msg.sender (reentrancy/Reentrancy.sol:17) and only afterwards updates userBalance[msg.sender] (reentrancy/Reentrancy.sol:20), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/Reentrancy.sol",
+          "lines": "17-17",
+          "role": "primary",
+          "text": "if( ! (msg.sender.call.value(userBalance[msg.sender])() ) ){",
+          "verified": true
+        },
+        {
+          "path": "reentrancy/Reentrancy.sol",
+          "lines": "20-20",
+          "role": "supporting",
+          "text": "userBalance[msg.sender] = 0;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "supports",
+          "rationale": "Executed model: a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering withdrawBalance, depth 1). Trace: scenario: contract holds 11 ether (attacker credit 1 ether, others 10 ether) | entry: withdrawBalance() | withdrawBalance: call sends 1 ether to the attacker (line 17) | attacker receive hook re-enters withdrawBalance() at depth 1 (triggered by line 17) | withdrawBalance: call sends 1 ether to the attacker (line 17) | result: attacker received 2 ether in 2 payout(s); honest sequence: 1 ether"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "ce41bd09-f54d-4ae8-a284-a46d074abdf4",
+      "class": "selfdestruct",
+      "function": "ReentranceExploit.get_money",
+      "claim": "ReentranceExploit.get_money can selfdestruct the contract (reentrancy/ReentrancyExploit.sol:36) and no caller-authorisation check dominates it.",
+      "rationale": "Any caller can destroy the contract and redirect its ether.",
+      "required_checks": [
+        "Confirm no authorisation outside the analysed files applies"
+      ],
+      "alternative_explanations": [
+        "Access may be restricted by an unanalysed base contract or proxy"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "reentrancy/ReentrancyExploit.sol",
+          "lines": "36-36",
+          "role": "primary",
+          "text": "suicide(owner);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-selfdestruct",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs get_money to completion and reaches reentrancy/ReentrancyExploit.sol:36: selfdestruct executed (destroyed=true). Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | get_money: selfdestruct executed (line 36) | attacker calls get_money(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e64cd862-f434-4373-9d64-195d05a6acc2",
+      "class": "access-control",
+      "function": "Rubixi.DynamicPyramid",
+      "claim": "Rubixi.DynamicPyramid writes the authority variable creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:17) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "16-16",
+          "role": "context",
+          "text": "function DynamicPyramid() {",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "17-17",
+          "role": "primary",
+          "text": "creator = msg.sender;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs DynamicPyramid to completion and reaches wrong_constructor_name/Rubixi_source_code/Rubixi.sol:17: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls DynamicPyramid(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "25769c78-3493-49b5-bd3a-6618c4904138",
+      "class": "unchecked-call",
+      "function": "Rubixi.collectAllFees",
+      "claim": "Rubixi.collectAllFees ignores the success flag of a low-level send to creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:78).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "78-78",
+          "role": "primary",
+          "text": "creator.send(collectedFees);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "3336c7f9-d459-4746-a2dc-4fbed54d618d",
+      "class": "unchecked-call",
+      "function": "Rubixi.collectFeesInEther",
+      "claim": "Rubixi.collectFeesInEther ignores the success flag of a low-level send to creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:78) inside collectAllFees.",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "78-78",
+          "role": "primary",
+          "text": "creator.send(collectedFees);",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "84-84",
+          "role": "supporting",
+          "text": "if (_amt > collectedFees) collectAllFees();",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "ce2d9d12-2225-4c23-b72e-8476c0c7df92",
+      "class": "unchecked-call",
+      "function": "Rubixi.collectPercentOfFees",
+      "claim": "Rubixi.collectPercentOfFees ignores the success flag of a low-level send to creator (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:96).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "96-96",
+          "role": "primary",
+          "text": "creator.send(feesToCollect);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "1d779c35-f342-4f6c-b434-fee044a5e517",
+      "class": "unchecked-call",
+      "function": "Rubixi.fallback",
+      "claim": "Rubixi.fallback ignores the success flag of a low-level send to participants[payoutOrder].etherAddress (wrong_constructor_name/Rubixi_source_code/Rubixi.sol:67) inside init -> addPayout.",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "33-33",
+          "role": "supporting",
+          "text": "init();",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "48-48",
+          "role": "supporting",
+          "text": "addPayout(_fee);",
+          "verified": true
+        },
+        {
+          "path": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+          "lines": "67-67",
+          "role": "primary",
+          "text": "participants[payoutOrder].etherAddress.send(payoutToSend);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "none: function not found."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "ab2d0131-f8cf-4195-9f71-0c41c55ba183",
+      "class": "unchecked-call",
+      "function": "SecureAuction.withdraw",
+      "claim": "SecureAuction.withdraw ignores the success flag of a low-level send to msg.sender (denial_of_service/auction.sol:51).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "denial_of_service/auction.sol",
+          "lines": "51-51",
+          "role": "primary",
+          "text": "msg.sender.send(refund);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "supports",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: with the call failing the function still completes and updates refunds. Trace: withdraw: send to attacker FAILS (modelled failure, line 51)"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "a7b7562d-ef2e-4de8-927f-7c04e7a8c07f",
+      "class": "access-control",
+      "function": "Unprotected.changeOwner",
+      "claim": "Unprotected.changeOwner writes the authority variable owner (unprotected_function/Unprotected.sol:21) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/Unprotected.sol",
+          "lines": "18-18",
+          "role": "context",
+          "text": "function changeOwner(address _newOwner)",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/Unprotected.sol",
+          "lines": "21-21",
+          "role": "primary",
+          "text": "owner = _newOwner;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "supports",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): an unprivileged caller runs changeOwner to completion and reaches unprotected_function/Unprotected.sol:21: the flagged statement executed. Trace: note: this shows REACHABILITY by an unprivileged caller; whether the statement is a privileged action is the specialist's classification, not something execution can prove | deployment: privileged address is a third party; constructor run by it | attacker calls changeOwner(...) -> completes without reverting"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "supports",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e0a3dc8f-f29a-4b3e-9ac9-4d5967c2ca80",
+      "class": "unchecked-call",
+      "function": "Wallet.fallback",
+      "claim": "Wallet.fallback ignores the success flag of a low-level delegatecall to _walletLibrary (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:430).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "430-430",
+          "role": "primary",
+          "text": "_walletLibrary.delegatecall(msg.data);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "none: function not found."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "5db7c63b-31f7-4b0f-b594-7393cb0cfcc8",
+      "class": "reentrancy",
+      "function": "WalletLibrary.confirm",
+      "claim": "WalletLibrary.confirm makes an external call that hands control to m_txs[_h].to (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:273) and only afterwards updates m_txs[_h] (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:278), which it relied on before the call; a re-entering receiver would see stale state.",
+      "rationale": "Checks-effects-interactions is violated and no reentrancy lock is held at the call: the callee is attacker-controlled and the state it can re-enter against has not yet been updated.",
+      "required_checks": [
+        "Confirm the callee can re-enter an external function of this contract",
+        "Confirm no lock or earlier write to the same variable protects the path",
+        "Reproduce with a malicious receiver in a local fork test"
+      ],
+      "alternative_explanations": [
+        "A lock or modifier the analysis could not see may protect the function",
+        "Checked arithmetic on the later write may make the re-entrant path revert (see the independent validation)"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "273-273",
+          "role": "primary",
+          "text": "if (!m_txs[_h].to.call.value(m_txs[_h].value)(m_txs[_h].data))",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "278-278",
+          "role": "supporting",
+          "text": "delete m_txs[_h];",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "reentrancy-execution-validator",
+          "outcome": "inconclusive",
+          "rationale": "The validator abstained: some scenarios could not be modelled (condition is not boolean); the rest found no exploit"
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "e510372f-f797-4282-a852-f3c52e4a81f8",
+      "class": "access-control",
+      "function": "WalletLibrary.confirm",
+      "claim": "WalletLibrary.confirm sends ether to the caller-supplied address m_txs[_h].to (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:273) and no caller-authorisation check dominates that statement.",
+      "rationale": "A privileged effect is reachable by any caller: no modifier, require, revert-guard or helper that compares the caller with an authority precedes it on the analysed path.",
+      "required_checks": [
+        "Confirm the function is externally reachable in the deployed configuration",
+        "Check for an access control outside the analysed files (proxy admin, inherited unanalysed modifier)"
+      ],
+      "alternative_explanations": [
+        "The function may be intentionally permissionless",
+        "Authorisation may be enforced by a base contract that was not analysed"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "267-267",
+          "role": "context",
+          "text": "function confirm(bytes32 _h) onlymanyowners(_h) returns (bool o_success) {",
+          "verified": true
+        },
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "273-273",
+          "role": "primary",
+          "text": "if (!m_txs[_h].to.call.value(m_txs[_h].value)(m_txs[_h].data))",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-access-control",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: condition is not boolean."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "1b544907-a77c-4c60-82ca-186dc80ccfef",
+      "class": "initializer",
+      "function": "WalletLibrary.initDaylimit",
+      "claim": "WalletLibrary.initDaylimit sets the state variable m_dailyLimit (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:203) with no caller check and no one-time guard, so any account can call it (again) and take control.",
+      "rationale": "Initialisation functions must run once and only by the deployer; here neither a flag that is checked and then set, nor an authorisation check, was found on the path.",
+      "required_checks": [
+        "Confirm the function is callable after deployment",
+        "Check whether a proxy or deployment script initialises atomically"
+      ],
+      "alternative_explanations": [
+        "Initialisation may be performed atomically in the deployment transaction, outside the analysed files"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "203-203",
+          "role": "primary",
+          "text": "m_dailyLimit = _limit;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-initializer",
+          "outcome": "inconclusive",
+          "rationale": "re-initialisation by an unprivileged caller after a legitimate initialisation: not modelled: modifier constant is not defined in the analysed files."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "6ee025a2-1bf9-4258-bd68-47a150d643d4",
+      "class": "initializer",
+      "function": "WalletLibrary.initMultiowned",
+      "claim": "WalletLibrary.initMultiowned sets the state variable m_numOwners (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:109) with no caller check and no one-time guard, so any account can call it (again) and take control.",
+      "rationale": "Initialisation functions must run once and only by the deployer; here neither a flag that is checked and then set, nor an authorisation check, was found on the path.",
+      "required_checks": [
+        "Confirm the function is callable after deployment",
+        "Check whether a proxy or deployment script initialises atomically"
+      ],
+      "alternative_explanations": [
+        "Initialisation may be performed atomically in the deployment transaction, outside the analysed files"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "109-109",
+          "role": "primary",
+          "text": "m_numOwners = _owners.length + 1;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-initializer",
+          "outcome": "inconclusive",
+          "rationale": "re-initialisation by an unprivileged caller after a legitimate initialisation: not modelled: member _owners.length."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "95b578bb-5ef2-44f4-bf46-cc1eb1962252",
+      "class": "initializer",
+      "function": "WalletLibrary.initWallet",
+      "claim": "WalletLibrary.initWallet sets the state variable m_dailyLimit (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:203) with no caller check and no one-time guard, so any account can call it (again) and take control.",
+      "rationale": "Initialisation functions must run once and only by the deployer; here neither a flag that is checked and then set, nor an authorisation check, was found on the path.",
+      "required_checks": [
+        "Confirm the function is callable after deployment",
+        "Check whether a proxy or deployment script initialises atomically"
+      ],
+      "alternative_explanations": [
+        "Initialisation may be performed atomically in the deployment transaction, outside the analysed files"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "203-203",
+          "role": "primary",
+          "text": "m_dailyLimit = _limit;",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-initializer",
+          "outcome": "inconclusive",
+          "rationale": "re-initialisation by an unprivileged caller after a legitimate initialisation: not modelled: modifier constant is not defined in the analysed files."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "8cd7d4ad-db88-4832-ba1e-9872232cc28f",
+      "class": "selfdestruct",
+      "function": "WalletLibrary.kill",
+      "claim": "WalletLibrary.kill can selfdestruct the contract (unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:224) and no caller-authorisation check dominates it.",
+      "rationale": "Any caller can destroy the contract and redirect its ether.",
+      "required_checks": [
+        "Confirm no authorisation outside the analysed files applies"
+      ],
+      "alternative_explanations": [
+        "Access may be restricted by an unanalysed base contract or proxy"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+          "lines": "224-224",
+          "role": "primary",
+          "text": "suicide(_to);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-selfdestruct",
+          "outcome": "inconclusive",
+          "rationale": "unprivileged-caller execution (reachability of the sensitive statement): not modelled: unresolved call sha3."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "01d2f9b9-d848-4079-85b4-bae3431dce9a",
+      "class": "unchecked-call",
+      "function": "theRun.CollectAllFees",
+      "claim": "theRun.CollectAllFees ignores the success flag of a low-level send to admin (bad_randomness/theRun_source_code/theRun.sol:126).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "126-126",
+          "role": "primary",
+          "text": "admin.send(fees);",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    },
+    {
+      "hypothesis_id": "9c5883f9-e929-428b-9ed3-0f20003e6c35",
+      "class": "unchecked-call",
+      "function": "theRun.GetAndReduceFeesByFraction",
+      "claim": "theRun.GetAndReduceFeesByFraction ignores the success flag of a low-level send to admin (bad_randomness/theRun_source_code/theRun.sol:133).",
+      "rationale": "A failed call is treated as success, so any accounting done on the assumption that the transfer or call happened can diverge from reality.",
+      "required_checks": [
+        "Confirm the result is not used on any path",
+        "Find what state changes assume the call succeeded"
+      ],
+      "alternative_explanations": [
+        "The call may be deliberately best-effort"
+      ],
+      "generator": "solidity-structural-specialists@1",
+      "evidence": [
+        {
+          "path": "bad_randomness/theRun_source_code/theRun.sol",
+          "lines": "133-133",
+          "role": "primary",
+          "text": "admin.send(fees / 1000 * p);//send a percent of fees",
+          "verified": true
+        }
+      ],
+      "evaluations": [
+        {
+          "evaluator": "execution-challenge-unchecked-call",
+          "outcome": "inconclusive",
+          "rationale": "failing low-level call: does the function still complete and advance state or retain ether?: the flagged call was not executed on the modelled path."
+        }
+      ],
+      "status": "unreviewed",
+      "static_outcome": "inconclusive",
+      "human_review": "none recorded"
+    }
+  ],
+  "architecture": {
+    "available": true,
+    "model_sha256": "1a1980f199cb71c9a26e6ac0fd95b86e4d26a5f391bf6e14315d17da8784322a",
+    "builder": "protocol-model/1 solidity-p1/1",
+    "components": [
+      {
+        "id": "theRun",
+        "kind": "contract",
+        "file": "bad_randomness/theRun_source_code/theRun.sol",
+        "lines": "1-173",
+        "content_sha256": "59bfa0ff24d30a0a7a5f9249dfbe3b579bdabc02a3cc716e6b188854ecc062a3",
+        "entry_points": [
+          {
+            "fn": "theRun.ChangeOwnership(address)",
+            "guarded": false,
+            "writes": [
+              "admin"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.CollectAllFees()",
+            "guarded": false,
+            "writes": [
+              "feeFrac",
+              "fees"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "admin",
+                "target_provenance": "state",
+                "at": "bad_randomness/theRun_source_code/theRun.sol:126"
+              }
+            ]
+          },
+          {
+            "fn": "theRun.GetAndReduceFeesByFraction(uint)",
+            "guarded": false,
+            "writes": [
+              "feeFrac",
+              "fees"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "admin",
+                "target_provenance": "state",
+                "at": "bad_randomness/theRun_source_code/theRun.sol:133"
+              }
+            ]
+          },
+          {
+            "fn": "theRun.NextPayout()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.PayoutQueueSize()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.PlayerInfo(uint)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.Total_of_Players()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.WatchBalance()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.WatchBalanceInEther()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.WatchFees()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.WatchLastPayout()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.WatchWinningPot()",
+            "guarded": false,
+            "writes": [
+              "WinningPot"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "theRun.fallback",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "DosAuction",
+        "kind": "contract",
+        "file": "denial_of_service/auction.sol",
+        "lines": "4-22",
+        "content_sha256": "3d135988e3ddc5d1fa7ae3ae9c506f6d401b9d8c196795ddb7b7e8d42c09be55",
+        "entry_points": [
+          {
+            "fn": "DosAuction.bid()",
+            "guarded": false,
+            "writes": [
+              "currentBid",
+              "currentFrontrunner"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "currentFrontrunner",
+                "target_provenance": "state",
+                "at": "denial_of_service/auction.sol:16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "SecureAuction",
+        "kind": "contract",
+        "file": "denial_of_service/auction.sol",
+        "lines": "26-53",
+        "content_sha256": "02cc13d37408f82351cecb5cbbbf544c206e49dbb2f8b482e49e62cca0730e6f",
+        "entry_points": [
+          {
+            "fn": "SecureAuction.bid()",
+            "guarded": false,
+            "writes": [
+              "currentBid",
+              "currentFrontrunner",
+              "refunds"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "SecureAuction.withdraw()",
+            "guarded": false,
+            "writes": [
+              "refunds"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "denial_of_service/auction.sol:51"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "CrowdFundBad",
+        "kind": "contract",
+        "file": "denial_of_service/list_dos.sol",
+        "lines": "3-12",
+        "content_sha256": "2d505e5b324bc17525bee4b920863f164355957cb16403baec6683344a974c62",
+        "entry_points": [
+          {
+            "fn": "CrowdFundBad.refundDos()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "refundAddresses[i]",
+                "target_provenance": "state",
+                "at": "denial_of_service/list_dos.sol:9"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "CrowdFundPull",
+        "kind": "contract",
+        "file": "denial_of_service/list_dos.sol",
+        "lines": "14-23",
+        "content_sha256": "5fd7aa9634c8fea9a35accc95462892752404b91caf6f993fdf05070fc20955a",
+        "entry_points": [
+          {
+            "fn": "CrowdFundPull.withdraw()",
+            "guarded": false,
+            "writes": [
+              "refundAmount"
+            ],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "denial_of_service/list_dos.sol:21"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "CrowdFundSafe",
+        "kind": "contract",
+        "file": "denial_of_service/list_dos.sol",
+        "lines": "28-41",
+        "content_sha256": "3ed0a7b709b291a306800edd94450940d9ce6d854f6918474d602315227989e7",
+        "entry_points": [
+          {
+            "fn": "CrowdFundSafe.refundSafe()",
+            "guarded": false,
+            "writes": [
+              "nextIdx"
+            ],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "refundAddresses[i]",
+                "target_provenance": "state",
+                "at": "denial_of_service/list_dos.sol:36"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "MyAdvancedToken",
+        "kind": "contract",
+        "file": "forced_ether_reception/coin.sol",
+        "lines": "145-183",
+        "content_sha256": "b875282f98fe734f739c1f7f62e22437af657aef322fe8bc363537a75f5b7917",
+        "entry_points": [
+          {
+            "fn": "MyAdvancedToken.approve(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowance"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "MyAdvancedToken.approveAndCall(address,uint256,bytes)",
+            "guarded": false,
+            "writes": [
+              "allowance"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "spender",
+                "target_provenance": "param",
+                "at": "forced_ether_reception/coin.sol:134"
+              }
+            ]
+          },
+          {
+            "fn": "MyAdvancedToken.buy()",
+            "guarded": false,
+            "writes": [
+              "balanceOf",
+              "totalSupply"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "MyAdvancedToken.migrate_and_destroy()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "MyAdvancedToken.transfer(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "balanceOf"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "MyAdvancedToken.transferFrom(address,address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowance",
+              "balanceOf"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "MyAdvancedToken.transferOwnership(address)",
+            "guarded": true,
+            "writes": [
+              "owner"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "TokenERC20",
+        "kind": "contract",
+        "file": "forced_ether_reception/coin.sol",
+        "lines": "24-139",
+        "content_sha256": "8b939110f64a5ad8586a8c6555da656226b9daac5a3943cd060c6d1ce0b53055",
+        "entry_points": [
+          {
+            "fn": "TokenERC20.approve(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowance"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "TokenERC20.approveAndCall(address,uint256,bytes)",
+            "guarded": false,
+            "writes": [
+              "allowance"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "spender",
+                "target_provenance": "param",
+                "at": "forced_ether_reception/coin.sol:134"
+              }
+            ]
+          },
+          {
+            "fn": "TokenERC20.transfer(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "balanceOf"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "TokenERC20.transferFrom(address,address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowance",
+              "balanceOf"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "owned",
+        "kind": "contract",
+        "file": "forced_ether_reception/coin.sol",
+        "lines": "5-20",
+        "content_sha256": "ac5bb24a46d9a4d413e7818db9c2b98d8fff4140af8b10c314c8f79318129a54",
+        "entry_points": [
+          {
+            "fn": "owned.transferOwnership(address)",
+            "guarded": true,
+            "writes": [
+              "owner"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "NEW_YEARS_GIFT",
+        "kind": "contract",
+        "file": "honeypots/GiftBox/GiftBox.sol",
+        "lines": "3-68",
+        "content_sha256": "0ed706c3f092ac176f820ef05d38211e597de8e924988dbf5c6b8d3c9dfb6373",
+        "entry_points": [
+          {
+            "fn": "NEW_YEARS_GIFT.GetGift(bytes)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "honeypots/GiftBox/GiftBox.sol:44"
+              }
+            ]
+          },
+          {
+            "fn": "NEW_YEARS_GIFT.GetHash(bytes)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "NEW_YEARS_GIFT.PassHasBeenSet(bytes32)",
+            "guarded": false,
+            "writes": [
+              "passHasBeenSet"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "NEW_YEARS_GIFT.Revoce()",
+            "guarded": false,
+            "writes": [
+              "message"
+            ],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "sender",
+                "target_provenance": "state",
+                "at": "honeypots/GiftBox/GiftBox.sol:55"
+              }
+            ]
+          },
+          {
+            "fn": "NEW_YEARS_GIFT.SetMessage(string)",
+            "guarded": false,
+            "writes": [
+              "message"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "NEW_YEARS_GIFT.SetPass(bytes32)",
+            "guarded": false,
+            "writes": [
+              "hashPass",
+              "sender"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "NEW_YEARS_GIFT.fallback",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "CEOThrone",
+        "kind": "contract",
+        "file": "honeypots/KOTH/KOTH.sol",
+        "lines": "14-31",
+        "content_sha256": "ddf2308607638f19f885f54ef1953e60258c48d638e1f1536382ce95ce43eeee",
+        "entry_points": [
+          {
+            "fn": "CEOThrone.Stake()",
+            "guarded": false,
+            "writes": [
+              "largestStake",
+              "owner"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "CEOThrone.withdraw()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "honeypots/KOTH/KOTH.sol:29"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "Ownable",
+        "kind": "contract",
+        "file": "honeypots/KOTH/KOTH.sol",
+        "lines": "5-10",
+        "content_sha256": "67e90df7e5c9f253400237266c64737ed3de05d13167885c64c7ada9fe9e2ea7",
+        "entry_points": []
+      },
+      {
+        "id": "OpenAddressLottery",
+        "kind": "contract",
+        "file": "honeypots/Lottery/Lottery.sol",
+        "lines": "18-97",
+        "content_sha256": "3bb86e19e29e27ab286f128ff31ad3c80082a72913437e6a874abe4385eef8b8",
+        "entry_points": [
+          {
+            "fn": "OpenAddressLottery.fallback",
+            "guarded": false,
+            "writes": [
+              "lastReseed",
+              "secretSeed",
+              "winner"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "OpenAddressLottery.forceReseed()",
+            "guarded": true,
+            "writes": [
+              "lastReseed",
+              "secretSeed"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "OpenAddressLottery.kill()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "OpenAddressLottery.luckyNumberOfAddress(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "OpenAddressLottery.participate()",
+            "guarded": false,
+            "writes": [
+              "lastReseed",
+              "secretSeed",
+              "winner"
+            ],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "honeypots/Lottery/Lottery.sol:52"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "Multiplicator",
+        "kind": "contract",
+        "file": "honeypots/Multiplicator/Multiplicator.sol",
+        "lines": "3-25",
+        "content_sha256": "fd6bf455e3d143d3ab36de32685782bf133dec00f597780f7ce24f20d8ecb904",
+        "entry_points": [
+          {
+            "fn": "Multiplicator.fallback",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Multiplicator.multiplicate(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "adr",
+                "target_provenance": "param",
+                "at": "honeypots/Multiplicator/Multiplicator.sol:22"
+              }
+            ]
+          },
+          {
+            "fn": "Multiplicator.withdraw()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "Owner",
+                "target_provenance": "state",
+                "at": "honeypots/Multiplicator/Multiplicator.sol:14"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "Log",
+        "kind": "contract",
+        "file": "honeypots/PrivateBank/PrivateBank.sol",
+        "lines": "44-68",
+        "content_sha256": "a6371d2b022a7519833335443a2eb34f745d4daee00c1bbe99e776f83d5f50be",
+        "entry_points": [
+          {
+            "fn": "Log.AddMessage(address,uint,string)",
+            "guarded": false,
+            "writes": [
+              "History",
+              "LastMsg"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Private_Bank",
+        "kind": "contract",
+        "file": "honeypots/PrivateBank/PrivateBank.sol",
+        "lines": "3-42",
+        "content_sha256": "9a664c18d08e64d67c68fcf5f7f24198690a34e56a49de34691e00f75188aff2",
+        "entry_points": [
+          {
+            "fn": "Private_Bank.CashOut(uint)",
+            "guarded": false,
+            "writes": [
+              "History",
+              "LastMsg",
+              "balances"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "TransferLog",
+                "target_provenance": "state",
+                "at": "honeypots/PrivateBank/PrivateBank.sol:35"
+              },
+              {
+                "kind": "low-level-call",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "honeypots/PrivateBank/PrivateBank.sol:32"
+              }
+            ]
+          },
+          {
+            "fn": "Private_Bank.Deposit()",
+            "guarded": false,
+            "writes": [
+              "History",
+              "LastMsg",
+              "balances"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "TransferLog",
+                "target_provenance": "state",
+                "at": "honeypots/PrivateBank/PrivateBank.sol:23"
+              }
+            ]
+          },
+          {
+            "fn": "Private_Bank.fallback",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Test1",
+        "kind": "contract",
+        "file": "honeypots/VarLoop/VarLoop.sol",
+        "lines": "3-39",
+        "content_sha256": "782c95da8d763533715f8cb8bef5eb06e4d81306e6410ce8daf545dcafa09fee",
+        "entry_points": [
+          {
+            "fn": "Test1.Test()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "honeypots/VarLoop/VarLoop.sol:36"
+              }
+            ]
+          },
+          {
+            "fn": "Test1.fallback",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Test1.withdraw()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "owner",
+                "target_provenance": "state",
+                "at": "honeypots/VarLoop/VarLoop.sol:12"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "Alice",
+        "kind": "contract",
+        "file": "incorrect_interface/Alice.sol",
+        "lines": "4-18",
+        "content_sha256": "5554fe693560e4aa373239e37f82fb96ea5902cae9bf1b3ca50905c190766052",
+        "entry_points": [
+          {
+            "fn": "Alice.fallback",
+            "guarded": false,
+            "writes": [
+              "val"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Alice.set(int)",
+            "guarded": false,
+            "writes": [
+              "val"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Alice.set_fixed(int)",
+            "guarded": false,
+            "writes": [
+              "val"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Alice@incorrect_interface/Bob.sol",
+        "kind": "contract",
+        "file": "incorrect_interface/Bob.sol",
+        "lines": "4-7",
+        "content_sha256": "e32ce6736307a0fc6b2069533e5b6623efd539d6c786a7c9cd69949056aa5d44",
+        "entry_points": []
+      },
+      {
+        "id": "Bob",
+        "kind": "contract",
+        "file": "incorrect_interface/Bob.sol",
+        "lines": "9-17",
+        "content_sha256": "90bede5c2e8f1a01eee3fc64854dc1fbb2a247b28a7d1729fb5b035a8f82ab10",
+        "entry_points": [
+          {
+            "fn": "Bob.set(Alice)",
+            "guarded": false,
+            "writes": [
+              "val"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "c",
+                "target_provenance": "param",
+                "at": "incorrect_interface/Bob.sol:11"
+              }
+            ]
+          },
+          {
+            "fn": "Bob.set_fixed(Alice)",
+            "guarded": false,
+            "writes": [
+              "val"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "c",
+                "target_provenance": "param",
+                "at": "incorrect_interface/Bob.sol:15"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "Overflow",
+        "kind": "contract",
+        "file": "integer_overflow/integer_overflow_1.sol",
+        "lines": "3-17",
+        "content_sha256": "1cda8aec212299ba3d299a79e83636e95fa7bd67ea4dff6c6fb1a90549cf6fb9",
+        "entry_points": [
+          {
+            "fn": "Overflow.add(uint)",
+            "guarded": false,
+            "writes": [
+              "sellerBalance"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Overflow.safe_add(uint)",
+            "guarded": false,
+            "writes": [
+              "sellerBalance"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "ERC20",
+        "kind": "contract",
+        "file": "race_condition/RaceCondition.sol",
+        "lines": "4-13",
+        "content_sha256": "ddc4319569990e1bb1cac0c4010d395e2e2d153bcda3602c4ddae4593abd900e",
+        "entry_points": []
+      },
+      {
+        "id": "RaceCondition",
+        "kind": "contract",
+        "file": "race_condition/RaceCondition.sol",
+        "lines": "15-50",
+        "content_sha256": "3ea18ff41b3cc5257898ea1e30ea62f54fa799438258271e7e306e555c4341df",
+        "entry_points": [
+          {
+            "fn": "RaceCondition.buy(uint)",
+            "guarded": false,
+            "writes": [
+              "owner",
+              "price"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "token",
+                "target_provenance": "state",
+                "at": "race_condition/RaceCondition.sol:39"
+              }
+            ]
+          },
+          {
+            "fn": "RaceCondition.changePrice(uint)",
+            "guarded": true,
+            "writes": [
+              "price"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "DAO",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "690-1219",
+        "content_sha256": "694132b5c8d1946ca38ee8f6ae94599643523f74524e4b2182835741a074dccd",
+        "entry_points": [
+          {
+            "fn": "DAO.createTokenProxy(address)",
+            "guarded": false,
+            "writes": [
+              "balances",
+              "isFueled",
+              "totalSupply",
+              "weiGiven"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "extraBalance",
+                "target_provenance": "state",
+                "at": "reentrancy/DAO_source_code/DAO.sol:302"
+              }
+            ]
+          },
+          {
+            "fn": "DAO.divisor()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "DAO.refund()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "DAOInterface",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "371-687",
+        "content_sha256": "4cb733ccc76fe6193514ed618b847ebe82edabe774530ed0842bbe3e43efa45c",
+        "entry_points": []
+      },
+      {
+        "id": "DAO_Creator",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "1221-1238",
+        "content_sha256": "87c858620cdd06ed0152dbdbc5f33a15a8d7b06d4688c47e8319e123afc610df",
+        "entry_points": [
+          {
+            "fn": "DAO_Creator.createDAO(address,uint,uint,uint)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "ManagedAccount",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "181-206",
+        "content_sha256": "88bf44bec060d301a43073ebcb484ae8614eb852c2e18f9852d54849ee7fbcb1",
+        "entry_points": [
+          {
+            "fn": "ManagedAccount.fallback",
+            "guarded": false,
+            "writes": [
+              "accumulatedInput"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "ManagedAccount.payOut(address,uint)",
+            "guarded": true,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "_recipient",
+                "target_provenance": "param",
+                "at": "reentrancy/DAO_source_code/DAO.sol:199"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ManagedAccountInterface",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "163-178",
+        "content_sha256": "57cd40ec901be29f1e1dd33be4d7ec265c3847bb7e81394a464bd5328f0ff719",
+        "entry_points": []
+      },
+      {
+        "id": "Token",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "88-137",
+        "content_sha256": "f6d420f2240524e355cc5892f30685b59b80a47416d13603ce93566415269438",
+        "entry_points": []
+      },
+      {
+        "id": "TokenCreation",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "285-346",
+        "content_sha256": "3ac399baccceb381a6bfe989bd8d75c624c1a09ec9e99057460ab6b71bff65be",
+        "entry_points": [
+          {
+            "fn": "TokenCreation.createTokenProxy(address)",
+            "guarded": false,
+            "writes": [
+              "balances",
+              "isFueled",
+              "totalSupply",
+              "weiGiven"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "extraBalance",
+                "target_provenance": "state",
+                "at": "reentrancy/DAO_source_code/DAO.sol:302"
+              }
+            ]
+          },
+          {
+            "fn": "TokenCreation.divisor()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "TokenCreation.refund()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "TokenCreationInterface",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "232-282",
+        "content_sha256": "f13e7657e4c6150d1c37139240de7aae6a3ebeeaef3fedef21391f42b680030a",
+        "entry_points": []
+      },
+      {
+        "id": "TokenInterface",
+        "kind": "contract",
+        "file": "reentrancy/DAO_source_code/DAO.sol",
+        "lines": "38-85",
+        "content_sha256": "1bfab68fc1a2ea8bdf1dfab1620ef9b0e6bfadb5392cec969dc8734913ab20b0",
+        "entry_points": []
+      },
+      {
+        "id": "Reentrance",
+        "kind": "contract",
+        "file": "reentrancy/Reentrancy.sol",
+        "lines": "3-42",
+        "content_sha256": "e78631cbbc10ee79dfcd8039a957ac865a9abfec32a5e7439c8ff4aad384d681",
+        "entry_points": [
+          {
+            "fn": "Reentrance.addToBalance()",
+            "guarded": false,
+            "writes": [
+              "userBalance"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Reentrance.getBalance(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Reentrance.withdrawBalance()",
+            "guarded": false,
+            "writes": [
+              "userBalance"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "reentrancy/Reentrancy.sol:17"
+              }
+            ]
+          },
+          {
+            "fn": "Reentrance.withdrawBalance_fixed()",
+            "guarded": false,
+            "writes": [
+              "userBalance"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "reentrancy/Reentrancy.sol:28"
+              }
+            ]
+          },
+          {
+            "fn": "Reentrance.withdrawBalance_fixed_2()",
+            "guarded": false,
+            "writes": [
+              "userBalance"
+            ],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "reentrancy/Reentrancy.sol:38"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ReentranceExploit",
+        "kind": "contract",
+        "file": "reentrancy/ReentrancyExploit.sol",
+        "lines": "3-39",
+        "content_sha256": "f31b3faa1e4d603351e814d5114f3295d708abfdf7383182675f67cd943e033e",
+        "entry_points": [
+          {
+            "fn": "ReentranceExploit.deposit(address)",
+            "guarded": false,
+            "writes": [
+              "vulnerable_contract"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "vulnerable_contract",
+                "target_provenance": "state",
+                "at": "reentrancy/ReentrancyExploit.sol:15"
+              }
+            ]
+          },
+          {
+            "fn": "ReentranceExploit.fallback",
+            "guarded": false,
+            "writes": [
+              "attackModeIsOn"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "vulnerable_contract",
+                "target_provenance": "state",
+                "at": "reentrancy/ReentrancyExploit.sol:31"
+              }
+            ]
+          },
+          {
+            "fn": "ReentranceExploit.get_money()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "ReentranceExploit.launch_attack()",
+            "guarded": false,
+            "writes": [
+              "attackModeIsOn"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "vulnerable_contract",
+                "target_provenance": "state",
+                "at": "reentrancy/ReentrancyExploit.sol:22"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "HumanStandardToken",
+        "kind": "contract",
+        "file": "reentrancy/SpankChain_source_code/SpankChain.sol",
+        "lines": "116-155",
+        "content_sha256": "75767028c9227336ae1b29028fd04ad51b22621bf39523882ea5b6adbce11a17",
+        "entry_points": [
+          {
+            "fn": "HumanStandardToken.allowance(address,address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken.approve(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken.approveAndCall(address,uint256,bytes)",
+            "guarded": false,
+            "writes": [
+              "allowed"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "_spender",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain.sol:152"
+              }
+            ]
+          },
+          {
+            "fn": "HumanStandardToken.balanceOf(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken.transfer(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "balances"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken.transferFrom(address,address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed",
+              "balances"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "StandardToken",
+        "kind": "contract",
+        "file": "reentrancy/SpankChain_source_code/SpankChain.sol",
+        "lines": "61-102",
+        "content_sha256": "c5af1761893123c65684c20edf8018562b5a49b6d44223583bf5668a6e32ff23",
+        "entry_points": [
+          {
+            "fn": "StandardToken.allowance(address,address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken.approve(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken.balanceOf(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken.transfer(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "balances"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken.transferFrom(address,address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed",
+              "balances"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Token@reentrancy/SpankChain_source_code/SpankChain.sol",
+        "kind": "contract",
+        "file": "reentrancy/SpankChain_source_code/SpankChain.sol",
+        "lines": "7-50",
+        "content_sha256": "38dc83dde0245ca9d8188a0c8467e37fd6b075bb892b5ad2137c4e9e71fb0183",
+        "entry_points": []
+      },
+      {
+        "id": "HumanStandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+        "kind": "contract",
+        "file": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+        "lines": "217-256",
+        "content_sha256": "387bb8a1584948962b96ec2d3b45fa7fdbca4a8ac14c7cd9f80a4f85f9ff4672",
+        "entry_points": [
+          {
+            "fn": "HumanStandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.allowance(address,address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.approve(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.approveAndCall(address,uint256,bytes)",
+            "guarded": false,
+            "writes": [
+              "allowed"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "_spender",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:253"
+              }
+            ]
+          },
+          {
+            "fn": "HumanStandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.balanceOf(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.transfer(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "balances"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "HumanStandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.transferFrom(address,address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed",
+              "balances"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "LedgerChannel",
+        "kind": "contract",
+        "file": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+        "lines": "258-888",
+        "content_sha256": "2e319c4367dba1eb1c25bc8afdc5a617f9701c88bf1723b3a3b2dc3c0055a7db",
+        "entry_points": [
+          {
+            "fn": "LedgerChannel.LCOpenTimeout(bytes32)",
+            "guarded": true,
+            "writes": [
+              "Channels"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "Channels[_lcID].token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:422"
+              },
+              {
+                "kind": "transfer",
+                "to": "Channels[_lcID].partyAddresses[0]",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:419"
+              }
+            ]
+          },
+          {
+            "fn": "LedgerChannel.byzantineCloseChannel(bytes32)",
+            "guarded": false,
+            "writes": [
+              "numChannels"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "channel.token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:796"
+              },
+              {
+                "kind": "external",
+                "to": "channel.token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:800"
+              },
+              {
+                "kind": "transfer",
+                "to": "channel.partyAddresses[0]",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:790"
+              },
+              {
+                "kind": "transfer",
+                "to": "channel.partyAddresses[1]",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:791"
+              }
+            ]
+          },
+          {
+            "fn": "LedgerChannel.closeVirtualChannel(bytes32,bytes32)",
+            "guarded": false,
+            "writes": [
+              "Channels",
+              "virtualChannels"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "LedgerChannel.consensusCloseChannel(bytes32,uint256,uint256 [ 4 ],string,string)",
+            "guarded": false,
+            "writes": [
+              "Channels",
+              "numChannels"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "Channels[_lcID].token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:531"
+              },
+              {
+                "kind": "external",
+                "to": "Channels[_lcID].token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:532"
+              },
+              {
+                "kind": "transfer",
+                "to": "Channels[_lcID].partyAddresses[0]",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:526"
+              },
+              {
+                "kind": "transfer",
+                "to": "Channels[_lcID].partyAddresses[1]",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:527"
+              }
+            ]
+          },
+          {
+            "fn": "LedgerChannel.createChannel(bytes32,address,uint256,address,uint256 [ 2 ])",
+            "guarded": false,
+            "writes": [
+              "Channels"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "Channels[_lcID].token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:400"
+              }
+            ]
+          },
+          {
+            "fn": "LedgerChannel.deposit(bytes32,address,uint256,bool)",
+            "guarded": false,
+            "writes": [
+              "Channels"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "Channels[_lcID].token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:465"
+              },
+              {
+                "kind": "external",
+                "to": "Channels[_lcID].token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:475"
+              }
+            ]
+          },
+          {
+            "fn": "LedgerChannel.initVCstate(bytes32,bytes32,bytes,address,address,uint256 [ 2 ],uint256 [ 4 ],string)",
+            "guarded": false,
+            "writes": [
+              "virtualChannels"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "LedgerChannel.joinChannel(bytes32,uint256 [ 2 ])",
+            "guarded": true,
+            "writes": [
+              "Channels",
+              "numChannels"
+            ],
+            "external_calls": [
+              {
+                "kind": "external",
+                "to": "Channels[_lcID].token",
+                "target_provenance": "param",
+                "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:441"
+              }
+            ]
+          },
+          {
+            "fn": "LedgerChannel.settleVC(bytes32,bytes32,uint256,address,address,uint256 [ 4 ],string)",
+            "guarded": false,
+            "writes": [
+              "virtualChannels"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "LedgerChannel.updateLCstate(bytes32,uint256 [ 6 ],bytes32,string,string)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "StandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+        "kind": "contract",
+        "file": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+        "lines": "174-215",
+        "content_sha256": "ba9b3c945b192fa24687c8dc0cc9affc2bac4e14cd2ca6466433aa1b3af879f5",
+        "entry_points": [
+          {
+            "fn": "StandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.allowance(address,address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.approve(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.balanceOf(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.transfer(address,uint256)",
+            "guarded": false,
+            "writes": [
+              "balances"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "StandardToken@reentrancy/SpankChain_source_code/SpankChain_Payment.sol.transferFrom(address,address,uint256)",
+            "guarded": false,
+            "writes": [
+              "allowed",
+              "balances"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Token@reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+        "kind": "contract",
+        "file": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol",
+        "lines": "7-50",
+        "content_sha256": "b1bb4ca5e8da88d24c4e7d13dbe1e56048cb4326f9597568e35342da84d0f6f6",
+        "entry_points": []
+      },
+      {
+        "id": "KingOfTheEtherThrone",
+        "kind": "contract",
+        "file": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol",
+        "lines": "18-170",
+        "content_sha256": "427fed7d45392fab4c4eabd2dd941412a09453dfc13b37c2cf7341d623283020",
+        "entry_points": [
+          {
+            "fn": "KingOfTheEtherThrone.claimThrone(string)",
+            "guarded": false,
+            "writes": [
+              "currentMonarch",
+              "pastMonarchs"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "currentMonarch.etherAddress",
+                "target_provenance": "state",
+                "at": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:121"
+              },
+              {
+                "kind": "send",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:101"
+              },
+              {
+                "kind": "send",
+                "to": "msg.sender",
+                "target_provenance": "msg.sender",
+                "at": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:108"
+              }
+            ]
+          },
+          {
+            "fn": "KingOfTheEtherThrone.fallback",
+            "guarded": false,
+            "writes": [
+              "currentMonarch",
+              "pastMonarchs"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "KingOfTheEtherThrone.numberOfMonarchs()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "KingOfTheEtherThrone.sweepCommission(uint)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "wizardAddress",
+                "target_provenance": "state",
+                "at": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:162"
+              }
+            ]
+          },
+          {
+            "fn": "KingOfTheEtherThrone.transferOwnership(address)",
+            "guarded": false,
+            "writes": [
+              "wizardAddress"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Unprotected",
+        "kind": "contract",
+        "file": "unprotected_function/Unprotected.sol",
+        "lines": "3-30",
+        "content_sha256": "c4ec6d09bbb819a3257712c6f0d8663d2e214296cba218ea2f3f5026416d468b",
+        "entry_points": [
+          {
+            "fn": "Unprotected.changeOwner(address)",
+            "guarded": false,
+            "writes": [
+              "owner"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Unprotected.changeOwner_fixed(address)",
+            "guarded": true,
+            "writes": [
+              "owner"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Wallet",
+        "kind": "contract",
+        "file": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+        "lines": "396-462",
+        "content_sha256": "3215eb1ff1d54d4443ea5c232c8f6b85575f0fcbe2107c93d27e729c4112a305",
+        "entry_points": [
+          {
+            "fn": "Wallet.fallback",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "delegatecall",
+                "to": "_walletLibrary",
+                "target_provenance": "constant",
+                "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:430"
+              }
+            ]
+          },
+          {
+            "fn": "Wallet.getOwner(uint)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Wallet.hasConfirmed(bytes32,address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "delegatecall",
+                "to": "_walletLibrary",
+                "target_provenance": "constant",
+                "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:441"
+              }
+            ]
+          },
+          {
+            "fn": "Wallet.isOwner(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "delegatecall",
+                "to": "_walletLibrary",
+                "target_provenance": "constant",
+                "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:445"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "WalletAbi",
+        "kind": "contract",
+        "file": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+        "lines": "41-63",
+        "content_sha256": "9ed492dccde008258832d2452d0e6405ad3020c10a0510cfbccbdee97f19e417",
+        "entry_points": []
+      },
+      {
+        "id": "WalletEvents",
+        "kind": "contract",
+        "file": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+        "lines": "15-39",
+        "content_sha256": "e8863a5983cf4bce0f02a5e1db39b7c5aaf9ab38393e3ff7603950f7cbac69b0",
+        "entry_points": []
+      },
+      {
+        "id": "WalletLibrary",
+        "kind": "contract",
+        "file": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol",
+        "lines": "65-394",
+        "content_sha256": "f8c6588e24bb593eb4a7813e3046e9660506854931c4075b80bc2fd6ee7ff36b",
+        "entry_points": [
+          {
+            "fn": "WalletLibrary.addOwner(address)",
+            "guarded": false,
+            "writes": [
+              "m_numOwners",
+              "m_ownerIndex",
+              "m_owners",
+              "m_pending",
+              "m_pendingIndex",
+              "m_txs"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.changeOwner(address,address)",
+            "guarded": false,
+            "writes": [
+              "m_ownerIndex",
+              "m_owners",
+              "m_pending",
+              "m_pendingIndex",
+              "m_txs"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.changeRequirement(uint)",
+            "guarded": false,
+            "writes": [
+              "m_pending",
+              "m_pendingIndex",
+              "m_required",
+              "m_txs"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.confirm(bytes32)",
+            "guarded": false,
+            "writes": [
+              "m_pending",
+              "m_pendingIndex",
+              "m_txs"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "m_txs[_h].to",
+                "target_provenance": "param",
+                "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:273"
+              }
+            ]
+          },
+          {
+            "fn": "WalletLibrary.execute(address,uint,bytes)",
+            "guarded": false,
+            "writes": [
+              "m_lastDay",
+              "m_pending",
+              "m_pendingIndex",
+              "m_spentToday",
+              "m_txs"
+            ],
+            "external_calls": [
+              {
+                "kind": "low-level-call",
+                "to": "_to",
+                "target_provenance": "param",
+                "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:239"
+              }
+            ]
+          },
+          {
+            "fn": "WalletLibrary.fallback",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.getOwner(uint)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.hasConfirmed(bytes32,address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.initDaylimit(uint)",
+            "guarded": false,
+            "writes": [
+              "m_dailyLimit",
+              "m_lastDay"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.initMultiowned(address [ ],uint)",
+            "guarded": false,
+            "writes": [
+              "m_numOwners",
+              "m_ownerIndex",
+              "m_owners",
+              "m_required"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.initWallet(address [ ],uint,uint)",
+            "guarded": false,
+            "writes": [
+              "m_dailyLimit",
+              "m_lastDay",
+              "m_numOwners",
+              "m_ownerIndex",
+              "m_owners",
+              "m_required"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.isOwner(address)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.kill(address)",
+            "guarded": false,
+            "writes": [
+              "m_pending",
+              "m_pendingIndex"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.removeOwner(address)",
+            "guarded": false,
+            "writes": [
+              "m_numOwners",
+              "m_ownerIndex",
+              "m_owners",
+              "m_pending",
+              "m_pendingIndex",
+              "m_txs"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.resetSpentToday()",
+            "guarded": false,
+            "writes": [
+              "m_pending",
+              "m_pendingIndex",
+              "m_spentToday"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.revoke(bytes32)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "WalletLibrary.setDailyLimit(uint)",
+            "guarded": false,
+            "writes": [
+              "m_dailyLimit",
+              "m_pending",
+              "m_pendingIndex"
+            ],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "C",
+        "kind": "contract",
+        "file": "variable shadowing/inherited_state.sol",
+        "lines": "8-13",
+        "content_sha256": "6ce61bca7eff2477399ace54b5636627a4ddba921dd01cf71cfd18f5257a488a",
+        "entry_points": [
+          {
+            "fn": "C.suicide()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Suicidal",
+        "kind": "contract",
+        "file": "variable shadowing/inherited_state.sol",
+        "lines": "1-7",
+        "content_sha256": "4c8af72e0d1c22e1691485a24f78a56a562eeb0ef34af393a158cd218d9deb75",
+        "entry_points": [
+          {
+            "fn": "Suicidal.suicide()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Rubixi",
+        "kind": "contract",
+        "file": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol",
+        "lines": "4-155",
+        "content_sha256": "462c36eacc8a026fae2eaecf694012dcc9858223ba84c77b972a79f16015cdef",
+        "entry_points": [
+          {
+            "fn": "Rubixi.DynamicPyramid()",
+            "guarded": false,
+            "writes": [
+              "creator"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.changeFeePercentage(uint)",
+            "guarded": false,
+            "writes": [
+              "feePercent"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.changeMultiplier(uint)",
+            "guarded": false,
+            "writes": [
+              "pyramidMultiplier"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.changeOwner(address)",
+            "guarded": false,
+            "writes": [
+              "creator"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.collectAllFees()",
+            "guarded": false,
+            "writes": [
+              "collectedFees"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "creator",
+                "target_provenance": "state",
+                "at": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol:78"
+              }
+            ]
+          },
+          {
+            "fn": "Rubixi.collectFeesInEther(uint)",
+            "guarded": false,
+            "writes": [
+              "collectedFees"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "creator",
+                "target_provenance": "state",
+                "at": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol:88"
+              }
+            ]
+          },
+          {
+            "fn": "Rubixi.collectPercentOfFees(uint)",
+            "guarded": false,
+            "writes": [
+              "collectedFees"
+            ],
+            "external_calls": [
+              {
+                "kind": "send",
+                "to": "creator",
+                "target_provenance": "state",
+                "at": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol:96"
+              }
+            ]
+          },
+          {
+            "fn": "Rubixi.currentFeePercentage()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.currentMultiplier()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.currentPyramidBalanceApproximately()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.fallback",
+            "guarded": false,
+            "writes": [
+              "balance",
+              "collectedFees",
+              "participants",
+              "payoutOrder",
+              "pyramidMultiplier"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.feesSeperateFromBalanceApproximately()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.nextPayoutWhenPyramidBalanceTotalsApproximately()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.numberOfParticipantsWaitingForPayout()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.participantDetails(uint)",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          },
+          {
+            "fn": "Rubixi.totalParticipants()",
+            "guarded": false,
+            "writes": [],
+            "external_calls": []
+          }
+        ]
+      },
+      {
+        "id": "Missing",
+        "kind": "contract",
+        "file": "wrong_constructor_name/incorrect_constructor.sol",
+        "lines": "3-25",
+        "content_sha256": "ff0b62536ff26232134f1c017747c2b4176f262a5766ac62127cffe7d91eee1a",
+        "entry_points": [
+          {
+            "fn": "Missing.IamMissing()",
+            "guarded": false,
+            "writes": [
+              "owner"
+            ],
+            "external_calls": []
+          },
+          {
+            "fn": "Missing.withdraw()",
+            "guarded": true,
+            "writes": [],
+            "external_calls": [
+              {
+                "kind": "transfer",
+                "to": "owner",
+                "target_provenance": "state",
+                "at": "wrong_constructor_name/incorrect_constructor.sol:23"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "unknowns": [
+      {
+        "at": "bad_randomness/theRun_source_code/theRun.sol:66",
+        "what": "call to unresolved function Player"
+      },
+      {
+        "at": "honeypots/GiftBox/GiftBox.sol:15",
+        "what": "call to unresolved function sha3"
+      },
+      {
+        "at": "honeypots/GiftBox/GiftBox.sol:42",
+        "what": "call to unresolved function sha3"
+      },
+      {
+        "at": "honeypots/Lottery/Lottery.sol:56",
+        "what": "call to unresolved function SeedComponents"
+      },
+      {
+        "at": "reentrancy/DAO_source_code/DAO.sol:200",
+        "what": "call to unresolved function PayOut"
+      },
+      {
+        "at": "reentrancy/DAO_source_code/DAO.sol:306",
+        "what": "call to unresolved function CreatedToken"
+      },
+      {
+        "at": "reentrancy/DAO_source_code/DAO.sol:309",
+        "what": "call to unresolved function FuelingToDate"
+      },
+      {
+        "at": "reentrancy/ReentrancyExploit.sol:15",
+        "what": "call to unresolved function sha3"
+      },
+      {
+        "at": "reentrancy/ReentrancyExploit.sol:22",
+        "what": "call to unresolved function sha3"
+      },
+      {
+        "at": "reentrancy/ReentrancyExploit.sol:31",
+        "what": "call to unresolved function sha3"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain.sol:71",
+        "what": "call to unresolved function Transfer"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain.sol:82",
+        "what": "call to unresolved function Transfer"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain.sol:92",
+        "what": "call to unresolved function Approval"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain.sol:147",
+        "what": "call to unresolved function Approval"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain.sol:152",
+        "what": "call to unresolved function sha3"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:70",
+        "what": "inline assembly is not analysed"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:128",
+        "what": "inline assembly is not analysed"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:153",
+        "what": "call to unresolved function byte"
+      },
+      {
+        "at": "reentrancy/SpankChain_source_code/SpankChain_Payment.sol:816",
+        "what": "inline assembly is not analysed"
+      },
+      {
+        "at": "unchecked_external_call/KotET_source_code/KingOfTheEtherThrone.sol:128",
+        "what": "call to unresolved function Monarch"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:103",
+        "what": "call to unresolved function Deposit"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:130",
+        "what": "call to unresolved function Revoke"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:144",
+        "what": "call to unresolved function OwnerChanged"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:158",
+        "what": "call to unresolved function OwnerAdded"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:170",
+        "what": "call to unresolved function OwnerRemoved"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:177",
+        "what": "call to unresolved function RequirementChanged"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:242",
+        "what": "call to unresolved function SingleTransact"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:245",
+        "what": "call to unresolved function sha3"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:253",
+        "what": "call to unresolved function ConfirmationNeeded"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:259",
+        "what": "inline assembly is not analysed"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:277",
+        "what": "call to unresolved function MultiTransact"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:305",
+        "what": "call to unresolved function Confirmation"
+      },
+      {
+        "at": "unprotected_function/WalletLibrary_source_code/WalletLibrary.sol:428",
+        "what": "call to unresolved function Deposit"
+      },
+      {
+        "at": "wrong_constructor_name/Rubixi_source_code/Rubixi.sol:54",
+        "what": "call to unresolved function Participant"
+      }
+    ]
+  },
+  "limitations": [
+    "Every item is a lead produced by deterministic rules over source text; nothing was compiled, run against a chain or tested with a fuzzer.",
+    "Reentrancy, access-control, initializer, delegatecall, selfdestruct and unchecked-call leads are challenged by bounded execution of a modelled contract (a different method from the specialists); tx.origin leads have no independent method and stay unchallenged.",
+    "No human review is recorded for any item. Status values come from the database view and say so.",
+    "The analysis is intra-repository: calls into code outside the snapshot, inline assembly and unresolved modifiers are not analysed (they are listed as assumptions where they affect a lead)."
+  ],
+  "content_sha256": "e6e945f95a4314e6568f8b399410563414d43e5485740f001bb902a46b05c687"
+}
