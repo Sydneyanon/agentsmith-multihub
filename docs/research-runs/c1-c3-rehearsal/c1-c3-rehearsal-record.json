@@ -1,0 +1,1156 @@
+{
+  "generated_by": "apps/api/src/integration/c1c3-demo.ts (collectDemoRecord): read back from stored records of a disposable database",
+  "fixtures": "self-authored, local git repositories served by a loopback GitHub stand-in; nothing fetched from the network; no real project",
+  "slither": "AUTHORED STAND-IN OUTPUT (not Slither's detection): a shell script printing fixed JSON in Slither's shape",
+  "apex": "the unchanged APEX engine on the USX-like fixture; eligible only because the fixture is served as the approved repository, commit and scope (test configuration); measurement only",
+  "run": {
+    "id": "38818c7e-6855-4aec-a17a-1a6fc094ea53",
+    "repository": "scroll-tech/usx-contracts",
+    "commit": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+    "status": "succeeded",
+    "steps": [
+      {
+        "step": "acquire_repository",
+        "sequence": 0,
+        "status": "succeeded",
+        "result": "snapshot_sealed"
+      },
+      {
+        "step": "acquire_dependencies",
+        "sequence": 1,
+        "status": "succeeded",
+        "result": "dependencies_resolved"
+      },
+      {
+        "step": "analyze_structure",
+        "sequence": 2,
+        "status": "succeeded",
+        "result": "structure_analyzed"
+      },
+      {
+        "step": "slither_scan",
+        "sequence": 3,
+        "status": "succeeded",
+        "result": "tool_completed"
+      },
+      {
+        "step": "challenge_leads",
+        "sequence": 4,
+        "status": "succeeded",
+        "result": "leads_challenged"
+      },
+      {
+        "step": "build_dossier",
+        "sequence": 5,
+        "status": "succeeded",
+        "result": "dossier_built"
+      },
+      {
+        "step": "apex_shadow",
+        "sequence": 6,
+        "status": "succeeded",
+        "result": "apex_shadow_recorded"
+      }
+    ]
+  },
+  "snapshot": {
+    "id": "e299e1d3-8780-4a01-9cfb-2aff88b99471",
+    "manifest_sha256": "965270d2b263ec4aa31e881247576b7d8cf359ef0aa8c894486b969b39b7ca77",
+    "dependency_snapshots": [
+      {
+        "repository": "acme-labs/nested-lib",
+        "commit_sha": "0f0a94bf9445296614375d606e5ff5bde3bcc287",
+        "sealed": true,
+        "files": 3,
+        "dependency_of": {
+          "path": "lib/vault-lib/lib/nested-lib",
+          "depth": 2,
+          "source_url": "https://github.com/acme-labs/nested-lib",
+          "pinned_commit": "0f0a94bf9445296614375d606e5ff5bde3bcc287",
+          "path_in_parent": "lib/nested-lib",
+          "parent_tree_sha": "ea9ede7f1aab3a9e1f515c10d54cac02e23d9a3c",
+          "root_commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "root_repository": "scroll-tech/usx-contracts",
+          "parent_commit_sha": "fb583025e1a54eabe49a8838acc95c6bb7c65bc5",
+          "parent_repository": "acme-labs/vault-lib",
+          "pin_established_by": "gitlink_in_parent_tree",
+          "root_manifest_sha256": "965270d2b263ec4aa31e881247576b7d8cf359ef0aa8c894486b969b39b7ca77"
+        }
+      },
+      {
+        "repository": "acme-labs/vault-lib",
+        "commit_sha": "fb583025e1a54eabe49a8838acc95c6bb7c65bc5",
+        "sealed": true,
+        "files": 4,
+        "dependency_of": {
+          "path": "lib/vault-lib",
+          "depth": 1,
+          "source_url": "https://github.com/acme-labs/vault-lib",
+          "pinned_commit": "fb583025e1a54eabe49a8838acc95c6bb7c65bc5",
+          "path_in_parent": "lib/vault-lib",
+          "parent_tree_sha": "ca3754f33cb2cebc94be316d23a81df9c1215a30",
+          "root_commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "root_repository": "scroll-tech/usx-contracts",
+          "parent_commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "parent_repository": "scroll-tech/usx-contracts",
+          "pin_established_by": "gitlink_in_parent_tree",
+          "root_manifest_sha256": "965270d2b263ec4aa31e881247576b7d8cf359ef0aa8c894486b969b39b7ca77"
+        }
+      }
+    ]
+  },
+  "shared_model": {
+    "sha256": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24",
+    "base_sha256": "9fc7363fb89ebdc28cb9c448892d2fe6a7be63e4c3dd88ed3b58ec18cf858063",
+    "schema": "agentsmith-shared-protocol-model/1",
+    "sections": {
+      "contracts": "computed:parsed",
+      "functions": "computed:derived",
+      "state": "computed:derived",
+      "actors_permissions": "computed:derived",
+      "assets_accounting": "not_computed",
+      "external_dependencies": "computed:parsed",
+      "invariants": "not_computed",
+      "upgradeability": "computed:parsed",
+      "unsupported_features": "computed:parsed",
+      "unresolved_questions": "computed:unknown"
+    },
+    "not_computed": [
+      {
+        "section": "assets_accounting",
+        "reason": "no rule derives assets, share tokens or accounting relations yet (protocol model R5). State-variable roles (ledger, aggregate) are in `state`; they are roles, not accounting relations."
+      },
+      {
+        "section": "invariants",
+        "reason": "no rule-derived or declared invariants exist. Candidates inferred by state exploration are measurement records, never model facts."
+      },
+      {
+        "section": "actors_permissions.actors",
+        "reason": "the actor set (deployer, role holders, unprivileged account, attacker contract) is not derived from authority facts yet; exploration still uses a fixed actor set"
+      },
+      {
+        "section": "unsupported_features.gate_observations (inside the immutable document)",
+        "reason": "the fidelity gate's abstentions exist only after the APEX shadow stage ran on this snapshot; they are recorded on the shadow step (worker-reported, measurement only), not in this immutable document"
+      }
+    ],
+    "facts": {
+      "state.variables": 54,
+      "actors_permissions.functions": 56,
+      "actors_permissions.roles": 15,
+      "external_dependencies.external_calls": 25,
+      "external_dependencies.imports": 12,
+      "upgradeability.markers": 3,
+      "unsupported_features.predicted": 31,
+      "unresolved_questions.questions": 9,
+      "functions.callers": 1
+    },
+    "example_facts": {
+      "state": {
+        "epistemic": "derived",
+        "at": [
+          {
+            "file": "src/demo/SharedVault.sol",
+            "line_start": 11,
+            "line_end": 11
+          }
+        ],
+        "component": "SharedVault",
+        "variable": "balances",
+        "type": "mapping ( address => uint256 )",
+        "constant": false,
+        "immutable": false,
+        "roles": [
+          "ledger (established, strong)"
+        ],
+        "writers": [
+          {
+            "function": "SharedVault.deposit()",
+            "entry_point": true,
+            "caller_guarded": false
+          },
+          {
+            "function": "SharedVault.withdraw()",
+            "entry_point": true,
+            "caller_guarded": false
+          }
+        ]
+      },
+      "actors_permissions": {
+        "epistemic": "derived",
+        "at": [
+          {
+            "file": "src/demo/SharedVault.sol",
+            "line_start": 25,
+            "line_end": 28
+          }
+        ],
+        "function": "SharedVault.configure(address)",
+        "entry_point": true,
+        "caller_guarded": false,
+        "modifiers": [],
+        "guards": []
+      },
+      "external_dependencies.external_call": {
+        "epistemic": "parsed",
+        "at": [
+          {
+            "file": "src/demo/SharedVault.sol",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "from": "SharedVault.withdraw()",
+        "kind": "low-level-call",
+        "target": "msg.sender",
+        "target_provenance": "msg.sender",
+        "resolved_callee": null
+      },
+      "external_dependencies.import": {
+        "epistemic": "parsed",
+        "at": [
+          {
+            "file": "src/demo/SharedVault.sol",
+            "line_start": 4,
+            "line_end": 4
+          }
+        ],
+        "file": "src/demo/SharedVault.sol",
+        "path": "vault-lib/VaultMath.sol",
+        "resolution": "dependency",
+        "resolved_path": "lib/vault-lib/src/VaultMath.sol",
+        "dependency": "lib/vault-lib",
+        "reason": null
+      },
+      "upgradeability": {
+        "epistemic": "parsed",
+        "at": [
+          {
+            "file": "src/TreasuryDiamond.sol",
+            "line_start": 26,
+            "line_end": 26
+          }
+        ],
+        "kind": "delegatecall",
+        "component": "TreasuryDiamond",
+        "subject": "TreasuryDiamond.fallback",
+        "detail": "delegatecall to facet (target from other)"
+      },
+      "unsupported_features": {
+        "epistemic": "parsed",
+        "at": [
+          {
+            "file": "src/StakedUSX.sol",
+            "line_start": 8,
+            "line_end": 8
+          }
+        ],
+        "feature": "other-contract",
+        "component": "StakedUSX",
+        "function": "(state)",
+        "what": "state variable asset: contract-typed IUSX"
+      },
+      "unresolved_questions": {
+        "epistemic": "unknown",
+        "at": [],
+        "question": "dependency limitation (unavailable) on lib/ghost: repository_not_found: the repository was not found (it may not exist, or it is not public)",
+        "about": "lib/ghost",
+        "raised_by": "dependency-acquisition",
+        "blocks": [
+          "slither",
+          "foundry"
+        ]
+      }
+    }
+  },
+  "model_hash_read_by": {
+    "analyze_structure (builds and stores it)": {
+      "sha256": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24",
+      "read": "built",
+      "used_for": "the one build of the model for this sealed snapshot"
+    },
+    "slither_scan": {
+      "sha256": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24",
+      "read": "by_hash",
+      "used_for": "import resolution and dependency availability before compiling"
+    },
+    "challenge_leads": {
+      "sha256": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24",
+      "read": "by_hash",
+      "used_for": "input identity check before execution; locating the challenged leads' functions",
+      "detail": {
+        "inputs_checked": 24,
+        "leads": 8,
+        "leads_on_modelled_functions": 8
+      }
+    },
+    "build_dossier": {
+      "sha256": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24",
+      "read": "by_hash",
+      "used_for": "section status, unresolved imports and open questions of the dossier"
+    },
+    "apex_shadow": {
+      "sha256": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24",
+      "read": "by_hash",
+      "used_for": "input identity check; the model's predicted unsupported features, compared with the fidelity gate's abstentions",
+      "detail": {
+        "inputs_matched": 20,
+        "inputs_total": 20,
+        "gate_vs_model": {
+          "observed_not_predicted": [
+            "other"
+          ],
+          "predicted_and_observed": [
+            "array",
+            "external-call",
+            "other-contract"
+          ],
+          "predicted_not_observed": [
+            "block",
+            "hashing",
+            "inline-assembly",
+            "proxy",
+            "try"
+          ]
+        }
+      }
+    }
+  },
+  "all_consumers_read_the_same_model": true,
+  "shared_hypothesis": {
+    "lead_key": "9fb9f31c4a0be9d9a5f168c46cdaa6040fd48d5b94eb78511de2efb55ca927a6",
+    "keyed": true,
+    "anchor": {
+      "repository": "scroll-tech/usx-contracts",
+      "class": "reentrancy",
+      "file": "src/demo/SharedVault.sol",
+      "contract": "SharedVault",
+      "function": "withdraw"
+    },
+    "contributions": [
+      {
+        "hypothesis_id": "34df16b6-f124-4339-80e0-4341f7505c24",
+        "generator": "solidity-structural-specialists@1",
+        "generator_kind": "deterministic_rule",
+        "analysis_family": "agentsmith-solidity-parser",
+        "method": "structural-pattern-rules",
+        "produced_by_step": "analyze_structure",
+        "claim": "SharedVault.withdraw makes an external call that hands control to msg.sender (src/demo/SharedVault.sol:20) and only afterwards updates balances[msg.sender] (src/demo/SharedVault.sol:22), which it relied on before the call; a re-entering receiver would see stale state.",
+        "evidence": [
+          {
+            "path": "src/demo/SharedVault.sol",
+            "lines": "20-20",
+            "role": "primary"
+          },
+          {
+            "path": "src/demo/SharedVault.sol",
+            "lines": "22-22",
+            "role": "supporting"
+          }
+        ],
+        "evaluations": [
+          {
+            "evaluation_id": "9a626c56-4c5c-41f1-a31f-ab39f7ed18ba",
+            "evaluator": "reentrancy-execution-validator@1",
+            "analysis_family": "agentsmith-solidity-parser",
+            "method": "bounded-execution",
+            "outcome": "supports",
+            "rationale": "Executed model: a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering withdraw, depth 1). Trace: scenario: contract holds 11 ether (attacker credit 1 ether, others 10 ether) | entry: withdraw() | withdraw: call sends 1 ether to the attacker (line 20) | attacker receive hook re-enters withdraw() at depth 1 (triggered by line 20) | withdraw: call sends 1 ether to the attacker (line 20) | result: attacker received 2 ether in 2 payout(s); honest sequence: 1 ether",
+            "relation": "same-family",
+            "relation_to_investigation": "same-family"
+          }
+        ]
+      },
+      {
+        "hypothesis_id": "16f13f4b-7774-437a-8344-2255e6eda211",
+        "generator": "slither@0.11.3",
+        "generator_kind": "deterministic_rule",
+        "analysis_family": "slither-ir",
+        "method": "static-detectors",
+        "produced_by_step": "slither_scan",
+        "claim": "Slither reentrancy-eth (High impact, Medium confidence) in SharedVault.withdraw: Reentrancy in SharedVault.withdraw() (src/demo/SharedVault.sol): External calls: msg.sender.call{value: amount}() State variables written after the call(s): balances[msg.sender] = 0 [AUTHORED STAND-IN OUTPUT]",
+        "evidence": [
+          {
+            "path": "src/demo/SharedVault.sol",
+            "lines": "17-22",
+            "role": "primary"
+          }
+        ],
+        "evaluations": [
+          {
+            "evaluation_id": "7bc7bae8-2716-49d7-8630-d95c38be7685",
+            "evaluator": "reentrancy-execution-validator@1",
+            "analysis_family": "agentsmith-solidity-parser",
+            "method": "bounded-execution",
+            "outcome": "supports",
+            "rationale": "Executed model: a re-entrant attacker extracts 2 ether where the best honest sequence of the same calls extracts 1 ether (attacker credit 1 ether, amount 1 ether, re-entering withdraw, depth 1). Trace: scenario: contract holds 11 ether (attacker credit 1 ether, others 10 ether) | entry: withdraw() | withdraw: call sends 1 ether to the attacker (line 20) | attacker receive hook re-enters withdraw() at depth 1 (triggered by line 20) | withdraw: call sends 1 ether to the attacker (line 20) | result: attacker received 2 ether in 2 payout(s); honest sequence: 1 ether",
+            "relation": "cross-family",
+            "relation_to_investigation": "same-family"
+          }
+        ]
+      }
+    ],
+    "generators": [
+      "slither@0.11.3",
+      "solidity-structural-specialists@1"
+    ],
+    "generator_families": [
+      "agentsmith-solidity-parser",
+      "slither-ir"
+    ],
+    "independent_generation": true,
+    "corroboration": {
+      "same_family": 2,
+      "cross_family": 0,
+      "unknown_family": 0
+    },
+    "contradictions": [],
+    "assessment": "corroborated_same_family",
+    "note": "2 hypotheses from 2 generator(s) share this lead key: ONE investigation. Each engine's claim and evidence is kept separately below. Generators of different analysis families reported it independently; that is independent generation, not validation."
+  },
+  "contradiction_case": {
+    "lead_key": "1e906c33b66d5695d6acd8c8776b788395e47a2eaddafea2578f48394d3cde35",
+    "keyed": true,
+    "anchor": {
+      "repository": "scroll-tech/usx-contracts",
+      "class": "access-control",
+      "file": "src/demo/SharedVault.sol",
+      "contract": "SharedVault",
+      "function": "configure"
+    },
+    "contributions": [
+      {
+        "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
+        "generator": "solidity-structural-specialists@1",
+        "generator_kind": "deterministic_rule",
+        "analysis_family": "agentsmith-solidity-parser",
+        "method": "structural-pattern-rules",
+        "produced_by_step": "analyze_structure",
+        "claim": "SharedVault.configure writes the authority variable owner (src/demo/SharedVault.sol:27) and no caller-authorisation check dominates that statement.",
+        "evidence": [
+          {
+            "path": "src/demo/SharedVault.sol",
+            "lines": "27-27",
+            "role": "primary"
+          },
+          {
+            "path": "src/demo/SharedVault.sol",
+            "lines": "25-25",
+            "role": "context"
+          }
+        ],
+        "evaluations": [
+          {
+            "evaluation_id": "71893ff3-ad80-4bd3-ad41-16da6b86b809",
+            "evaluator": "execution-challenge-access-control@1",
+            "analysis_family": "agentsmith-solidity-parser",
+            "method": "bounded-execution",
+            "outcome": "contradicts",
+            "rationale": "unprivileged-caller execution (reachability of the sensitive statement): executed counterexample: the privileged deployer's transaction reaches src/demo/SharedVault.sol:27, and every unprivileged attempt on the same path reverts at a check on the caller (require failed: owner == address(0) || msg.sender == owner). Trace: deployment: privileged address is a third party; constructor run by it | control: the privileged deployer calls configure(...) -> completes and reaches src/demo/SharedVault.sol:27 | attacker calls configure(\"attacker\") -> REVERTS: require failed: owner == address(0) || msg.sen",
+            "relation": "same-family",
+            "relation_to_investigation": "same-family"
+          }
+        ]
+      },
+      {
+        "hypothesis_id": "70dcd50a-48e2-47a3-bb93-6aee7d4cdcdb",
+        "generator": "slither@0.11.3",
+        "generator_kind": "deterministic_rule",
+        "analysis_family": "slither-ir",
+        "method": "static-detectors",
+        "produced_by_step": "slither_scan",
+        "claim": "Slither protected-vars (High impact, High confidence) in SharedVault.configure: SharedVault.configure(address) (src/demo/SharedVault.sol) should have a caller check protecting owner [AUTHORED STAND-IN OUTPUT]",
+        "evidence": [
+          {
+            "path": "src/demo/SharedVault.sol",
+            "lines": "25-27",
+            "role": "primary"
+          }
+        ],
+        "evaluations": [
+          {
+            "evaluation_id": "941abd0c-e29b-44d9-a73c-9b499bc7ccdf",
+            "evaluator": "execution-challenge-access-control@1",
+            "analysis_family": "agentsmith-solidity-parser",
+            "method": "bounded-execution",
+            "outcome": "inconclusive",
+            "rationale": "unprivileged-caller execution (reachability of the sensitive statement): the sensitive statement is not reachable even by the privileged deployer in the model (require failed: owner == address(0) || msg.sender == owner), so the model cannot judge it.",
+            "relation": "cross-family",
+            "relation_to_investigation": "same-family"
+          }
+        ]
+      }
+    ],
+    "generators": [
+      "slither@0.11.3",
+      "solidity-structural-specialists@1"
+    ],
+    "generator_families": [
+      "agentsmith-solidity-parser",
+      "slither-ir"
+    ],
+    "independent_generation": true,
+    "corroboration": {
+      "same_family": 0,
+      "cross_family": 0,
+      "unknown_family": 0
+    },
+    "contradictions": [
+      {
+        "kind": "refuted_by_another_engine",
+        "for": {
+          "engine": "solidity-structural-specialists@1",
+          "analysis_family": "agentsmith-solidity-parser",
+          "stance": "asserts",
+          "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9"
+        },
+        "against": {
+          "engine": "execution-challenge-access-control@1",
+          "analysis_family": "agentsmith-solidity-parser",
+          "stance": "contradicts",
+          "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
+          "evaluation_id": "71893ff3-ad80-4bd3-ad41-16da6b86b809"
+        },
+        "families": "same-family",
+        "note": "solidity-structural-specialists@1 (agentsmith-solidity-parser) asserts the lead; execution-challenge-access-control@1 (agentsmith-solidity-parser) executed a counterexample when evaluating that hypothesis. Both records are kept; neither overrides the other without a human decision."
+      },
+      {
+        "kind": "refuted_by_another_engine",
+        "for": {
+          "engine": "slither@0.11.3",
+          "analysis_family": "slither-ir",
+          "stance": "asserts",
+          "hypothesis_id": "70dcd50a-48e2-47a3-bb93-6aee7d4cdcdb"
+        },
+        "against": {
+          "engine": "execution-challenge-access-control@1",
+          "analysis_family": "agentsmith-solidity-parser",
+          "stance": "contradicts",
+          "hypothesis_id": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
+          "evaluation_id": "71893ff3-ad80-4bd3-ad41-16da6b86b809"
+        },
+        "families": "cross-family",
+        "note": "slither@0.11.3 (slither-ir) asserts the lead; execution-challenge-access-control@1 (agentsmith-solidity-parser) executed a counterexample when evaluating the same lead as reported by solidity-structural-specialists@1. Both records are kept; neither overrides the other without a human decision."
+      }
+    ],
+    "assessment": "contradicted",
+    "note": "2 hypotheses from 2 generator(s) share this lead key: ONE investigation. Each engine's claim and evidence is kept separately below. Generators of different analysis families reported it independently; that is independent generation, not validation."
+  },
+  "investigation_summary": {
+    "hypotheses": 8,
+    "investigations": 6,
+    "multi_engine": 2,
+    "independent_generation": 2,
+    "with_contradictions": 1,
+    "contradictions": 2,
+    "unkeyed": 0,
+    "by_assessment": {
+      "contradicted": 1,
+      "corroborated_same_family": 3,
+      "open": 2
+    }
+  },
+  "dossier": {
+    "content_sha256": "c4ccf157261c8ce42ea9dcbc1164b300d659a6f94cba04a683d0744c45cf04a2",
+    "entries": 8,
+    "investigations": 6,
+    "step_output_leads": 6,
+    "step_output_hypotheses": 8
+  },
+  "independence": {
+    "self_evaluation_refused": "refused by the database: an evaluation cannot be made by the generator of its hypothesis (solidity-structural-specialists)",
+    "relations": [
+      {
+        "hypothesis": "34df16b6-f124-4339-80e0-4341f7505c24",
+        "generator": "solidity-structural-specialists@1",
+        "evaluator": "reentrancy-execution-validator@1",
+        "relation_to_generator": "same-family",
+        "relation_to_investigation": "same-family",
+        "outcome": "supports"
+      },
+      {
+        "hypothesis": "16f13f4b-7774-437a-8344-2255e6eda211",
+        "generator": "slither@0.11.3",
+        "evaluator": "reentrancy-execution-validator@1",
+        "relation_to_generator": "cross-family",
+        "relation_to_investigation": "same-family",
+        "outcome": "supports"
+      },
+      {
+        "hypothesis": "cb83fa5c-4ac4-4e2e-bd25-9595889aadb9",
+        "generator": "solidity-structural-specialists@1",
+        "evaluator": "execution-challenge-access-control@1",
+        "relation_to_generator": "same-family",
+        "relation_to_investigation": "same-family",
+        "outcome": "contradicts"
+      },
+      {
+        "hypothesis": "70dcd50a-48e2-47a3-bb93-6aee7d4cdcdb",
+        "generator": "slither@0.11.3",
+        "evaluator": "execution-challenge-access-control@1",
+        "relation_to_generator": "cross-family",
+        "relation_to_investigation": "same-family",
+        "outcome": "inconclusive"
+      }
+    ]
+  },
+  "dependencies": {
+    "digest": "6bca023a6f5f303f76f672ae584d773d9a7c3726745efa0d507eb70536b0a1c7",
+    "blob_sha256": "989297f8d60eb8e490dcfaf80752542b21db0d19a337cb11f41fba00bdc935d6",
+    "records": [
+      {
+        "kind": "git_submodule",
+        "path": "lib/ghost",
+        "depth": 1,
+        "parent": {
+          "tree_sha": "ca3754f33cb2cebc94be316d23a81df9c1215a30",
+          "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "repository": "scroll-tech/usx-contracts",
+          "path_in_parent": "lib/ghost"
+        },
+        "reason": "repository_not_found: the repository was not found (it may not exist, or it is not public)",
+        "status": "unavailable",
+        "tree_sha": null,
+        "file_count": null,
+        "repository": "acme-labs/ghost-lib",
+        "source_url": "https://github.com/acme-labs/ghost-lib",
+        "snapshot_id": null,
+        "completeness": null,
+        "declared_url": "https://github.com/acme-labs/ghost-lib.git",
+        "stored_bytes": null,
+        "pinned_commit": "4444444444444444444444444444444444444444",
+        "manifest_sha256": null,
+        "pin_established_by": "gitlink_in_parent_tree"
+      },
+      {
+        "kind": "git_submodule",
+        "path": "lib/gitlab-lib",
+        "depth": 1,
+        "parent": {
+          "tree_sha": "ca3754f33cb2cebc94be316d23a81df9c1215a30",
+          "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "repository": "scroll-tech/usx-contracts",
+          "path_in_parent": "lib/gitlab-lib"
+        },
+        "reason": "host gitlab.com is not on the acquisition allow-list (github.com only)",
+        "status": "disallowed_host",
+        "tree_sha": null,
+        "file_count": null,
+        "repository": null,
+        "source_url": null,
+        "snapshot_id": null,
+        "completeness": null,
+        "declared_url": "https://gitlab.com/acme-labs/gitlab-lib.git",
+        "stored_bytes": null,
+        "pinned_commit": "3333333333333333333333333333333333333333",
+        "manifest_sha256": null,
+        "pin_established_by": "gitlink_in_parent_tree"
+      },
+      {
+        "kind": "git_submodule",
+        "path": "lib/no-url",
+        "depth": 1,
+        "parent": {
+          "tree_sha": "ca3754f33cb2cebc94be316d23a81df9c1215a30",
+          "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "repository": "scroll-tech/usx-contracts",
+          "path_in_parent": "lib/no-url"
+        },
+        "reason": "the tree pins 5555555555555555555555555555555555555555 at this path, but .gitmodules of scroll-tech/usx-contracts@9e972566deb59b4d2c499015c2557c5e5f236e3c gives no URL for it, so its source is unknown",
+        "status": "missing_url",
+        "tree_sha": null,
+        "file_count": null,
+        "repository": null,
+        "source_url": null,
+        "snapshot_id": null,
+        "completeness": null,
+        "declared_url": null,
+        "stored_bytes": null,
+        "pinned_commit": "5555555555555555555555555555555555555555",
+        "manifest_sha256": null,
+        "pin_established_by": "gitlink_in_parent_tree"
+      },
+      {
+        "kind": "git_submodule",
+        "path": "lib/unpinned",
+        "depth": 1,
+        "parent": {
+          "tree_sha": "ca3754f33cb2cebc94be316d23a81df9c1215a30",
+          "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "repository": "scroll-tech/usx-contracts",
+          "path_in_parent": "lib/unpinned"
+        },
+        "reason": ".gitmodules declares this submodule, but the tree of scroll-tech/usx-contracts@9e972566deb59b4d2c499015c2557c5e5f236e3c has no gitlink at lib/unpinned: there is no pinned commit, and a branch head is never fetched",
+        "status": "unpinned",
+        "tree_sha": null,
+        "file_count": null,
+        "repository": null,
+        "source_url": null,
+        "snapshot_id": null,
+        "completeness": null,
+        "declared_url": "https://github.com/acme-labs/unpinned-lib",
+        "stored_bytes": null,
+        "pinned_commit": null,
+        "manifest_sha256": null,
+        "pin_established_by": null
+      },
+      {
+        "kind": "git_submodule",
+        "path": "lib/vault-lib",
+        "depth": 1,
+        "parent": {
+          "tree_sha": "ca3754f33cb2cebc94be316d23a81df9c1215a30",
+          "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+          "repository": "scroll-tech/usx-contracts",
+          "path_in_parent": "lib/vault-lib"
+        },
+        "reason": null,
+        "status": "acquired",
+        "tree_sha": "ea9ede7f1aab3a9e1f515c10d54cac02e23d9a3c",
+        "file_count": 4,
+        "repository": "acme-labs/vault-lib",
+        "source_url": "https://github.com/acme-labs/vault-lib",
+        "snapshot_id": "54faa9a6-eb12-4513-a400-f5e97be38b89",
+        "completeness": "complete",
+        "declared_url": "https://github.com/acme-labs/vault-lib",
+        "stored_bytes": 289,
+        "pinned_commit": "fb583025e1a54eabe49a8838acc95c6bb7c65bc5",
+        "manifest_sha256": "16c4f94f834ec177e7f54a0bd2753ebbae8ce216367ecf0a5ef39745f55529e0",
+        "pin_established_by": "gitlink_in_parent_tree"
+      },
+      {
+        "kind": "git_submodule",
+        "path": "lib/vault-lib/lib/nested-lib",
+        "depth": 2,
+        "parent": {
+          "tree_sha": "ea9ede7f1aab3a9e1f515c10d54cac02e23d9a3c",
+          "commit_sha": "fb583025e1a54eabe49a8838acc95c6bb7c65bc5",
+          "repository": "acme-labs/vault-lib",
+          "path_in_parent": "lib/nested-lib"
+        },
+        "reason": null,
+        "status": "acquired",
+        "tree_sha": "e9155d20ab4df086e3187f2b56d88c3cf0bb0b18",
+        "file_count": 3,
+        "repository": "acme-labs/nested-lib",
+        "source_url": "https://github.com/acme-labs/nested-lib",
+        "snapshot_id": "893fa575-3f08-43f7-a222-847d1342a0be",
+        "completeness": "complete",
+        "declared_url": "git@github.com:acme-labs/nested-lib.git",
+        "stored_bytes": 228,
+        "pinned_commit": "0f0a94bf9445296614375d606e5ff5bde3bcc287",
+        "manifest_sha256": "ab627f9810a7d3ec125aedc9828dee9d20b386fa860086e5d438e90a956d698e",
+        "pin_established_by": "gitlink_in_parent_tree"
+      },
+      {
+        "kind": "git_submodule",
+        "path": "lib/vault-lib/lib/nested-lib/lib/deeper",
+        "depth": 3,
+        "parent": {
+          "tree_sha": "e9155d20ab4df086e3187f2b56d88c3cf0bb0b18",
+          "commit_sha": "0f0a94bf9445296614375d606e5ff5bde3bcc287",
+          "repository": "acme-labs/nested-lib",
+          "path_in_parent": "lib/deeper"
+        },
+        "reason": "nested submodule at depth 3; the limit is 2 (pinned at 7777777777777777777777777777777777777777, not fetched)",
+        "status": "nested_depth_exceeded",
+        "tree_sha": null,
+        "file_count": null,
+        "repository": "acme-labs/deeper-lib",
+        "source_url": "https://github.com/acme-labs/deeper-lib",
+        "snapshot_id": null,
+        "completeness": null,
+        "declared_url": "https://github.com/acme-labs/deeper-lib",
+        "stored_bytes": null,
+        "pinned_commit": "7777777777777777777777777777777777777777",
+        "manifest_sha256": null,
+        "pin_established_by": "gitlink_in_parent_tree"
+      }
+    ],
+    "remappings": [
+      {
+        "line": 1,
+        "prefix": "vault-lib/",
+        "target": "lib/vault-lib/src/",
+        "context": null,
+        "available": true,
+        "declared_in": "remappings.txt",
+        "resolves_to": {
+          "kind": "dependency",
+          "path": "lib/vault-lib",
+          "status": "acquired"
+        }
+      },
+      {
+        "line": 2,
+        "prefix": "ghost/",
+        "target": "lib/ghost/src/",
+        "context": null,
+        "available": false,
+        "declared_in": "remappings.txt",
+        "resolves_to": {
+          "kind": "dependency",
+          "path": "lib/ghost",
+          "status": "unavailable"
+        }
+      },
+      {
+        "line": 3,
+        "prefix": "@openzeppelin/contracts/",
+        "target": "node_modules/@openzeppelin/contracts/",
+        "context": null,
+        "available": false,
+        "declared_in": "remappings.txt",
+        "resolves_to": {
+          "kind": "package",
+          "name": "@openzeppelin/contracts"
+        }
+      },
+      {
+        "line": 5,
+        "prefix": "demo/",
+        "target": "src/demo/",
+        "context": null,
+        "available": true,
+        "declared_in": "foundry.toml",
+        "resolves_to": {
+          "kind": "parent_snapshot"
+        }
+      }
+    ],
+    "packages": [
+      {
+        "name": "@openzeppelin/contracts",
+        "reason": "pinned by the lockfile with an integrity hash, but not acquired: no package source is on the acquisition allow-list and no storage exists for a non-git snapshot (db/drafts/c3-dependency-records)",
+        "status": "pinned_not_acquired",
+        "version": "5.0.2",
+        "resolved": "https://registry.npmjs.org/@openzeppelin/contracts/-/contracts-5.0.2.tgz",
+        "integrity": "sha512-BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw==",
+        "declared_range": "5.0.2",
+        "pin_established_by": "package-lock.json integrity"
+      },
+      {
+        "name": "unpinned-pkg",
+        "reason": "the lockfile does not pin this package with an integrity hash; it is never fetched",
+        "status": "unavailable",
+        "version": null,
+        "resolved": null,
+        "integrity": null,
+        "declared_range": "^1.0.0",
+        "pin_established_by": null
+      }
+    ],
+    "limitations": [
+      {
+        "code": "unavailable",
+        "reason": "repository_not_found: the repository was not found (it may not exist, or it is not public)",
+        "subject": "lib/ghost",
+        "established_by": "acquisition"
+      },
+      {
+        "code": "disallowed_host",
+        "reason": "host gitlab.com is not on the acquisition allow-list (github.com only)",
+        "subject": "lib/gitlab-lib",
+        "established_by": "resolver"
+      },
+      {
+        "code": "missing_url",
+        "reason": "the tree pins 5555555555555555555555555555555555555555 at this path, but .gitmodules of scroll-tech/usx-contracts@9e972566deb59b4d2c499015c2557c5e5f236e3c gives no URL for it, so its source is unknown",
+        "subject": "lib/no-url",
+        "established_by": "resolver"
+      },
+      {
+        "code": "unpinned",
+        "reason": ".gitmodules declares this submodule, but the tree of scroll-tech/usx-contracts@9e972566deb59b4d2c499015c2557c5e5f236e3c has no gitlink at lib/unpinned: there is no pinned commit, and a branch head is never fetched",
+        "subject": "lib/unpinned",
+        "established_by": "resolver"
+      },
+      {
+        "code": "nested_depth_exceeded",
+        "reason": "nested submodule at depth 3; the limit is 2 (pinned at 7777777777777777777777777777777777777777, not fetched)",
+        "subject": "lib/vault-lib/lib/nested-lib/lib/deeper",
+        "established_by": "resolver"
+      },
+      {
+        "code": "remapping_target_missing",
+        "reason": "the remapping targets lib/ghost, which is unavailable",
+        "subject": "ghost/=lib/ghost/src/",
+        "established_by": "resolver"
+      },
+      {
+        "code": "package_not_acquired",
+        "reason": "pinned by the lockfile with an integrity hash, but not acquired: no package source is on the acquisition allow-list and no storage exists for a non-git snapshot (db/drafts/c3-dependency-records)",
+        "subject": "@openzeppelin/contracts",
+        "established_by": "resolver"
+      }
+    ]
+  },
+  "slither_stage": {
+    "status": "tool_completed",
+    "generator": "slither@0.11.3",
+    "stand_in": "AUTHORED STAND-IN OUTPUT (not Slither's detection): a shell script printing fixed JSON in Slither's shape",
+    "remappings_passed": [
+      "vault-lib/=lib/vault-lib/src/",
+      "demo/=src/demo/"
+    ],
+    "dependency_files": 2,
+    "arguments_seen": [
+      "script --solc <solc stand-in> --json - --disable-color --solc-remaps vault-lib/=lib/vault-lib/src/ demo/=src/demo/",
+      "src --solc <solc stand-in> --json - --disable-color --solc-remaps vault-lib/=lib/vault-lib/src/ demo/=src/demo/",
+      "src/asset-manager --solc <solc stand-in> --json - --disable-color --solc-remaps vault-lib/=lib/vault-lib/src/ demo/=src/demo/",
+      "src/cloak --solc <solc stand-in> --json - --disable-color --solc-remaps vault-lib/=lib/vault-lib/src/ demo/=src/demo/",
+      "src/demo --solc <solc stand-in> --json - --disable-color --solc-remaps vault-lib/=lib/vault-lib/src/ demo/=src/demo/",
+      "src/facets --solc <solc stand-in> --json - --disable-color --solc-remaps vault-lib/=lib/vault-lib/src/ demo/=src/demo/"
+    ],
+    "dependency_source_on_disk": true,
+    "leads": 2,
+    "lead_keys": [
+      "1e906c33b66d5695d6acd8c8776b788395e47a2eaddafea2578f48394d3cde35",
+      "9fb9f31c4a0be9d9a5f168c46cdaa6040fd48d5b94eb78511de2efb55ca927a6"
+    ]
+  },
+  "unsupported_features": {
+    "model_sha256": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24",
+    "predicted": {
+      "status": "computed",
+      "epistemic": "parsed",
+      "by_feature": {
+        "other-contract": 8,
+        "external-call": 12,
+        "block": 2,
+        "proxy": 1,
+        "inline-assembly": 1,
+        "array": 2,
+        "hashing": 4,
+        "try": 1
+      },
+      "total": 31
+    },
+    "gate": {
+      "status": "computed",
+      "epistemic": "derived",
+      "provenance": {
+        "analysis": "apex-fidelity-gate",
+        "report_sha256": "83bf1c1fe55817efd320df06f290c8c0283b35ac0f26456c7e3f2636cfb5c58b",
+        "audit_event_id": "32",
+        "reported_by": "worker",
+        "label": "APEX shadow: unvalidated, not evidence",
+        "model_sha256_read": "faa1858f1818b9f51dd326080168586598706d2cddcaf6a201c37abef2840a24"
+      },
+      "by_feature": {
+        "array": 1,
+        "other": 8,
+        "external-call": 1,
+        "other-contract": 3
+      },
+      "abstentions": [
+        {
+          "feature": "other",
+          "contract": "AssetManager",
+          "function": "constructor",
+          "at": "src/asset-manager/AssetManager.sol:15",
+          "why": "deployment not modelled: constructor parameters of AssetManager (abstained(other@unknown))"
+        },
+        {
+          "feature": "other-contract",
+          "contract": "AssetManagerAllocatorFacet",
+          "function": "allocate",
+          "at": "src/facets/AssetManagerAllocatorFacet.sol:10",
+          "why": "other-contract: call into TreasuryStorage.layout"
+        },
+        {
+          "feature": "other-contract",
+          "contract": "AssetManagerAllocatorFacet",
+          "function": "deallocate",
+          "at": "src/facets/AssetManagerAllocatorFacet.sol:17",
+          "why": "other-contract: call into TreasuryStorage.layout"
+        },
+        {
+          "feature": "other-contract",
+          "contract": "RewardDistributorFacet",
+          "function": "distribute",
+          "at": "src/facets/RewardDistributorFacet.sol:13",
+          "why": "other-contract: call into TreasuryStorage.layout"
+        },
+        {
+          "feature": "other",
+          "contract": "ERC20Relayer",
+          "function": "constructor",
+          "at": "src/misc/ERC20Relayer.sol:13",
+          "why": "deployment not modelled: constructor parameters of ERC20Relayer (abstained(other@unknown))"
+        },
+        {
+          "feature": "other",
+          "contract": "BridgedTokenOFTAdapter",
+          "function": "constructor",
+          "at": "src/oft/BridgedTokenOFTAdapter.sol:16",
+          "why": "deployment not modelled: constructor parameters of BridgedTokenOFTAdapter (abstained(other@unknown))"
+        },
+        {
+          "feature": "array",
+          "contract": "StakedUSXOFT",
+          "function": "lzReceive",
+          "at": "src/oft/StakedUSXOFT.sol:17",
+          "why": "external call inboundNonces.push"
+        },
+        {
+          "feature": "external-call",
+          "contract": "StakedUSXOFT",
+          "function": "burnToBridge",
+          "at": "src/oft/StakedUSXOFT.sol:26",
+          "why": "low-level call without value"
+        },
+        {
+          "feature": "other",
+          "contract": "StakedUSXOFTAdaptor",
+          "function": "constructor",
+          "at": "src/oft/StakedUSXOFTAdaptor.sol:17",
+          "why": "deployment not modelled: constructor parameters of StakedUSXOFTAdaptor (abstained(other@unknown))"
+        },
+        {
+          "feature": "other",
+          "contract": "USXOFT",
+          "function": "constructor",
+          "at": "src/oft/USXOFT.sol:21",
+          "why": "deployment not modelled: constructor parameters of USXOFT (abstained(other@unknown))"
+        },
+        {
+          "feature": "other",
+          "contract": "USXOFTAdaptor",
+          "function": "constructor",
+          "at": "src/oft/USXOFTAdaptor.sol:16",
+          "why": "deployment not modelled: constructor parameters of USXOFTAdaptor (abstained(other@unknown))"
+        },
+        {
+          "feature": "other",
+          "contract": "StakedUSX",
+          "function": "constructor",
+          "at": "src/StakedUSX.sol:15",
+          "why": "deployment not modelled: constructor parameters of StakedUSX (abstained(other@unknown))"
+        },
+        {
+          "feature": "other",
+          "contract": "TreasuryDiamond",
+          "function": "fallback",
+          "at": "src/TreasuryDiamond.sol:24",
+          "why": "msg.sig"
+        }
+      ],
+      "predicted_and_observed": [
+        "array",
+        "external-call",
+        "other-contract"
+      ],
+      "observed_not_predicted": [
+        "other"
+      ],
+      "predicted_not_observed": [
+        "block",
+        "hashing",
+        "inline-assembly",
+        "proxy",
+        "try"
+      ]
+    }
+  },
+  "apex_shadow": {
+    "status": "apex_shadow_recorded",
+    "eligibility": "checked at creation, by the step and by the recorder (production check unchanged)",
+    "report_sha256": "83bf1c1fe55817efd320df06f290c8c0283b35ac0f26456c7e3f2636cfb5c58b",
+    "label": "APEX shadow: unvalidated, not evidence",
+    "contracts_explored": {
+      "meaning": "deployable contracts in in-scope files that APEX deployed and searched / deployable contracts in in-scope files (interfaces, libraries and abstract contracts are listed separately)",
+      "numerator": 7,
+      "denominator": 14
+    },
+    "abstentions_by_feature": {
+      "array": 1,
+      "other": 8,
+      "external-call": 1,
+      "other-contract": 3
+    },
+    "hypotheses_written": 0
+  },
+  "blocked_run": {
+    "repository": "acme-labs/blocked",
+    "slither_status": "abstained",
+    "abstention": {
+      "code": "dependency_unavailable",
+      "detail": "cannot compile: dependency lib/ghost unavailable (dependency lib/ghost is unavailable: repository_not_found: the repository was not found (it may not exist, or it is not public)); 2 import(s) of the analysed sources cannot be resolved [lib/ghost, lib/unpinned]"
+    },
+    "limitations": [
+      {
+        "code": "unavailable",
+        "subject": "lib/ghost",
+        "reason": "repository_not_found: the repository was not found (it may not exist, or it is not public)"
+      },
+      {
+        "code": "unpinned",
+        "subject": "lib/unpinned",
+        "reason": ".gitmodules declares this submodule, but the tree of acme-labs/blocked@69eb4dd0d9af34229755a0faf8452fec9e99a706 has no gitlink at lib/unpinned: there is no pinned commit, and a branch head is never fetched"
+      },
+      {
+        "code": "remapping_target_missing",
+        "subject": "ghost/=lib/ghost/src/",
+        "reason": "the remapping targets lib/ghost, which is unavailable"
+      },
+      {
+        "code": "remapping_target_missing",
+        "subject": "unpinned/=lib/unpinned/src/",
+        "reason": "the remapping targets lib/unpinned, which is unpinned"
+      }
+    ],
+    "unresolved_imports": [
+      {
+        "path": "ghost/Ghost.sol",
+        "reason": "dependency lib/ghost is unavailable: repository_not_found: the repository was not found (it may not exist, or it is not public)"
+      },
+      {
+        "path": "unpinned/Thing.sol",
+        "reason": "dependency lib/unpinned is unpinned: .gitmodules declares this submodule, but the tree of acme-labs/blocked@69eb4dd0d9af34229755a0faf8452fec9e99a706 has no gitlink at lib/unpinned: there is no pinned commit, and a branch head is never fetched"
+      }
+    ],
+    "dossier_coverage_status": "partial"
+  },
+  "reproducibility": {
+    "second_run_id": "0ad7f392-561e-4513-8b5f-0f88eb52307e",
+    "dependency_digest_equal": true,
+    "shared_model_sha256_equal": true,
+    "analysed_snapshot_manifest_equal": true
+  },
+  "cross_snapshot": {
+    "lead_key": "9fb9f31c4a0be9d9a5f168c46cdaa6040fd48d5b94eb78511de2efb55ca927a6",
+    "occurrences": [
+      {
+        "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+        "generator": "solidity-structural-specialists@1",
+        "analysis_family": "agentsmith-solidity-parser"
+      },
+      {
+        "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+        "generator": "slither@0.11.3",
+        "analysis_family": "slither-ir"
+      },
+      {
+        "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+        "generator": "solidity-structural-specialists@1",
+        "analysis_family": "agentsmith-solidity-parser"
+      },
+      {
+        "commit_sha": "9e972566deb59b4d2c499015c2557c5e5f236e3c",
+        "generator": "slither@0.11.3",
+        "analysis_family": "slither-ir"
+      },
+      {
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "generator": "solidity-structural-specialists@1",
+        "analysis_family": "agentsmith-solidity-parser"
+      },
+      {
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "generator": "slither@0.11.3",
+        "analysis_family": "slither-ir"
+      }
+    ],
+    "note": "the same lead key at two commits of the same repository, from both generators, although the cited lines moved by three"
+  }
+}
