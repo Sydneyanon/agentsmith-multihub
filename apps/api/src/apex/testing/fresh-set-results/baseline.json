@@ -1,0 +1,339 @@
+{
+ "label": "baseline: explorer at ae41658 (apex-state-explorer@0-prototype), default options",
+ "options": {},
+ "totals": {
+  "detected": 2,
+  "vulnerable": 10,
+  "recall": 0.2,
+  "falseNegatives": [
+   "V01 ExitQueue",
+   "V02 FeeRound",
+   "V04 Auction",
+   "V05 Proposal",
+   "V06 PartialExit",
+   "V07 Strategy",
+   "V08 YieldVault",
+   "V10 TieredVault"
+  ],
+  "falsePositives": 12,
+  "wrongClaims": 2,
+  "twinFalsePositives": 4,
+  "controlFalsePositives": 6,
+  "falseAccepted": 7,
+  "trueAccepted": 10,
+  "falseInvariantRate": 0.4117647058823529,
+  "falseAcceptedIds": [
+   "Faucet:solvency:balance>=sum(dripped)",
+   "Rebate:conservation:totalDeposited=sum(balances)",
+   "Rebate:actor-value:attacker-net<=0",
+   "Seasons:one-way:season",
+   "Locker:conservation:totalHeld=sum(available)",
+   "YieldShares:conservation:totalAssets=sum(shares)",
+   "YieldShares:actor-value:attacker-net<=0"
+  ],
+  "trueRejected": [],
+  "unlabelled": [],
+  "transitions": 6630
+ },
+ "vulnerable": [
+  {
+   "id": "V01",
+   "contract": "ExitQueue",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 312
+  },
+  {
+   "id": "V02",
+   "contract": "FeeRound",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 234
+  },
+  {
+   "id": "V03",
+   "contract": "InflationVault",
+   "detected": true,
+   "violations": [
+    "conservation:totalAssets=sum(shares) by donate",
+    "actor-value:attacker-net<=0 by withdraw"
+   ],
+   "wrongClaims": [
+    "conservation:totalAssets=sum(shares) by donate"
+   ],
+   "abstained": null,
+   "transitions": 414
+  },
+  {
+   "id": "V04",
+   "contract": "Auction",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 144
+  },
+  {
+   "id": "V05",
+   "contract": "Proposal",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 150
+  },
+  {
+   "id": "V06",
+   "contract": "PartialExit",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 120
+  },
+  {
+   "id": "V07",
+   "contract": "Strategy",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 360
+  },
+  {
+   "id": "V08",
+   "contract": "YieldVault",
+   "detected": false,
+   "violations": [
+    "conservation:totalAssets=sum(shares) by harvest"
+   ],
+   "wrongClaims": [
+    "conservation:totalAssets=sum(shares) by harvest"
+   ],
+   "abstained": null,
+   "transitions": 306
+  },
+  {
+   "id": "V09",
+   "contract": "Cooldown",
+   "detected": true,
+   "violations": [
+    "conservation:totalCooling=sum(cooling) by cancel"
+   ],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 390
+  },
+  {
+   "id": "V10",
+   "contract": "TieredVault",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "abstained": null,
+   "transitions": 120
+  }
+ ],
+ "twins": [
+  {
+   "id": "V01",
+   "contract": "ExitQueue",
+   "falsePositives": [],
+   "transitions": 312
+  },
+  {
+   "id": "V02",
+   "contract": "FeeRound",
+   "falsePositives": [],
+   "transitions": 234
+  },
+  {
+   "id": "V03",
+   "contract": "InflationVault",
+   "falsePositives": [],
+   "transitions": 414
+  },
+  {
+   "id": "V04",
+   "contract": "Auction",
+   "falsePositives": [],
+   "transitions": 144
+  },
+  {
+   "id": "V05",
+   "contract": "Proposal",
+   "falsePositives": [],
+   "transitions": 150
+  },
+  {
+   "id": "V06",
+   "contract": "PartialExit",
+   "falsePositives": [],
+   "transitions": 120
+  },
+  {
+   "id": "V07",
+   "contract": "Strategy",
+   "falsePositives": [
+    "conservation:idle=sum(balances) by invest",
+    "conservation:invested=sum(balances) by deposit"
+   ],
+   "transitions": 360
+  },
+  {
+   "id": "V08",
+   "contract": "YieldVault",
+   "falsePositives": [
+    "conservation:totalAssets=sum(shares) by harvest",
+    "actor-value:attacker-net<=0 by redeem"
+   ],
+   "transitions": 306
+  },
+  {
+   "id": "V09",
+   "contract": "Cooldown",
+   "falsePositives": [],
+   "transitions": 390
+  },
+  {
+   "id": "V10",
+   "contract": "TieredVault",
+   "falsePositives": [],
+   "transitions": 120
+  }
+ ],
+ "controls": [
+  {
+   "contract": "Faucet",
+   "falsePositives": [],
+   "accepted": [
+    "conservation:totalDripped=sum(dripped)",
+    "solvency:balance>=sum(dripped)"
+   ],
+   "transitions": 72
+  },
+  {
+   "contract": "Rebate",
+   "falsePositives": [
+    "conservation:totalDeposited=sum(balances) by withdraw",
+    "actor-value:attacker-net<=0 by withdraw"
+   ],
+   "accepted": [
+    "conservation:totalDeposited=sum(balances)",
+    "solvency:balance>=sum(balances)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 576
+  },
+  {
+   "contract": "Seasons",
+   "falsePositives": [
+    "one-way:season by rollover"
+   ],
+   "accepted": [
+    "one-way:season",
+    "one-way:year"
+   ],
+   "transitions": 108
+  },
+  {
+   "contract": "Locker",
+   "falsePositives": [
+    "conservation:totalHeld=sum(available) by lock"
+   ],
+   "accepted": [
+    "conservation:totalHeld=sum(available)",
+    "solvency:balance>=sum(available)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 360
+  },
+  {
+   "contract": "UnitVault",
+   "falsePositives": [],
+   "accepted": [
+    "conservation:totalCredited=sum(balances)",
+    "solvency:balance>=sum(balances)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 144
+  },
+  {
+   "contract": "YieldShares",
+   "falsePositives": [
+    "conservation:totalAssets=sum(shares) by harvest",
+    "actor-value:attacker-net<=0 by redeem"
+   ],
+   "accepted": [
+    "conservation:totalAssets=sum(shares)",
+    "conservation:totalShares=sum(shares)",
+    "solvency:balance>=sum(shares)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 270
+  }
+ ],
+ "coverage": [
+  {
+   "contract": "Toggle",
+   "explorerStates": 6,
+   "exhaustiveStates": 9,
+   "stateCoverage": 0.667,
+   "explorerOnly": 0,
+   "fixpoint": true,
+   "guardSidesMissed": [
+    "t01-toggle.sol:10:fails",
+    "t01-toggle.sol:14:passes"
+   ],
+   "functionsNeverCompletedByExplorer": [
+    "clear"
+   ]
+  },
+  {
+   "contract": "Thresh",
+   "explorerStates": 4,
+   "exhaustiveStates": 9,
+   "stateCoverage": 0.444,
+   "explorerOnly": 0,
+   "fixpoint": true,
+   "guardSidesMissed": [
+    "t02-thresh.sol:14:passes",
+    "t02-thresh.sol:7:fails"
+   ],
+   "functionsNeverCompletedByExplorer": [
+    "take"
+   ]
+  },
+  {
+   "contract": "Pass",
+   "explorerStates": 26,
+   "exhaustiveStates": 38,
+   "stateCoverage": 0.684,
+   "explorerOnly": 0,
+   "fixpoint": true,
+   "guardSidesMissed": [],
+   "functionsNeverCompletedByExplorer": []
+  },
+  {
+   "contract": "Steps",
+   "explorerStates": 4,
+   "exhaustiveStates": 7,
+   "stateCoverage": 0.571,
+   "explorerOnly": 0,
+   "fixpoint": true,
+   "guardSidesMissed": [
+    "t04-steps.sol:15:fails",
+    "t04-steps.sol:23:passes",
+    "t04-steps.sol:24:fails",
+    "t04-steps.sol:24:passes"
+   ],
+   "functionsNeverCompletedByExplorer": [
+    "d"
+   ]
+  }
+ ]
+}
