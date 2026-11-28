@@ -94,6 +94,10 @@ operationally verified on the research path**. The path has run locally on a rea
 `docs/specialist-capabilities.md` calls it "prepared". In practice it is unassignable everywhere: `availability` requires
 `AGENTSMITH_FORGE_BIN`, which no environment sets, and its only caller is `mapAndAssign → appendReproductionIn`, which needs the
 0010 draft. This document treats it as prepared and unassigned (P3, P4).
+**Resolution (2026-11-28):** the declaration stays `active`. Its availability is already gated on the environment: it is assignable
+only where pinned `forge` and `solc` are configured. The engine-reproduction integration tests rely on exactly that, and setting it
+to `prepared` would make it unassignable even there. The fix is in reporting: wherever its status is shown, it reads "active where
+installed; unavailable in production (no binary, 0010 not applied)". Increment 1 is therefore declarations and documentation only.
 
 ---
 
