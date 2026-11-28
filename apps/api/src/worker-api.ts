@@ -18,6 +18,8 @@ import { doneWithinTotal, recordStepProgress, stepProgressFields, type StepProgr
 import { WorkflowWorker } from "./worker.js";
 import { assertProcessingBudget, chargeProcessing, chargeRead, DEFAULT_QUOTAS, QuotaExceeded, reserveStorage, type WorkerQuotas } from "./worker-quotas.js";
 import { mintWorkerToken, parseWorkerToken, redactWorkerTokens, revokeWorkerToken, secretMatches, WorkerTokenError } from "./worker-tokens.js";
+import { APEX_SHADOW_STEP_KEY } from "./apex/shadow-target.js";
+import { apexShadowStepOutput, MAX_SHADOW_REPORT_BYTES, recordApexShadow, ShadowRecordRefused, shadowReportSchema, type ShadowReport } from "./apex/shadow-record.js";
 
 /**
  * Option D: the internal worker API. A `repository_research` worker that holds NO database credential performs every read and write
@@ -42,8 +44,8 @@ import { mintWorkerToken, parseWorkerToken, redactWorkerTokens, revokeWorkerToke
  * Every accepted and refused call is written to audit_events with the token id (never the token).
  */
 export const WORKER_API_PREFIX = "/internal/worker/v1/";
-export const RESEARCH_STEP_KEYS = [ACQUIRE_STEP_KEY, ANALYZE_STEP_KEY, SLITHER_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY] as const;
-const A = ACQUIRE_STEP_KEY, Z = ANALYZE_STEP_KEY, S = SLITHER_STEP_KEY, C = CHALLENGE_STEP_KEY, D = DOSSIER_STEP_KEY;
+export const RESEARCH_STEP_KEYS = [ACQUIRE_STEP_KEY, ANALYZE_STEP_KEY, SLITHER_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY, APEX_SHADOW_STEP_KEY] as const;
+const A = ACQUIRE_STEP_KEY, Z = ANALYZE_STEP_KEY, S = SLITHER_STEP_KEY, C = CHALLENGE_STEP_KEY, D = DOSSIER_STEP_KEY, X = APEX_SHADOW_STEP_KEY;
 
 export type WorkerApiOptions = {
   /** When set, the routes answer only on connections accepted on this local port (the private 6PN listener); others get 404. */
@@ -124,6 +126,10 @@ export const COMPLETE_SCHEMAS: Record<string, z.ZodTypeAny> = {
   ]),
   [C]: z.object({ status: z.literal("leads_challenged"), snapshot_id: uuid }).strict(),
   [D]: z.object({ status: z.literal("dossier_built"), snapshot_id: uuid }).strict(),
+  // the APEX shadow stage names ONLY the report it recorded through report_apex_shadow (or why none could be recorded); the API derives the
+  // stored output from that record. Nothing else is accepted, so a worker cannot complete it with any claim of its own.
+  [X]: z.object({ status: z.literal("apex_shadow_finished"), report_sha256: hex64.nullable(), unrecorded: z.object({ code: z.string().min(1).max(60), message: z.string().max(1000) }).strict().optional() }).strict()
+    .refine((o) => (o.report_sha256 === null) === (o.unrecorded !== undefined), { message: "name the recorded report, or say why none was recorded" }),
 };
 
 async function snapshotInRun(ctx: Pick<Ctx, "db" | "runId">, snapshotId: string): Promise<void> {
@@ -234,6 +240,7 @@ export const OPERATIONS: Record<string, Operation> = {
         const d = await buildDossier(ctx.db as Pool, ctx.store, snap.snapshotId);
         stored = { ...dossierStepOutput(snap, d), derived_by: "api" };
       } else if (key === S) stored = await slitherOutput(ctx, out);
+      else if (key === X) stored = await apexShadowStepOutput(ctx.db, ctx.step!.id, out["report_sha256"] as string | null, out["unrecorded"] as { code: string; message: string } | undefined);
       else throw new Refusal(422, "output_rejected", "this step has no API-side completion");
       await ctx.worker.complete(ctx.step!.id, stored); return null;
     },
@@ -330,9 +337,9 @@ export const OPERATIONS: Record<string, Operation> = {
   },
 
   // ---- analysis reads (the queries dbResearchReads runs; every answer is charged to the token's read quota) ----
-  sealed_snapshot: { kind: "plain", lease: "held", stepKeys: [Z, S, C, D], bodyLimit: 4 * KiB, schema: z.object(stepId).strict(), run: (ctx) => ctx.reads.sealedSnapshot(ctx.runId) },
+  sealed_snapshot: { kind: "plain", lease: "held", stepKeys: [Z, S, C, D, X], bodyLimit: 4 * KiB, schema: z.object(stepId).strict(), run: (ctx) => ctx.reads.sealedSnapshot(ctx.runId) },
   snapshot_sources: {
-    kind: "plain", lease: "held", stepKeys: [Z, C], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
+    kind: "plain", lease: "held", stepKeys: [Z, C, X], bodyLimit: 4 * KiB, schema: z.object({ ...stepId, snapshot_id: uuid }).strict(),
     async run(ctx, a: { snapshot_id: string }) { await snapshotInRun(ctx, a.snapshot_id); return ctx.reads.snapshotSources(a.snapshot_id); },
   },
   snapshot_solidity_files: {
@@ -387,6 +394,21 @@ export const OPERATIONS: Record<string, Operation> = {
       await snapshotInRun(ctx, a.snapshot_id); await spansInRun(ctx, a.spans.map((s) => s.span_id));
       return ctx.store.createHypothesis(lease(ctx), { snapshotId: a.snapshot_id, family: a.family, claim: a.claim, rationale: a.rationale, requiredChecks: a.required_checks,
         alternativeExplanations: a.alternative_explanations, generator: a.generator, spans: a.spans.map((s) => ({ spanId: s.span_id, role: s.role })) });
+    },
+  },
+  /**
+   * The APEX shadow stage's ONE operation (measurement only). The report is REPORTED BY THE WORKER (APEX runs on the worker, in its own
+   * bounded child) and stored as such: one append-only audit event `apex_shadow.reported` on the step, never in a table the evidence path
+   * reads. Valid only for the token's leased apex_shadow step; strict schema (every field, every bound); counted against the token's
+   * storage quota (D4) before it is written; at most 3 per step. The recorder (shadow-record.ts) re-checks the run's eligibility, the
+   * sealed snapshot and the analysed files' digests on the API's own records, and derives the overlaps with the run's leads itself.
+   */
+  report_apex_shadow: {
+    kind: "idempotent", lease: "held", stepKeys: [X], bodyLimit: MAX_SHADOW_REPORT_BYTES + 16 * KiB,
+    schema: z.object({ ...stepId, report: shadowReportSchema }).strict(),
+    async run(ctx, a: { report: ShadowReport }) {
+      await reserveStorage(ctx.db, ctx.tokenId, Buffer.byteLength(JSON.stringify(a.report)), ctx.services.quotas, 0); // D4: quota-counted
+      return recordApexShadow(ctx.db, { stepId: ctx.step!.id, owner: ctx.owner, actor: `worker-token:${ctx.tokenId}`, via: "worker_api", tokenId: ctx.tokenId, report: a.report });
     },
   },
   /**
@@ -467,6 +489,7 @@ export function asRefusal(error: unknown): Refusal {
   if (error instanceof LeaseLostError) return new Refusal(409, "lease_lost", error.message);
   if (error instanceof ResearchConflictError) return new Refusal(409, "research_conflict", error.message, { entity: error.entity, identity: error.identity, differing: error.differing });
   if (error instanceof IndependenceError) return new Refusal(422, "independence_violation", error.message);
+  if (error instanceof ShadowRecordRefused) return new Refusal(error.status, error.code, error.message);
   const sqlstate = typeof (error as { code?: unknown })?.code === "string" && typeof (error as { severity?: unknown }).severity === "string" ? (error as { code: string }).code : null;
   if (sqlstate) {
     if (TRANSIENT_SQLSTATE.test(sqlstate)) return new Refusal(503, "database_unavailable", "the database is temporarily unavailable");

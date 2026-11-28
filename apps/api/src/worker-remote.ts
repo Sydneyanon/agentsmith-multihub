@@ -15,6 +15,8 @@ import { LeaseLostError } from "./step-errors.js";
 import type { ClaimedStep } from "./worker.js";
 import { parseWorkerToken, redactWorkerTokens } from "./worker-tokens.js";
 import { progressFor } from "./step-progress.js";
+import { APEX_SHADOW_STEP_KEY } from "./apex/shadow-target.js";
+import { processApexShadowStep, type ShadowStepContext } from "./apex/shadow-step.js";
 
 /**
  * Option D's worker runtime: the same loop (runWorkerLoop) and the same step handlers as the direct worker, with the database replaced
@@ -86,12 +88,20 @@ export type RemoteStop = "aborted" | "run_finished" | "run_cancelled" | "token_r
  * recomputes the analysis, runs the validators and builds the dossier itself (D1, D3), while this worker keeps the lease alive.
  */
 export async function executeRemoteStep(client: WorkerApiClient, workerId: string, step: ClaimedStep,
-  options: { source: RepositorySource; env?: Record<string, string | undefined>; heartbeatMs?: number }): Promise<void> {
+  options: { source: RepositorySource; env?: Record<string, string | undefined>; heartbeatMs?: number; /** tests only: the shadow stage's compute and limits */ shadow?: Pick<ShadowStepContext, "compute" | "computeLimits" | "shadowLimits"> }): Promise<void> {
   const env = options.env ?? process.env; const beat = options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {};
   client.scopeToStep(step.id); client.adoptStep(step);
   try {
     if (step.step_key === ACQUIRE_STEP_KEY) await processAcquireRepositoryStep({ worker: client, workerId, source: options.source, store: client, ...beat }, step);
     else if (isResearchSlitherStep(step)) await processResearchSlitherScanStep({ worker: client, workerId, store: client, reads: client, env, ...beat }, step);
+    else if (step.step_key === APEX_SHADOW_STEP_KEY) {
+      // APEX runs HERE, in this worker's own bounded child, on the in-scope files of the sealed snapshot; its report goes through the ONE
+      // allow-listed operation and is stored as worker-reported; the API derives the step's output from that record
+      await processApexShadowStep({ worker: client, workerId, ...beat, mode: "remote", reads: client, ...(options.shadow ?? {}), sink: {
+        record: (stepId, report) => client.reportApexShadow(stepId, report as unknown as Record<string, unknown>),
+        complete: (stepId, sha, unrecorded) => client.complete(stepId, { status: "apex_shadow_finished", report_sha256: sha, ...(unrecorded ? { unrecorded } : {}) }),
+      } }, step);
+    }
     else if (API_DERIVED[step.step_key]) {
       const snap = await client.sealedSnapshot(step.workflow_run_id);
       // the worker computes nothing here: it reports only that the API is now deriving the step (one request, no count to report)

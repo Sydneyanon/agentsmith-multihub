@@ -21,6 +21,8 @@ export type ComputeLimits = {
 };
 export const DEFAULT_COMPUTE_LIMITS: ComputeLimits = { maxInputBytes: 32 * 1024 * 1024, cpuMs: 20_000, wallMs: 30_000, maxHeapMb: 512, maxOutputBytes: 64 * 1024 * 1024, maxConcurrent: 2, queueMs: 10_000 };
 
+/** The tasks compute-child.ts serves: the API's analysis and validators (D1/D3), and the worker-side APEX shadow stage (measurement only). */
+export type ComputeTask = "analyze" | "challenge" | "apex_shadow";
 export type ComputeLimitCode = "input_too_large" | "cpu_limit" | "wall_limit" | "memory_limit" | "output_too_large" | "compute_failed";
 export class ComputeLimitError extends Error {
   constructor(readonly code: ComputeLimitCode, message: string, readonly usedMs = 0) { super(message); this.name = "ComputeLimitError"; }
@@ -61,7 +63,7 @@ export class BoundedCompute {
   }
 
   /** Runs one task in a bounded child. Throws ComputeLimitError on any limit (with the time used) and ComputeBusyError when saturated. */
-  async run<T>(task: "analyze" | "challenge", payload: Record<string, unknown>, limits: Partial<ComputeLimits> = {}): Promise<{ result: T; wallMs: number; cpuMs: number }> {
+  async run<T>(task: ComputeTask, payload: Record<string, unknown>, limits: Partial<ComputeLimits> = {}): Promise<{ result: T; wallMs: number; cpuMs: number }> {
     const L = { ...this.limits, ...limits };
     const input = Buffer.from(JSON.stringify({ task, ...payload }), "utf8");
     if (input.length > L.maxInputBytes) throw new ComputeLimitError("input_too_large", `the analysis input is ${input.length} bytes; the limit is ${L.maxInputBytes}`);

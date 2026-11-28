@@ -10,6 +10,7 @@ import { AcquisitionError } from "./errors.js";
 import { parseRepositoryName, type RepositorySource } from "./github-source.js";
 import { parseBountyScope, type BountyScope } from "./bounty-scope.js";
 import { acquisitionProgress, progressFor, type ProgressSink } from "../step-progress.js";
+import { APEX_SHADOW_ROLE, APEX_SHADOW_SCOPE, APEX_SHADOW_STEP_KEY, assertApexShadowRequestAllowed, type ApexShadowApproval } from "../apex/shadow-target.js";
 
 export const REPOSITORY_RESEARCH_WORKFLOW = "repository_research";
 export const ACQUIRE_STEP_KEY = "acquire_repository";
@@ -33,6 +34,11 @@ export type RepositoryResearchOptions = {
   /** append the analysis stages (analyse, challenge, dossier) after acquisition; OFF by default */ structuralAnalysis?: boolean;
   /** also insert the pinned Slither stage between analyse and challenge; OFF by default; requires structuralAnalysis */ slitherScan?: boolean;
   /** the official bounty scope, recorded on the run so the dossier labels every lead in or out of scope; absent for most runs */ bountyScope?: BountyScope;
+  /**
+   * the APEX shadow stage (measurement only, apex/shadow-target.ts), appended AFTER the dossier; OFF by default. Only the approved USX
+   * target can carry it (any other run is refused at creation), and only with the name of who approved it, recorded on the run.
+   */
+  apexShadow?: { approvedBy: string };
 };
 
 export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator", options: RepositoryResearchOptions = {}): Promise<{ runId: string; stepId: string }> {
@@ -55,9 +61,16 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
   const parsed = stepInput.parse(input);
   parseRepositoryName(parsed.repository);
   if (options.slitherScan === true && options.structuralAnalysis !== true) throw new Error("slitherScan requires structuralAnalysis (the Slither stage runs between analyse and challenge)");
+  const scope = options.bountyScope ? parseBountyScope(options.bountyScope) : undefined;
+  // APEX shadow: refused unless this is exactly the approved target (repository, pinned commit, official scope); recorded with its approver
+  let apex: ApexShadowApproval | undefined;
+  if (options.apexShadow) {
+    assertApexShadowRequestAllowed(parsed, { ...(options.structuralAnalysis !== undefined ? { structuralAnalysis: options.structuralAnalysis } : {}), bountyScope: scope, approvedBy: options.apexShadow.approvedBy });
+    apex = { approved_by: options.apexShadow.approvedBy.trim().slice(0, 200), approved_commit: parsed.ref!, approved_at: new Date().toISOString(), basis: "targeted promotion --apex-shadow (measurement only; output is never evidence)" };
+  }
   const run = await client.query<{ id: string; correlation_id: string }>(
       `INSERT INTO workflow_runs (workflow_type, status, input, created_by) VALUES ($1, 'queued', $2::jsonb, $3) RETURNING id, correlation_id`,
-      [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: parsed.repository, source: "user", ...(parsed.ref ? { ref: parsed.ref } : {}), execution_mode: "passive_only", authorization_status: "unverified", ...(options.bountyScope ? { bounty_scope: parseBountyScope(options.bountyScope) } : {}) }), createdBy]);
+      [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: parsed.repository, source: "user", ...(parsed.ref ? { ref: parsed.ref } : {}), execution_mode: "passive_only", authorization_status: "unverified", ...(scope ? { bounty_scope: scope } : {}), ...(apex ? { apex_shadow: apex } : {}) }), createdBy]);
     const step = await client.query<{ id: string }>(
       `INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, 0, 'repository_acquirer', $3::jsonb) RETURNING id`,
       [run.rows[0]!.id, ACQUIRE_STEP_KEY, JSON.stringify(parsed)]);
@@ -71,6 +84,15 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
       [CHALLENGE_STEP_KEY, "lead_challenger", {}], [DOSSIER_STEP_KEY, "dossier_builder", {}]];
     for (const [i, [key, role, stageInput]] of stages.entries()) {
       await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, $5::jsonb)`, [run.rows[0]!.id, key, i + 1, role, JSON.stringify(stageInput)]);
+    }
+    if (apex) {
+      // the LAST stage: after the dossier is built, so nothing it records can reach the dossier, the leads or the evaluations
+      await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [run.rows[0]!.id, APEX_SHADOW_STEP_KEY, stages.length + 1, APEX_SHADOW_ROLE, JSON.stringify({ scope: APEX_SHADOW_SCOPE, mode: "measurement_only", repository: parsed.repository, ref: parsed.ref, approval: apex, bounty_scope: scope })]);
+      await client.query(
+        `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload)
+         VALUES ($1, 'repository_research.apex_shadow_requested', 'workflow_run', $2, $3, 'APEX shadow stage requested for the approved run (measurement only; its output is never evidence)', $4::jsonb)`,
+        [createdBy, run.rows[0]!.id, run.rows[0]!.correlation_id, JSON.stringify({ approved_by: apex.approved_by, approved_commit: apex.approved_commit, repository: parsed.repository, programme: scope?.programme ?? null })]);
     }
     if (options.slitherScan === true) {
       await client.query(

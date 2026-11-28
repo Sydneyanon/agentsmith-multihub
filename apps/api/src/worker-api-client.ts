@@ -208,6 +208,11 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
       outcome: input.outcome, rationale: input.rationale, span_ids: [...input.spanIds], input_sha256: input.inputSha256 }, true);
   }
 
+  /** The APEX shadow stage's one operation: records its measurement report (reported by the worker; re-checked by the API's recorder). */
+  reportApexShadow(stepId: string, report: Record<string, unknown>): Promise<{ audit_event_id: string; report_sha256: string; status: string; recorded_status: string }> {
+    return this.call("report_apex_shadow", { step_id: stepId, report }, true);
+  }
+
   // ---- reads (the port's reads take no lease; the runtime names the step it holds, which scopes them on the API) ----
   private heldStep: string | null = null;
   scopeToStep(stepId: string | null): void { this.heldStep = stepId; }
