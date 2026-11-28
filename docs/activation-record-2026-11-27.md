@@ -22,3 +22,8 @@ confirmed with `crane digest`).
   migration.
 - Remaining items: the four undeclared jobs and the worker (not authorised); `release_not_on_main`.
 - Programmes: 391 total; 41 Sherlock officially confirmed; **12 eligible**.
+
+## 2026-11-28: A7 diagnostic (owner-approved)
+All nine revocation classes were refused by Fly (42501 "MPG system roles cannot be modified"), including every per-object
+revocation from PUBLIC. The transaction was rolled back, and the privilege fingerprint is identical before and after. **A7 is blocked
+on the platform**; see `docs/a7-worker-grants.md` §9–10. A8 has not started.

@@ -186,3 +186,42 @@ Fly refused one of the nine revocation statements in step (a)/(b). Which one dec
 Option A (recommended) is the one-off diagnostic, which needs your approval. It runs each of the nine statements on its own in a
 single transaction, then rolls everything back: nothing changes, and it prints only which statements Fly accepts.
 
+
+## 9. Diagnostic result (owner-approved, 2026-11-28; one transaction, rolled back)
+- **Run:** a one-off machine on release `b52ce901`. It connected with `DATABASE_URL` as role **`schema_admin`**, which is Fly's
+  owner-level role.
+- **Procedure:** each of the nine statements ran in its own savepoint, followed by `ROLLBACK TO SAVEPOINT`. Statement classes 6
+  and 7 ran once per object. The whole transaction was then rolled back.
+- **Fingerprint:** a hash over relation, function, schema and database ACLs, the worker's memberships and its effective table
+  privileges. Before: `43d30ec86e273c2fc68c346d25f701bd` (279 items). After: **identical**. Nothing was changed.
+
+| # | statement | result |
+|---|---|---|
+| 1 | `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM agentsmith_worker` | refused, 42501 "MPG system roles cannot be modified" |
+| 2 | `REVOKE ALL ON ALL SEQUENCES … FROM agentsmith_worker` | refused, same error |
+| 3 | `REVOKE ALL ON ALL FUNCTIONS … FROM agentsmith_worker` | refused, same error |
+| 4 | `REVOKE ALL ON SCHEMA public FROM agentsmith_worker` | refused, same error |
+| 5 | `REVOKE CREATE ON SCHEMA public FROM PUBLIC` | refused, same error |
+| 6 | `REVOKE ALL ON TABLE/SEQUENCE … FROM PUBLIC`, per object | **52 of 52 refused**, same error |
+| 7 | `REVOKE ALL ON FUNCTION … FROM PUBLIC`, per object | **25 of 25 refused**, same error |
+| 8 | `REVOKE TEMPORARY ON DATABASE "fly-db" FROM PUBLIC` | refused, same error |
+| 9 | `REVOKE TEMPORARY, CREATE ON DATABASE "fly-db" FROM agentsmith_worker` | refused, same error |
+
+**Conclusion:**
+- Fly Managed Postgres refuses privilege revocation of every kind, from every connection we have (`schema_admin`), whatever
+  the target: the Fly-managed user, PUBLIC, the schema or the database.
+- Whether GRANT is also refused was **not** tested: the diagnostic was limited to the nine revocations by the owner's conditions.
+- Privileges here appear to be managed only through Fly's own roles (`reader`, `writer`, `schema_admin`).
+- The R1 design, which revokes defaults and then grants exactly, therefore cannot be applied on this cluster as it stands.
+
+## 10. Alternatives (owner decision; nothing below has been attempted)
+
+| option | what it means | safety compared with the R1 design | what it needs |
+|---|---|---|---|
+| **A. Grants only, on Fly** | Keep the `reader` user. Apply only the GRANTs: 43 INSERT/UPDATE privileges and EXECUTE on the six functions, with no revocations. The startup guard learns "Fly mode": it accepts the platform defaults it cannot revoke (PUBLIC's TEMP on the database, PUBLIC EXECUTE on functions), but still refuses DELETE, TRUNCATE, TRIGGER, REFERENCES, ownership, CREATE and elevated attributes. | **Close to it.** Still no DELETE, TRUNCATE, ownership or CREATE. Residual risk: temp tables could shadow guard lookups, mitigated by pinning function search paths, *if Fly allows that*. PUBLIC EXECUTE is harmless, because no function is SECURITY DEFINER: each runs with the caller's privileges, so `evict_research_blob` fails for the worker. | **1.** A second rolled-back diagnostic: does Fly accept `GRANT … TO agentsmith_worker` and `ALTER FUNCTION … SET search_path`? Plus a read-only look at what PUBLIC holds. **2.** If yes: a guard and grants-script change, tested on disposable Postgres set up with Fly-like defaults; then a new release, needing your approval. |
+| **B. Fly `writer` role** | Recreate the worker as a Fly `writer` user. It likely holds `pg_write_all_data`: INSERT, UPDATE and DELETE on every table. | **Weaker.** DELETE on every table, including bounty and workflow tables, which have no delete triggers. The append-only research tables are still protected by owner-held triggers. The guard must be relaxed to accept DELETE. | Owner approval to weaken the role; a guard change and a new release |
+| **C. Self-managed Postgres** | Run Postgres where we hold superuser, e.g. a Fly machine with a volume. The R1 design applies unchanged. | **Full design.** | Infrastructure work and a data move; backups become our job. Not appropriate before the first run. |
+| ~~Owner connection~~ | — | Refused: the guard exits with code 78, and you have ruled it out. | — |
+
+**Recommendation: A.** It keeps the protections that matter (no DELETE, TRUNCATE, ownership or schema changes) and only accepts
+the defaults Fly forces. It needs one more rolled-back diagnostic (GRANT and ALTER FUNCTION only), and then a reviewed release.
