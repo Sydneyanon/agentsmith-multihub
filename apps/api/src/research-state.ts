@@ -141,6 +141,14 @@ export function diffHypothesis(existing: HypothesisRecordFields, requested: {
 /** A worker's claim on a running step. Research writes made for a step happen only while it holds the lease. */
 export type StepLease = { stepId: string; workerId: string };
 
+/**
+ * Who ran a validator and what it produced. The family and method come from the recording code's registry (analysis-identity.ts),
+ * never from a request; `output` is the validator's raw result (canonical JSON), stored content-addressed.
+ */
+export type EvaluationProvenanceInput = {
+  recordedBy: "api" | "direct-worker" | "trusted-runner"; snapshotId: string; analysisFamily: string; method: string; output: Buffer;
+};
+
 export type SpanRole = "primary" | "supporting" | "context";
 export type EvaluationOutcome = "supports" | "weakens" | "contradicts" | "inconclusive";
 export type ReviewMode = "blinded_independent_assessment" | "disclosed_adjudication";
@@ -384,10 +392,28 @@ export class ResearchStore {
   recordEvaluation(lease: StepLease, input: {
     hypothesisId: string; evaluatorId: string; evaluatorVersion: string; outcome: EvaluationOutcome;
     rationale: string; spanIds: readonly string[]; inputSha256: string;
+    /** D1: the validator's raw output and provenance, stored as a content-addressed blob linked from the evaluation (0015) */
+    provenance?: EvaluationProvenanceInput;
   }): Promise<string> {
     return this.leased(lease, async (client, runId) => {
       const generator = (await client.query<{ generator_id: string }>("SELECT generator_id FROM hypotheses WHERE id = $1", [input.hypothesisId])).rows[0]?.generator_id;
       if (generator !== undefined && generator === input.evaluatorId) throw new IndependenceError(input.hypothesisId, input.evaluatorId);
+      // D7: idempotent on (hypothesis, evaluator, version, input hash). The same key returns the existing evaluation (no second row, no
+      // second event, so nothing is reordered); the same key with a different outcome or rationale is a conflict, never a second verdict.
+      // Concurrent duplicates serialise on the key's advisory lock; 0015's key table refuses a duplicate from any other writer too.
+      const keyed = (await client.query<{ t: string | null }>("SELECT to_regclass('public.hypothesis_evaluation_keys')::text AS t")).rows[0]?.t != null;
+      if (keyed) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`evaluation:${input.hypothesisId}|${input.evaluatorId}|${input.evaluatorVersion}|${input.inputSha256}`]);
+        const prior = (await client.query<{ id: string; outcome: string; rationale: string }>(
+          `SELECT e.id, e.outcome, e.rationale FROM hypothesis_evaluation_keys k JOIN hypothesis_evaluations e ON e.id = k.evaluation_id
+           WHERE k.hypothesis_id = $1 AND k.evaluator_id = $2 AND k.evaluator_version = $3 AND k.input_sha256 = $4`,
+          [input.hypothesisId, input.evaluatorId, input.evaluatorVersion, input.inputSha256])).rows[0];
+        if (prior) {
+          const differing = [...(prior.outcome !== input.outcome ? ["outcome"] : []), ...(prior.rationale !== input.rationale ? ["rationale"] : [])];
+          if (differing.length) throw new ResearchConflictError("evaluation", prior.id, differing);
+          return prior.id;
+        }
+      }
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO hypothesis_evaluations (workflow_run_id, hypothesis_id, produced_by_step_id, evaluator_id, evaluator_version, outcome, rationale, input_sha256)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
@@ -396,6 +422,16 @@ export class ResearchStore {
       for (const spanId of input.spanIds) {
         await client.query(
           "INSERT INTO evaluation_evidence (evaluation_id, span_id, workflow_run_id, produced_by_step_id) VALUES ($1,$2,$3,$4)", [id, spanId, runId, lease.stepId]);
+      }
+      if (input.provenance && keyed) {
+        const p = input.provenance;
+        if (p.output.length > MAX_BLOB_BYTES) throw new Error(`validator output of ${p.output.length} bytes exceeds the ${MAX_BLOB_BYTES} byte limit`);
+        const sha = sha256Hex(p.output);
+        await client.query("INSERT INTO research_blobs (content_sha256, size_bytes, content) VALUES ($1, $2, $3) ON CONFLICT (content_sha256) DO NOTHING", [sha, p.output.length, p.output]);
+        await client.query(
+          `INSERT INTO evaluation_provenance (evaluation_id, workflow_run_id, snapshot_id, recorded_by, validator_id, validator_version, analysis_family, method, input_sha256, output_blob_sha256)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [id, runId, p.snapshotId, p.recordedBy, input.evaluatorId, input.evaluatorVersion, p.analysisFamily, p.method, input.inputSha256, sha]);
       }
       return id;
     });
