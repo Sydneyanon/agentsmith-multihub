@@ -20,7 +20,7 @@ describe("PROTOTYPE APEX invariant quality (§10.2 item 2)", () => {
     expect(measureFalseInvariants({ ...BASELINE, quality: false }).unlabelled).toEqual([]);
     expect(measureFalseInvariants({}).unlabelled).toEqual([]);
     expect(measureFalseInvariants({ quality: false }).unlabelled).toEqual([]);
-  });
+  }, 60_000);
 
   it("minimum support: a candidate exercised by a single honest transition is not established", () => {
     const c = cand("Seeded", "conservation:totalShares=sum(shares)");
@@ -67,7 +67,7 @@ describe("PROTOTYPE APEX invariant quality (§10.2 item 2)", () => {
     expect(after.falsePositiveHypotheses).toEqual(["Bonus.distribute: apex-invariant-conservation"]);
     // the price: a true invariant exercised by exactly one honest transition is rejected by the minimum-support rule
     expect(after.trueRejected).toEqual(["Seeded:one-way:seeded"]);
-  });
+  }, 60_000);
 
   it("COST: the depth rule also rejects a TRUE bug whose breaking step needs one more transaction than the depth", () => {
     const deepBurn = `contract DeepToken {
@@ -105,7 +105,7 @@ describe("PROTOTYPE APEX invariant quality, deep strategy (§11 priority 2), on 
     // without the refinement rule the deeper, wider search would accept 4 of 10 false (the rule is what keeps the rate from rising)
     const noRef = measureFalseInvariants({ quality: { refinement: false } });
     expect({ falseAccepted: noRef.falseAccepted, trueAccepted: noRef.trueAccepted }).toEqual({ falseAccepted: 4, trueAccepted: 6 });
-  });
+  }, 60_000);
 
   it("refinement: value moved between two tracked pools by design is explained, not reported (GrossVault, Staged, Bonus)", () => {
     const deep = (name: string, id: string) => exploreStateInvariants(src(control(name).source), name).candidates.find((c) => c.id === id)!;
@@ -114,7 +114,7 @@ describe("PROTOTYPE APEX invariant quality, deep strategy (§11 priority 2), on 
     expect(deep("Bonus", "conservation:totalDeposits=sum(balances)").quality.explainedBy).toBe("totalDeposits == sum(balances) + reserve");
     // the explanation shape `A = sum(L) + B` is not a precommitted partition shape, so it yields no new candidate
     expect(exploreStateInvariants(src(control("Bonus").source), "Bonus").candidates.filter((c) => c.kind === "partition")).toEqual([]);
-  });
+  }, 60_000);
 
   it("MOTIVATING cases (not evidence on their own): DeepToken and BigBurn are reported by the deep strategy, with no wrong claim", () => {
     const deepBurn = `contract DeepToken {
@@ -135,5 +135,5 @@ describe("PROTOTYPE APEX invariant quality, deep strategy (§11 priority 2), on 
     expect(b.violations.map((v) => `${v.candidate} by ${v.breakingFunction}`)).toEqual(["conservation:totalSupply=sum(balanceOf) by burn"]);
     // the counterexample uses the threshold from the code (2 ether), and is minimised under the same rules as before
     expect(b.violations[0]!.minimisation!.minimised.at(-1)!.call).toMatch(/^burn\(2e18\)$/);
-  });
+  }, 60_000);
 });

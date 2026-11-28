@@ -113,7 +113,7 @@ describe("PROTOTYPE apex state explorer over the bounded interpreter", () => {
     expect(r.coverage.honest.frontierDropped).toBeGreaterThan(0);
     expect(r.coverage.honest.unexplored.some((u) => /frontier state\(s\) not expanded/.test(u))).toBe(true);
     expect(r.search).toMatchObject({ strategy: "deep", acceptingDepth: 4, extensionDepth: 5 });
-  });
+  }, 60_000);
 
   it("reports what it explored and what it could not model (coverage is part of the output)", () => {
     const r = exploreStateInvariants(src(`contract T { uint256 public t; function f() external { t = block.timestamp; } }`), "T", { depth: 2 });

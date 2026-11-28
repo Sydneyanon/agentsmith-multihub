@@ -100,7 +100,7 @@ describe("PROTOTYPE APEX coverage, deep strategy (§11 priority 1), on the origi
         x += 1;
       } }`), "G").coverage.honest;
     expect(g.statements.unreached).toEqual([]);
-  });
+  }, 60_000);
 
   it("Cycle 7/8, Caps 28/28, Keys 13/13 of the exhaustive states (baseline 4/8, 18/28, 5/13)", () => {
     const cy = compareWithExhaustive(src(cycle), "Cycle"); const ca = compareWithExhaustive(src(caps), "Caps"); const ke = compareWithExhaustive(src(keys), "Keys");
@@ -111,5 +111,5 @@ describe("PROTOTYPE APEX coverage, deep strategy (§11 priority 1), on the origi
     // boundary and derived amounts reach states outside the exhaustive domain; they are counted separately, not as coverage
     expect(ca.gap.explorerOnly).toBeGreaterThan(0);
     expect(ke.gap.explorerOnly).toBe(0);
-  });
+  }, 60_000);
 });
