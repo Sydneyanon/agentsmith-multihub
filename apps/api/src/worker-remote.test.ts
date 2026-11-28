@@ -36,6 +36,13 @@ describe("option D: remote worker settings", () => {
     expect(() => remoteWorkerSettings({ WORKER_STORE: "api", WORKER_API_URL: ok.WORKER_API_URL }, files({}).io)).toThrow(/WORKER_API_TOKEN_FILE is required/);
     expect(() => remoteWorkerSettings(ok, files({}).io)).toThrow(/could not be read from WORKER_API_TOKEN_FILE \(ENOENT\)/);
   });
+  it("D6: REFUSES to start when the token is present in the environment under ANY name (e.g. a platform secret export), naming the variable only", () => {
+    let message = "";
+    try { fromFile({ ...ok, WORKER_RUN_TOKEN: TOKEN }); } catch (e) { message = (e as Error).message; }
+    expect(message).toMatch(/also present in the environment as WORKER_RUN_TOKEN/);
+    expect(message).not.toContain(TOKEN.slice(10));
+    expect(() => fromFile({ ...ok, UNRELATED: "something else" })).not.toThrow();
+  });
   it("refuses any database URL or libpq variable, by name or by value", () => {
     for (const extra of [{ DATABASE_URL: "postgres://x" }, { WORKER_DATABASE_URL: "x" }, { DIRECT_DATABASE_URL: "x" }, { PGHOST: "db" }, { PGPASSWORD: "p" }, { ANALYTICS_DB_URL: "x" }, { HARMLESS_NAME: "postgresql://u:p@h/d" }]) {
       expect(() => fromFile({ ...ok, ...extra }), JSON.stringify(extra)).toThrow(/database connection settings are present/);

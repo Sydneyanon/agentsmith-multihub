@@ -25,8 +25,9 @@ reading it from a file. Fly's two file mechanisms differ:
 - `--file-local` embeds the file in the machine config. **Unverified:** who can read it back through the Machines API.
 
 **Before any real token is used**, a harmless check in the new app with a **dummy** value must establish which mechanism keeps the
-value out of the worker's process environment and out of readable machine config. The worker already refuses `WORKER_API_TOKEN` in its
-environment, and that check will be extended to refuse **any** environment variable whose value equals the file's token. Until the
+value out of the worker's process environment and out of readable machine config. The worker refuses `WORKER_API_TOKEN` in its environment, and it
+also refuses to start when **any** environment variable's value equals the file's token. That check is implemented and tested in
+`worker-remote.test.ts`; it names the variable, never the value. If Fly exports the secret, the worker fails closed. Until the
 check passes, the remaining exposure is the one already documented (`docs/security/worker-api-operations.md`): one run, 24 h, revocable,
 quota-bounded. **Fly machine OIDC** (no static secret) remains the better design and is not built.
 

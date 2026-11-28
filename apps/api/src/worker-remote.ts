@@ -64,6 +64,10 @@ export function remoteWorkerSettings(env: Record<string, string | undefined>, io
   const token = text.trim();
   const parsed = parseWorkerToken(token);
   if (!parsed) throw new RemoteWorkerConfigError("the token file does not hold a worker capability token");
+  // D6 on platforms that also export secrets as environment variables (e.g. a Fly secret delivered as a file may ALSO be in the machine
+  // environment): the token must not be in this process's environment under ANY name. Fail closed and name the variable, never the value.
+  const leaked = Object.entries(env).filter(([, v]) => typeof v === "string" && v.trim() === token).map(([k]) => k);
+  if (leaked.length) throw new RemoteWorkerConfigError(`refusing to start: the worker token is also present in the environment as ${leaked.join(", ")}; deliver it only as a file`);
   return { apiUrl: url.toString(), token, tokenId: parsed.tokenId, tokenSource: file === "-" ? "stdin" : "file", tokenFileRemoved: removed };
 }
 
