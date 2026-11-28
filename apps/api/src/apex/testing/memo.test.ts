@@ -27,15 +27,16 @@ describe("PROTOTYPE APEX transaction memo: identical reports, lower interpreter 
     }
   }, 60_000);
 
-  // the recorded totals were measured before the memo existed (fresh set 1: d32f960; fresh set 2: d1eedf0), so equality is the acceptance test
+  // the recorded totals were measured before the memo existed (fresh set 1: d32f960; fresh set 2: d1eedf0), so equality is the acceptance
+  // test; both are pinned to the deep strategy without the false-positive rules of §11.2, which did not exist then
   it("fresh set 1: every finding as recorded, the search unchanged (275 995 transitions), about 80% fewer transitions interpreted", () => {
-    const s = scoreFreshSet({}, FRESH_DIR);
+    const s = scoreFreshSet({ quality: { fpRules: false } }, FRESH_DIR);
     expect(s.totals).toEqual((JSON.parse(readFileSync(join(__dirname, "fresh-set-results", "after.json"), "utf8")) as { totals: unknown }).totals);
     expect(s.cost).toEqual({ requested: 317_885, interpreted: 64_372 }); // 317 885 before the memo; 197 191 with the exact-world memo
   }, 60_000);
 
   it("fresh set 2: every finding as recorded before the memo, the search unchanged (168 207 transitions)", () => {
-    const s = scoreFreshSet({}, FRESH_DIR_2);
+    const s = scoreFreshSet({ quality: { fpRules: false } }, FRESH_DIR_2);
     expect(s.totals).toEqual((JSON.parse(readFileSync(join(__dirname, "fresh-set-2-results", "deep-before.json"), "utf8")) as { totals: unknown }).totals);
     expect(s.cost).toEqual({ requested: 200_675, interpreted: 32_240 });
   }, 60_000);

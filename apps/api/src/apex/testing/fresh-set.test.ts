@@ -18,8 +18,9 @@ describe("PROTOTYPE APEX fresh set 1: baseline vs deep", () => {
     expect({ recall: s.totals.recall, fp: s.totals.falsePositives, fi: [s.totals.falseAccepted, s.totals.falseAccepted + s.totals.trueAccepted] }).toEqual({ recall: 0.2, fp: 12, fi: [7, 17] });
   });
 
+  // pinned to the deep strategy as it was at d32f960, before the false-positive rules of §11.2 (fresh-set-2.test.ts measures them)
   it("deep: recall 10/10 (baseline 2/10), false positives 9 (12), false-invariant rate 5/16 (7/17)", () => {
-    const s = scoreFreshSet({});
+    const s = scoreFreshSet({ quality: { fpRules: false } });
     expect(s.totals).toEqual(recorded("after.json").totals);
     expect(s.totals.falseNegatives).toEqual([]);
     expect({ wrongClaims: s.totals.wrongClaims, twins: s.totals.twinFalsePositives, controls: s.totals.controlFalsePositives }).toEqual({ wrongClaims: 2, twins: 2, controls: 5 });

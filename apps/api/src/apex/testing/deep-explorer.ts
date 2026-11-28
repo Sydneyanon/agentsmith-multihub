@@ -20,7 +20,11 @@
  *       the precommitted partition shapes, it becomes a candidate itself (`partition:...`) and goes through every rule;
  *     - direction: a solvency candidate `balance >= sum(L)` is REFUTED when an honest transition moves sum(L) and the ether held in
  *       strictly opposite directions (L grew while ether left, or shrank while ether arrived): L is then not a liability ledger;
- *  5. the adversarial search uses the same layered search, to the accepting depth.
+ *  5. the adversarial search uses the same layered search, to the accepting depth;
+ *  6. the false-positive rules of §11.2 (fp-rules.ts; `quality.fpRules`, defaults FP_RULE_DEFAULTS, `false` for the strategy as at d32f960):
+ *     unit ratio and privileged refinement refute candidates; privileged breaker, privileged funding and designed cycle (off by default)
+ *     reclassify a fully modelled counterexample instead of reporting it, and the next one no rule reclassifies is reported; residual
+ *     breaker orders a conservation candidate's counterexamples. None of them changes a search, the gate or the minimiser.
  * Everything else (actors, families, the gate, minimisation, hypothesis drafts) is shared with the baseline and unchanged.
  */
 import { abstractKey, CoverageCollector } from "./coverage.js";
@@ -30,6 +34,7 @@ import {
   type Stat, type StepRecord, type TransitionEvent,
 } from "./state-explorer-prototype.js";
 import type { Value } from "../../analysis/solidity/simulate.js";
+import { designedCycle, privilegedBreaker, privilegedFunding, privilegeModel, type FpRules, type PrivilegeModel, type Reclassified } from "./fp-rules.js";
 import type { FunctionDef } from "../../analysis/solidity/parser.js";
 
 const MAX_UINT = 2n ** 256n - 1n;
@@ -240,8 +245,24 @@ type Evidence = {
   genericSupport: Map<string, number>;
   /** distinct `function(args){value}` signatures among the supporting transitions, fully modelled or not (capped at 2 per candidate) */
   supportSignatures: Map<string, Set<string>>;
+  // ---- evidence for the false-positive rules (fp-rules.ts); collected only when the rule is on
+  /** fully modelled counterexamples per candidate in discovery order (at most 3 per breaking function, 24 in all): the alternatives */
+  alternatives: Map<string, Found[]>;
+  /** privileged refinement: as `inconsistent` / `movedOnBreak`, over the transitions not statically privileged */
+  inconsistentUnpriv: Set<string>; movedOnUnprivBreak: Set<string>;
+  /** unit ratio, per conservation candidate: a breaking transition moved sum(L); transitions from a broken state moving both sides */
+  ratioTwoSidedBreak: Set<string>; ratioProportional: Map<string, { n: number; generic: number; signatures: Set<string> }>; ratioNonProportional: Set<string>;
+  /** designed cycle: honest one-way violations (capped at 200 per candidate; overflow recorded), and the maximum of each phase number */
+  reversals: Map<string, Node[]>; reversalOverflow: Set<string>; maxima: Map<string, bigint>;
 };
-const newEvidence = (ids: string[]): Evidence => ({ stats: new Map(ids.map((id) => [id, newStat()])), clean: new Map(), tainted: [], inconsistent: new Set(), movedOnBreak: new Set(), opposite: new Map(), breakers: new Map(), genericSupport: new Map(), supportSignatures: new Map() });
+const newEvidence = (ids: string[]): Evidence => ({ stats: new Map(ids.map((id) => [id, newStat()])), clean: new Map(), tainted: [], inconsistent: new Set(), movedOnBreak: new Set(), opposite: new Map(), breakers: new Map(), genericSupport: new Map(), supportSignatures: new Map(),
+  alternatives: new Map(), inconsistentUnpriv: new Set(), movedOnUnprivBreak: new Set(), ratioTwoSidedBreak: new Set(), ratioProportional: new Map(), ratioNonProportional: new Set(), reversals: new Map(), reversalOverflow: new Set(), maxima: new Map() });
+const ALT_PER_FN = 3; const ALT_TOTAL = 24; const REVERSAL_CAP = 200;
+function addAlternative(alts: Map<string, Found[]>, f: Found): void {
+  const xs = alts.get(f.k.c.id) ?? []; if (xs.length >= ALT_TOTAL) return;
+  if (xs.filter((x) => x.m.fn === f.m.fn).length >= ALT_PER_FN) return;
+  xs.push(f); alts.set(f.k.c.id, xs);
+}
 function mergeInto(dst: Evidence, src: Evidence): void {
   for (const [id, s] of src.stats) {
     const d = dst.stats.get(id)!;
@@ -255,13 +276,26 @@ function mergeInto(dst: Evidence, src: Evidence): void {
   for (const [id, n] of src.genericSupport) dst.genericSupport.set(id, (dst.genericSupport.get(id) ?? 0) + n);
   for (const [id, xs] of src.supportSignatures) { const d = dst.supportSignatures.get(id) ?? new Set<string>(); for (const x of xs) if (d.size < 2) d.add(x); dst.supportSignatures.set(id, d); }
   for (const [id, b] of src.breakers) { const d = dst.breakers.get(id) ?? new Map<string, StepRecord[]>(); for (const [fn, s] of b) if (!d.has(fn)) d.set(fn, s); dst.breakers.set(id, d); }
+  for (const xs of src.alternatives.values()) for (const f of xs) addAlternative(dst.alternatives, f);
+  src.inconsistentUnpriv.forEach((x) => dst.inconsistentUnpriv.add(x)); src.movedOnUnprivBreak.forEach((x) => dst.movedOnUnprivBreak.add(x));
+  src.ratioTwoSidedBreak.forEach((x) => dst.ratioTwoSidedBreak.add(x)); src.ratioNonProportional.forEach((x) => dst.ratioNonProportional.add(x));
+  for (const [id, p] of src.ratioProportional) { const d = dst.ratioProportional.get(id) ?? { n: 0, generic: 0, signatures: new Set<string>() }; d.n += p.n; d.generic += p.generic; for (const x of p.signatures) if (d.signatures.size < 2) d.signatures.add(x); dst.ratioProportional.set(id, d); }
+  for (const [id, xs] of src.reversals) { const d = dst.reversals.get(id) ?? []; for (const x of xs) { if (d.length < REVERSAL_CAP) d.push(x); else dst.reversalOverflow.add(id); } dst.reversals.set(id, d); }
+  src.reversalOverflow.forEach((x) => dst.reversalOverflow.add(x));
+  for (const [k, v] of src.maxima) if (!dst.maxima.has(k) || dst.maxima.get(k)! < v) dst.maxima.set(k, v);
 }
+
+/** the false-positive rules' defaults (§11.2); `quality.fpRules: false` turns every one off, as the deep strategy was at d32f960 */
+export const FP_RULE_DEFAULTS: Required<FpRules> = { privilegedBreaker: true, privilegedFunding: true, designedCycle: false, unitRatio: true, privilegedRefinement: true, residualBreaker: true };
+const ALL_RULES_OFF: Required<FpRules> = { privilegedBreaker: false, privilegedFunding: false, designedCycle: false, unitRatio: false, privilegedRefinement: false, residualBreaker: false };
 
 export type DeepResult = { report: ExploreReport; engine: Engine; collectors: CoverageCollector[] };
 
 export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string }>, contract: string, options: ExploreOptions = {}): DeepResult {
   const depth = options.depth ?? DEEP_DEFAULTS.depth; const budget = options.maxSequences ?? DEEP_DEFAULTS.budget;
   const q = options.quality === false ? null : { minSupport: 2, randomSequences: 200, seed: 1, depthExtension: true, refinement: true, direction: true, ...(options.quality ?? {}) };
+  const rules: Required<FpRules> = q && q.fpRules !== false ? { ...FP_RULE_DEFAULTS, ...(q.fpRules ?? {}) } : { ...ALL_RULES_OFF };
+  const anyReporting = rules.privilegedBreaker || rules.privilegedFunding || rules.designedCycle || rules.residualBreaker;
   const engine = new Engine(sources, contract); engine.memo = options.memo !== false;
   const empty = () => CoverageCollector.empty(depth);
   const report: ExploreReport = {
@@ -282,11 +316,15 @@ export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string 
     return { k, a, l, terms };
   });
   const num = (v: Value): bigint => (typeof v === "bigint" ? v : 0n);
+  const priv: PrivilegeModel | null = rules.privilegedBreaker || rules.privilegedFunding || rules.privilegedRefinement ? privilegeModel(engine) : null;
+  /** statically privileged: the deployer calling a function guarded by an unobtainable role (used inside the search, where no replay is done) */
+  const staticPrivileged = (m: Move) => m.actor === "owner0" && !!priv?.has(fnName(m.fn));
   const dv = (p: Node, q2: Node, name: string) => num(engine.valueOf(q2, name)) - num(engine.valueOf(p, name));
   const dl = (p: Node, q2: Node, l: string) => sumLedger(q2.w, l) - sumLedger(p.w, l);
 
   const abst = new Map<string, AbstentionRecord>();
   const main = newEvidence(all.map((k) => k.c.id)); let layer = newEvidence(all.map((k) => k.c.id));
+  if (rules.designedCycle) for (const p of engine.phaseVars) { const x = engine.valueOf(engine.root, p); if (typeof x === "bigint") main.maxima.set(p, x); }
   const recordAbstention = (ev: TransitionEvent, phase: string) => {
     const { m, outcome } = ev; if (outcome.k !== "unsupported") return;
     const key = `${outcome.feature}@${outcome.at}`; if (!abst.has(key)) abst.set(key, { function: fnName(m.fn), feature: outcome.feature, at: outcome.at, why: outcome.why, phase });
@@ -310,7 +348,8 @@ export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string 
         const b = layer.breakers.get(k.c.id) ?? new Map<string, StepRecord[]>(); if (!b.has(fnName(m.fn))) b.set(fnName(m.fn), post.seq); layer.breakers.set(k.c.id, b);
         const f: Found = { k, phase: "honest", pre, post, m };
         if (post.approx.length) { if (layer.tainted.length < 10_000) layer.tainted.push(f); }
-        else if (!layer.clean.has(k.c.id)) layer.clean.set(k.c.id, f);
+        else { if (!layer.clean.has(k.c.id)) layer.clean.set(k.c.id, f); if (anyReporting) addAlternative(layer.alternatives, f); }
+        if (rules.designedCycle && k.c.kind === "one-way") { const xs = layer.reversals.get(k.c.id) ?? []; if (xs.length < REVERSAL_CAP) xs.push(post); else layer.reversalOverflow.add(k.c.id); layer.reversals.set(k.c.id, xs); }
       }
       if (k.c.kind === "solvency") {
         const dL = dl(pre, post, k.c.vars[0]!); const dB = post.w.balance - pre.w.balance;
@@ -325,8 +364,22 @@ export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string 
         const ok = t.kind === "scalar-sum" ? dA + dT === dL : dA === dL + dT;
         const id = `${c.k.c.id}|${termId(t)}`;
         if (!ok) layer.inconsistent.add(id); else if (v === "violate" && dT !== 0n) layer.movedOnBreak.add(id);
+        if (rules.privilegedRefinement && !staticPrivileged(m)) { if (!ok) layer.inconsistentUnpriv.add(id); else if (v === "violate" && dT !== 0n) layer.movedOnUnprivBreak.add(id); }
       }
+      if (rules.unitRatio && v === "violate" && dL !== 0n) layer.ratioTwoSidedBreak.add(c.k.c.id);
     }
+    if (rules.unitRatio) for (const c of conservation) {
+      // transitions from a state where A != sum(L) that move both sides: do they preserve the ratio A : sum(L), to rounding?
+      const A = num(engine.valueOf(pre, c.a)); const L = sumLedger(pre.w, c.l); if (A === L || A === 0n || L === 0n) continue;
+      const A2 = num(engine.valueOf(post, c.a)); const L2 = sumLedger(post.w, c.l); if (A2 === A || L2 === L) continue;
+      const diff = A2 * L - A * L2; const bound = A > L ? A : L;
+      if ((diff < 0n ? -diff : diff) < bound) {
+        const p = layer.ratioProportional.get(c.k.c.id) ?? { n: 0, generic: 0, signatures: new Set<string>() }; p.n++;
+        if (isGeneric(m)) p.generic++; else if (p.signatures.size < 2) p.signatures.add(`${fnName(m.fn)}(${m.args.map(fmt).join(",")}){${fmt(m.value)}}`);
+        layer.ratioProportional.set(c.k.c.id, p);
+      } else layer.ratioNonProportional.add(c.k.c.id);
+    }
+    if (rules.designedCycle) for (const p of engine.phaseVars) { const x = engine.valueOf(post, p); if (typeof x === "bigint" && (!layer.maxima.has(p) || layer.maxima.get(p)! < x)) layer.maxima.set(p, x); }
   }, (k) => { if (k > 1) { mergeInto(main, layer); layer = newEvidence(all.map((x) => x.c.id)); } });
   const extension = honest.fixpoint ? null : layer;
   if (honest.fixpoint) mergeInto(main, layer);
@@ -342,16 +395,38 @@ export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string 
   if (q) {
     if (q.refinement) for (const c of conservation) {
       const r = results.get(c.k.c.id)!; if (!r.established || r.quality.honestBreakers.length === 0) continue;
-      const explaining = c.terms.filter((t) => !main.inconsistent.has(`${c.k.c.id}|${termId(t)}`) && main.movedOnBreak.has(`${c.k.c.id}|${termId(t)}`));
+      let explaining = c.terms.filter((t) => !main.inconsistent.has(`${c.k.c.id}|${termId(t)}`) && main.movedOnBreak.has(`${c.k.c.id}|${termId(t)}`));
+      let excused = false;
+      if (!explaining.length && rules.privilegedRefinement) {
+        // privileged refinement: the relation holds on every transition except ones only the deployer can perform (designed adjustments)
+        explaining = c.terms.filter((t) => !main.inconsistentUnpriv.has(`${c.k.c.id}|${termId(t)}`) && main.movedOnUnprivBreak.has(`${c.k.c.id}|${termId(t)}`));
+        excused = explaining.length > 0;
+      }
       if (!explaining.length) continue;
       const best = explaining.find((t) => partitionId(c, t) !== null) ?? explaining[0]!;
       r.established = false; r.quality.explainedBy = relationText(c, best);
-      r.dropReason = `explained by refinement: ${relationText(c, best)} holds on every honest transition that touched it, its breakers (${r.quality.honestBreakers.join(", ")}) included: value moves between tracked pools by design`;
+      r.dropReason = excused
+        ? `explained by refinement, privileged transitions excused: ${relationText(c, best)} holds on every honest transition that touched it except those only the deployer can perform (${[...priv!.values()].map((e) => `${e.function}: ${e.role} at ${e.check.file}:${e.check.line}, ${e.transfer}`).join("; ")}), its unprivileged breakers included`
+        : `explained by refinement: ${relationText(c, best)} holds on every honest transition that touched it, its breakers (${r.quality.honestBreakers.join(", ")}) included: value moves between tracked pools by design`;
       for (const t of explaining) { const pid = partitionId(c, t); if (pid) active.add(pid); }
     }
     if (q.direction) for (const k of narrow) if (k.c.kind === "solvency") {
       const r = results.get(k.c.id)!; const s = main.opposite.get(k.c.id); if (!r.established || !s) continue;
       r.established = false; r.dropReason = `not a liability ledger: ${k.c.vars[0]} and the ether held moved in opposite directions in ${s.map((x) => `${x.actor}:${x.call}`).join(" -> ")}`;
+    }
+    if (rules.unitRatio) for (const c of conservation) {
+      const r = results.get(c.k.c.id)!; const id = c.k.c.id; const p = main.ratioProportional.get(id);
+      if (!r.established || r.quality.honestBreakers.length === 0 || main.ratioTwoSidedBreak.has(id) || main.ratioNonProportional.has(id) || !p) continue;
+      if (p.n < (q.minSupport ?? 2) || (!p.generic && p.signatures.size < 2)) continue;
+      r.established = false;
+      r.dropReason = `different units: ${c.a} and sum(${c.l}) are related by a ratio, not by equality: the breakers (${r.quality.honestBreakers.join(", ")}) move ${c.a} alone, and all ${p.n} honest transitions that moved both sides from a state where they differ preserved ${c.a} : sum(${c.l}) to rounding`;
+    }
+    if (rules.designedCycle) for (const k of narrow) if (k.c.kind === "one-way") {
+      const r = results.get(k.c.id)!; const xs = main.reversals.get(k.c.id) ?? [];
+      if (!r.established || !xs.length || main.reversalOverflow.has(k.c.id)) continue;
+      const whys = xs.map((post) => designedCycle(engine, k.c.vars[0]!, post, main.maxima));
+      if (whys.some((w) => w === null)) continue;
+      r.established = false; r.dropReason = `every honest reversal (${xs.length}) is a designed cycle, e.g. ${whys[0]}`;
     }
   }
   const checks = all.filter((k) => active.has(k.c.id));
@@ -397,9 +472,42 @@ export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string 
       const f: Found = { k, phase: "adversarial", pre, post, m };
       if (post.approx.length) { if (tainted.length < 10_000) tainted.push(f); continue; }
       if (!clean.has(k.c.id)) clean.set(k.c.id, f);
+      if (anyReporting) addAlternative(main.alternatives, f);
     }
   });
   report.coverage.adversarial = adversarial.col.finish();
+  // ---- the reported counterexample per candidate: the first fully modelled one that no reporting rule reclassifies (all rules off: the first)
+  const allReclassified = new Set<string>(); // every fully modelled counterexample reclassified: not "withheld by the gate"
+  if (anyReporting) {
+    const reclassified: Reclassified[] = [];
+    const cycleRecord = (id: string, f: Found): Reclassified | null => {
+      const why = designedCycle(engine, f.k.c.vars[0]!, f.post, main.maxima);
+      return why ? { candidate: id, rule: "designedCycle", breakingFunction: fnName(f.m.fn), sequence: f.post.seq, why, evidence: [] } : null;
+    };
+    // residual breaker: for a conservation candidate, a counterexample whose breaking transition no one-term refinement accounts for (no
+    // tracked pool T that moved with the relation A = sum(L) +/- T holding across it) is reported before one that value moving between
+    // tracked pools explains; a stable reordering of the same fully modelled alternatives
+    const explained = (f: Found): boolean => {
+      const c = conservation.find((x) => x.k.c.id === f.k.c.id); if (!c) return false;
+      const dA = dv(f.pre, f.post, c.a); const dL = dl(f.pre, f.post, c.l);
+      return c.terms.some((t) => { const dT = t.kind === "ledger" ? dl(f.pre, f.post, t.name) : dv(f.pre, f.post, t.name); return dT !== 0n && (t.kind === "scalar-sum" ? dA + dT === dL : dA === dL + dT); });
+    };
+    for (const id of [...clean.keys()]) {
+      if (!established.has(id)) continue;
+      let chosen: Found | null = null;
+      const alts = main.alternatives.get(id) ?? [clean.get(id)!];
+      const ordered = rules.residualBreaker ? [...alts.filter((f) => !explained(f)), ...alts.filter((f) => explained(f))] : alts;
+      for (const f of ordered) {
+        const why = (rules.privilegedBreaker ? privilegedBreaker(engine, priv!, id, f.pre, f.post, f.m) : null)
+          ?? (rules.privilegedFunding && f.k.c.kind === "actor-value" ? privilegedFunding(engine, priv!, id, f.post) : null)
+          ?? (rules.designedCycle && f.k.c.kind === "one-way" ? cycleRecord(id, f) : null);
+        if (!why) { chosen = f; break; }
+        if (!reclassified.some((x) => x.candidate === id && x.rule === why.rule && x.breakingFunction === why.breakingFunction)) reclassified.push(why);
+      }
+      if (chosen) clean.set(id, chosen); else { clean.delete(id); allReclassified.add(id); }
+    }
+    report.reclassified = reclassified;
+  }
   engine.checks = checks; // minimisation looks candidates up by id
   const dom = deepDomain(engine, false);
   report.search = {
@@ -408,7 +516,7 @@ export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string 
     randomTransitions: report.candidates.reduce((s, c) => Math.max(s, typeof c.quality.randomised === "object" && "transitions" in c.quality.randomised ? c.quality.randomised.transitions : 0), 0),
     budget, frontierDropped: { honest: honest.dropped, adversarial: adversarial.dropped }, amounts: dom.amounts.map(fmt), values: dom.values.map(fmt),
   };
-  const finished = finishReport(engine, sources, report, results, checks, clean, tainted, abst, options);
+  const finished = finishReport(engine, sources, report, results, checks, clean, tainted, abst, options, allReclassified);
   finished.search!.cost = { requested: engine.executions + engine.memoHits, interpreted: engine.executions };
   return { report: finished, engine, collectors: [honest.col, adversarial.col] };
 }

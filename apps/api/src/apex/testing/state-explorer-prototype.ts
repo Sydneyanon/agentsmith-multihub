@@ -36,6 +36,7 @@ import { analyzeSources } from "../../analysis/solidity/specialists.js";
 import { Tracer } from "../../analysis/solidity/trace.js";
 import { CoverageCollector, type Coverage } from "./coverage.js";
 import { exploreDeep } from "./deep-explorer.js";
+import type { FpRules, Reclassified } from "./fp-rules.js";
 import { ABSENT, classifyUnsupported, FidelityInterp, newTxLog, type Approximation, type ApproximationKind, type UnsupportedFeature } from "./fidelity.js";
 
 export type { Coverage } from "./coverage.js";
@@ -82,6 +83,11 @@ export type ExploreReport = {
   coverage: { honest: Coverage; adversarial: Coverage };
   /** how the search was run (deep strategy only; absent for the baseline strategy) */
   search?: SearchRecord;
+  /**
+   * deep strategy, with a reporting rule of §11.2 on: fully modelled counterexamples that a rule reclassified (privileged behaviour, designed
+   * cycle) instead of reporting them as violations, with the rule's evidence. Never a hypothesis; listed so nothing is dropped silently.
+   */
+  reclassified?: Reclassified[];
   gate: {
     /** `abstained(<feature>@<file:line>)`, one per distinct feature and location */
     abstentions: AbstentionRecord[];
@@ -130,6 +136,8 @@ export type ExploreOptions = {
     refinement?: boolean;
     /** deep only: refutation of a solvency candidate whose ledger moves against the ether held (default true) */
     direction?: boolean;
+    /** deep only: the false-positive rules of §11.2 (fp-rules.ts), each on or off; `false` turns them all off (defaults: FP_RULE_DEFAULTS) */
+    fpRules?: false | FpRules;
   };
   minimise?: boolean;
   /** memoised transactions (Engine.memo, default true); `false` re-interprets every transition, only to measure that the reports are identical */
@@ -292,7 +300,8 @@ export class Engine {
     });
     this.checks = checks;
   }
-  private phaseVars: string[] = [];
+  /** phase-like scalars (guard-read bool/uint state variables that are not aggregates) and the aggregates */
+  phaseVars: string[] = [];
   /** a scalar's value in a state: an unwritten slot reads as its deployed value or type default, as the interpreter reads it */
   valueOf(n: Node, name: string): Value { return n.w.storage.has(name) ? (n.w.storage.get(name) ?? null) : (this.deployedValues.get(name) ?? null); }
 
@@ -539,7 +548,9 @@ export function establish(report: ExploreReport, checks: Check[], stats: Map<str
  * hypothesis drafts with the independence marker.
  */
 export function finishReport(engine: Engine, sources: ReadonlyArray<{ path: string; text: string }>, report: ExploreReport, results: Map<string, CandidateResult>, checks: Check[],
-  clean: Map<string, Found>, tainted: Found[], abst: Map<string, AbstentionRecord>, options: ExploreOptions): ExploreReport {
+  clean: Map<string, Found>, tainted: Found[], abst: Map<string, AbstentionRecord>, options: ExploreOptions,
+  /** deep strategy, §11.2: candidates whose every fully modelled counterexample a rule reclassified; the gate did not withhold them */
+  reclassifiedOnly: ReadonlySet<string> = new Set()): ExploreReport {
   const { contract } = report; const { fns } = engine;
   const established = new Set(report.candidates.filter((r) => r.established).map((r) => r.id));
   // ---- the gate: abstentions, suppressed counterexamples, then violations from fully modelled sequences only
@@ -552,7 +563,7 @@ export function finishReport(engine: Engine, sources: ReadonlyArray<{ path: stri
     for (const kind of new Set(f.post.approx.map((a) => a.kind))) report.gate.suppressed.byKind[kind] = (report.gate.suppressed.byKind[kind] ?? 0) + 1;
     if (report.gate.suppressed.examples.length < 20) report.gate.suppressed.examples.push({ candidate: f.k.c.id, phase: f.phase, breakingFunction: fnName(f.m.fn), sequence: f.post.seq, approximations: f.post.approx });
   }
-  report.gate.candidatesWithOnlySuppressedCounterexamples = [...established].filter((id) => !clean.has(id) && tainted.some((t) => t.k.c.id === id)).sort();
+  report.gate.candidatesWithOnlySuppressedCounterexamples = [...established].filter((id) => !clean.has(id) && !reclassifiedOnly.has(id) && tainted.some((t) => t.k.c.id === id)).sort();
   for (const id of report.gate.candidatesWithOnlySuppressedCounterexamples) report.gate.withheld.push({ candidate: id, why: "only-suppressed-counterexamples", kinds: [...new Set(tainted.filter((t) => t.k.c.id === id).flatMap((t) => t.post.approx.map((a) => a.kind)))].sort() });
   // honest-phase counterexamples are kept over adversarial ones for the same candidate (they were found first, and are shorter or equal)
   for (const k of checks) {

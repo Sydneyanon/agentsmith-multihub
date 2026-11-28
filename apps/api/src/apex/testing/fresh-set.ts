@@ -52,12 +52,14 @@ export type FreshScore = {
   };
   /** interpreter cost of the whole run (deep strategy only): transitions requested by every phase, and how many were actually interpreted */
   cost: { requested: number; interpreted: number };
+  /** counterexamples a §11.2 rule reclassified instead of reporting (they count neither as detections nor as false positives) */
+  reclassified: string[];
 };
 
 export function scoreFreshSet(options: ExploreOptions = {}, dir: string = FRESH_DIR): FreshScore {
   const L = loadLabels(dir);
-  const s: FreshScore = { options, vulnerable: [], twins: [], controls: [], totals: { detected: 0, vulnerable: L.vulnerable.length, recall: 0, falseNegatives: [], falsePositives: 0, wrongClaims: 0, twinFalsePositives: 0, controlFalsePositives: 0, falseAccepted: 0, trueAccepted: 0, falseInvariantRate: 0, falseAcceptedIds: [], trueRejected: [], unlabelled: [], transitions: 0 }, cost: { requested: 0, interpreted: 0 } };
-  const addCost = (r: ExploreReport) => { s.cost.requested += r.search?.cost?.requested ?? 0; s.cost.interpreted += r.search?.cost?.interpreted ?? 0; };
+  const s: FreshScore = { options, vulnerable: [], twins: [], controls: [], totals: { detected: 0, vulnerable: L.vulnerable.length, recall: 0, falseNegatives: [], falsePositives: 0, wrongClaims: 0, twinFalsePositives: 0, controlFalsePositives: 0, falseAccepted: 0, trueAccepted: 0, falseInvariantRate: 0, falseAcceptedIds: [], trueRejected: [], unlabelled: [], transitions: 0 }, cost: { requested: 0, interpreted: 0 }, reclassified: [] };
+  const addCost = (r: ExploreReport) => { for (const x of r.reclassified ?? []) s.reclassified.push(`${r.contract}:${x.candidate} by ${x.breakingFunction} [${x.rule}]`); s.cost.requested += r.search?.cost?.requested ?? 0; s.cost.interpreted += r.search?.cost?.interpreted ?? 0; };
   for (const v of L.vulnerable) {
     const r = exploreStateInvariants(sourcesOf(v.file, dir), v.contract, options);
     const ok = (x: ExploreReport["violations"][number]) => v.accept.breakers.includes(x.breakingFunction) && v.accept.families.includes(family(x.candidate));
