@@ -73,6 +73,18 @@ describe("Slither runner (pinned 0.11.3)", () => {
     expect((await runSlither({ files: [], slitherBin: t.slither, solcBin: t.solc })).ok).toBe(false);
     expect(toolDirs()).toEqual(before);
   });
+  it("the runner honours an overall time limit and an output size limit as explicit failures", async () => {
+    const hang = tools("hang"); const before = toolDirs();
+    const t = await runSlither({ files, slitherBin: hang.slither, solcBin: hang.solc, timeoutMs: 60_000, totalTimeoutMs: 500 });
+    expect(t.ok === false && t.failure.code).toBe("timeout");
+    const ok = tools("ok");
+    const big = await runSlither({ files, slitherBin: ok.slither, solcBin: ok.solc, maxOutputBytes: 1024 });
+    expect(big).toMatchObject({ ok: false, failure: { code: "output_invalid" } });
+    expect(big.ok === false && big.failure.detail).toMatch(/exceeded 1024 bytes/);
+    const fine = await runSlither({ files, slitherBin: ok.slither, solcBin: ok.solc, totalTimeoutMs: 60_000, maxOutputBytes: 16 * 1024 * 1024 });
+    expect(fine.ok && fine.detections.length).toBe(47);
+    expect(toolDirs()).toEqual(before);
+  });
   it("a build without the tool host cannot start a process: the loader says so", async () => {
     registerToolHost(null);
     try {

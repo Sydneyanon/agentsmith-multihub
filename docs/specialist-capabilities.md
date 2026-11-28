@@ -72,6 +72,18 @@ a list per capability (T-201). The plan is to do that with the first external to
   - Failures are explicit: `tool_unavailable`, `version_mismatch`, `compile_failed`, `timeout`, `output_invalid`, `crashed`,
     `input_invalid`. Memory records them as `abstained` with that code, never as examined, and the same version is not retried.
   - Projects that need framework remappings (Foundry or Hardhat libraries) currently fail as `compile_failed`. That is a known limit.
+- **Slither inside `repository_research`** (no engine loop, no draft migration; `analysis/solidity/slither-step.ts`).
+  - An optional stage `slither_scan` between `analyze_structure` and `challenge_leads`. It is created only for runs made with
+    `slitherScan: true` (which requires `structuralAnalysis`; operator CLI flag `--slither-scan`), and a worker claims it only with
+    `SLITHER_SCAN_ENABLED=true` AND `AGENTSMITH_SLITHER_BIN` and `AGENTSMITH_SOLC_BIN` set. Without the option nothing changes.
+  - Same runner and the same detection-to-hypothesis mapping as the engine loop (`recordSlitherLeads`), on the whole sealed snapshot.
+  - Limits: `SLITHER_SCAN_TIMEOUT_MS` per invocation (default 300 s), `SLITHER_SCAN_TOTAL_TIMEOUT_MS` (default 900 s),
+    `SLITHER_SCAN_MAX_OUTPUT_BYTES` (default 16 MiB), at most 1000 stored leads per run. Invalid values are ignored and named in the output.
+  - A failure never fails the run: the stage succeeds with `status: "abstained"` and the code, and the dossier's coverage becomes
+    `partial`, lists the abstention under `external_tools` and in its limitations.
+  - `challenge_leads` challenges the Slither leads with AgentSmith's own validators; the dossier names each lead's generator.
+  - The production image cannot start processes (the tool host is not in the build), so there the stage abstains as
+    `tool_unavailable` until a separate tools worker (A39) exists.
 - **Challenge.**
   - `challenge_target` runs AgentSmith's independent validators on every producer's leads, so Slither's reentrancy and
     reachability-class leads get plane-2 evaluations by a different evaluator.

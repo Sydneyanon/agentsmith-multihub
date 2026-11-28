@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
-import { ANALYZE_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY } from "../analysis/solidity/keys.js";
+import { ANALYZE_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY, SLITHER_STEP_KEY } from "../analysis/solidity/keys.js";
+import { slitherScanStepInput } from "../analysis/solidity/slither-record.js";
 import { LeaseLostError } from "../step-errors.js";
 import { ResearchStore } from "../research-state.js";
 import type { ClaimedStep, WorkflowWorker } from "../worker.js";
@@ -24,7 +25,10 @@ export type RepositoryResearchInput = z.infer<typeof stepInput>;
  * Creates a `repository_research` run with its single `acquire_repository` step. Nothing creates these automatically yet:
  * discovery (Task 5.3) will. The run is passive by construction: acquisition reads a public repository and executes nothing.
  */
-export type RepositoryResearchOptions = { /** append the analysis stages (analyse, challenge, dossier) after acquisition; OFF by default */ structuralAnalysis?: boolean };
+export type RepositoryResearchOptions = {
+  /** append the analysis stages (analyse, challenge, dossier) after acquisition; OFF by default */ structuralAnalysis?: boolean;
+  /** also insert the pinned Slither stage between analyse and challenge; OFF by default; requires structuralAnalysis */ slitherScan?: boolean;
+};
 
 export async function createRepositoryResearchRun(pool: Pool, input: RepositoryResearchInput, createdBy = "operator", options: RepositoryResearchOptions = {}): Promise<{ runId: string; stepId: string }> {
   const client = await pool.connect();
@@ -45,6 +49,7 @@ export async function createRepositoryResearchRun(pool: Pool, input: RepositoryR
 export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "query">, input: RepositoryResearchInput, createdBy = "operator", options: RepositoryResearchOptions = {}): Promise<{ runId: string; stepId: string }> {
   const parsed = stepInput.parse(input);
   parseRepositoryName(parsed.repository);
+  if (options.slitherScan === true && options.structuralAnalysis !== true) throw new Error("slitherScan requires structuralAnalysis (the Slither stage runs between analyse and challenge)");
   const run = await client.query<{ id: string; correlation_id: string }>(
       `INSERT INTO workflow_runs (workflow_type, status, input, created_by) VALUES ($1, 'queued', $2::jsonb, $3) RETURNING id, correlation_id`,
       [REPOSITORY_RESEARCH_WORKFLOW, JSON.stringify({ kind: "repository", value: parsed.repository, source: "user", ...(parsed.ref ? { ref: parsed.ref } : {}), execution_mode: "passive_only", authorization_status: "unverified" }), createdBy]);
@@ -56,9 +61,17 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
        VALUES ($1, 'repository_research.created', 'workflow_run', $2, $3, 'Repository acquisition requested (passive reading of a public repository)', jsonb_build_object('repository', $4::text, 'passive_only', true))`,
       [createdBy, run.rows[0]!.id, run.rows[0]!.correlation_id, parsed.repository]);
   if (options.structuralAnalysis === true) {
-    const stages: Array<[string, string]> = [[ANALYZE_STEP_KEY, "structural_analyst"], [CHALLENGE_STEP_KEY, "lead_challenger"], [DOSSIER_STEP_KEY, "dossier_builder"]];
-    for (const [i, [key, role]] of stages.entries()) {
-      await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, '{}'::jsonb)`, [run.rows[0]!.id, key, i + 1, role]);
+    const stages: Array<[string, string, Record<string, unknown>]> = [[ANALYZE_STEP_KEY, "structural_analyst", {}],
+      ...(options.slitherScan === true ? [[SLITHER_STEP_KEY, "external_producer", slitherScanStepInput()] as [string, string, Record<string, unknown>]] : []),
+      [CHALLENGE_STEP_KEY, "lead_challenger", {}], [DOSSIER_STEP_KEY, "dossier_builder", {}]];
+    for (const [i, [key, role, stageInput]] of stages.entries()) {
+      await client.query(`INSERT INTO workflow_steps (workflow_run_id, step_key, sequence, role, input) VALUES ($1, $2, $3, $4, $5::jsonb)`, [run.rows[0]!.id, key, i + 1, role, JSON.stringify(stageInput)]);
+    }
+    if (options.slitherScan === true) {
+      await client.query(
+        `INSERT INTO audit_events (actor, action, entity_type, entity_id, correlation_id, reason, payload)
+         VALUES ($1, 'repository_research.slither_scan_requested', 'workflow_run', $2, $3, 'Pinned Slither stage requested on the sealed snapshot (offline; a tool failure is recorded as an abstention)', jsonb_build_object('pinned_version', $4::text))`,
+        [createdBy, run.rows[0]!.id, run.rows[0]!.correlation_id, String(slitherScanStepInput().pinned_version)]);
     }
   }
   return { runId: run.rows[0]!.id, stepId: step.rows[0]!.id };

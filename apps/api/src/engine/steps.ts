@@ -3,14 +3,13 @@ import { z } from "zod";
 import { ACQUIRE_STEP_KEY, REPOSITORY_RESEARCH_WORKFLOW } from "../acquisition/step.js";
 import { parseRepositoryName } from "../acquisition/github-source.js";
 import { buildProtocolModel, coverageComponents } from "../analysis/solidity/protocol-model.js";
-import { loadStoredHypotheses, readSnapshotSources, runChallenge, runStructuralAnalysis, SPECIALIST_ID, SPECIALIST_VERSION, type StoredHypothesis } from "../analysis/solidity/pipeline.js";
-import type { Finding, FindingClass } from "../analysis/solidity/specialists.js";
+import { externalLeadsAsStored, loadStoredHypotheses, readSnapshotSources, runChallenge, runStructuralAnalysis, SPECIALIST_ID, SPECIALIST_VERSION, type StoredHypothesis } from "../analysis/solidity/pipeline.js";
 import { sealedSnapshot, withHeartbeat, type AnalysisStepContext } from "../analysis/solidity/step.js";
-import { MAX_SPAN_LINES, ResearchStore } from "../research-state.js";
+import { ResearchStore } from "../research-state.js";
 import type { ClaimedStep } from "../worker.js";
 import { ATTENDED_STEP_KEY, capabilityById, FOUNDRY_STEP_KEY, SLITHER_STEP_KEY, SLITHER_VERSION } from "./capabilities.js";
 import { processFoundryValidateStep } from "./reproduction.js";
-import { runSlither } from "./tools/slither.js";
+import { recordSlitherLeads, runSlither, type LeadRef } from "./tools/slither.js";
 
 /**
  * A research ASSIGNMENT is a `repository_research` run (T-149: one workflow, no second lifecycle) created by a policy decision:
@@ -40,8 +39,8 @@ export const assignmentSchema = z.object({
 }).strict();
 export type Assignment = z.infer<typeof assignmentSchema>;
 
-/** Structured lead summary every producer returns, so the challenge step treats all producers alike. */
-export type LeadRef = { hypothesisId: string; class: string; contract: string; function: string; file: string; line: number };
+/** Structured lead summary every producer returns, so the challenge step treats all producers alike (defined beside the Slither mapping). */
+export type { LeadRef };
 
 export async function createInvestigationRunIn(client: Pick<PoolClient, "query">, raw: Assignment, createdBy: string): Promise<{ runId: string; investigateStepId: string }> {
   const a = assignmentSchema.parse(raw); parseRepositoryName(a.repository);
@@ -112,26 +111,8 @@ export async function processSlitherScanStep(ctx: EngineStepContext, step: Claim
       : await runSlither({ files, slitherBin, solcBin, ...(env["AGENTSMITH_TOOL_TIMEOUT_MS"] ? { timeoutMs: Number(env["AGENTSMITH_TOOL_TIMEOUT_MS"]) } : {}) });
     if (!r.ok) { await ctx.worker.complete(step.id, { status: "tool_failed", failure: r.failure, classes_examined: [], hypothesis_ids: [], leads: [], wall_ms: r.durationMs, ...base }); return; }
     const rawBlob = Buffer.byteLength(r.rawOutput) <= 1_048_576 ? (await store.putBlob(lease, Buffer.from(r.rawOutput, "utf8"))).sha256 : null;
-    const contracts = new Set(a.targets.map((t) => t.contract)); const paths = new Set(files.map((f) => f.path));
-    const leads: LeadRef[] = []; const unmapped: Record<string, number> = {}; let outside = 0; let unanchored = 0;
-    for (const d of r.detections) {
-      if (!d.bugClass) { unmapped[d.check] = (unmapped[d.check] ?? 0) + 1; continue; }
-      const el = d.elements.find((e) => e.type === "function" && e.contract && contracts.has(e.contract)) ?? d.elements.find((e) => e.contract && contracts.has(e.contract));
-      if (!el) { outside++; continue; }
-      if (!paths.has(el.file) || !el.lines.length) { unanchored++; continue; }
-      const start = Math.min(...el.lines); const end = Math.max(...el.lines); const span = end - start + 1 <= MAX_SPAN_LINES ? [start, end] : [start, start];
-      let spanId: string;
-      try { spanId = await store.createEvidenceSpan(lease, { snapshotId: snap.snapshotId, path: el.file, lineStart: span[0]!, lineEnd: span[1]! }); } catch { unanchored++; continue; }
-      const fn = el.type === "function" ? el.name : "";
-      const h = await store.createHypothesis(lease, {
-        snapshotId: snap.snapshotId, family: `slither-${d.check}`,
-        claim: `Slither ${d.check} (${d.impact} impact, ${d.confidence} confidence) in ${el.contract}${fn ? `.${fn}` : ""}: ${d.description.split("\n")[0]!.slice(0, 600)}`,
-        rationale: `Slither ${r.version} detector ${d.check}, mapped to AgentSmith class ${d.bugClass}. Tool output is a claim, not evidence. Full description: ${d.description.slice(0, 3000)}`,
-        requiredChecks: ["independent validation by an evaluator other than Slither"], alternativeExplanations: ["detector false positive", "behaviour intended and guarded elsewhere"],
-        generator: { kind: "deterministic_rule", id: "slither", version: r.version }, spans: [{ spanId, role: "primary" }],
-      });
-      if (!leads.some((l) => l.hypothesisId === h.id)) leads.push({ hypothesisId: h.id, class: d.bugClass, contract: el.contract!, function: fn, file: el.file, line: start });
-    }
+    const contracts = new Set(a.targets.map((t) => t.contract));
+    const { leads, unmapped, outside, unanchored } = await recordSlitherLeads(store, lease, { snapshotId: snap.snapshotId, run: r, paths: new Set(files.map((f) => f.path)), includeContract: (c) => contracts.has(c) });
     const byClass: Record<string, number> = {}; for (const l of leads) byClass[l.class] = (byClass[l.class] ?? 0) + 1;
     await ctx.worker.complete(step.id, {
       status: "tool_completed", tool: { name: "slither", version: r.version, solc_version: r.solcVersion, args: r.args, input_manifest_sha256: r.inputManifestSha256, raw_output_sha256: r.rawOutputSha256, raw_output_blob: rawBlob, exit_codes: r.exitCodes, duration_ms: r.durationMs },
@@ -150,7 +131,7 @@ export async function producerOutput(pool: Pick<Pool, "query">, runId: string): 
 
 export async function processChallengeTargetStep(ctx: EngineStepContext, step: ClaimedStep): Promise<void> {
   const prod = await producerOutput(ctx.pool, step.workflow_run_id);
-  const out = prod?.output as { snapshot_id?: string; leads?: LeadRef[]; status?: string } | null | undefined;
+  const out = prod?.output as { snapshot_id?: string; leads?: LeadRef[]; status?: string; capability?: { id?: string; version?: string } } | null | undefined;
   if (!prod || prod.status !== "succeeded" || !out?.snapshot_id || !Array.isArray(out.leads)) throw new Error("the producer step has not produced structured results for this run");
   const store = new ResearchStore(ctx.pool); const snap = await sealedSnapshot(ctx.pool, store, step.workflow_run_id);
   const started = Date.now();
@@ -161,12 +142,7 @@ export async function processChallengeTargetStep(ctx: EngineStepContext, step: C
       mine = (await loadStoredHypotheses(ctx.pool, snap.snapshotId)).filter((h) => ids.has(h.id));
     } else {
       // an external producer's leads: the evaluators need only the class, the contract, the function and the location
-      mine = [];
-      for (const l of out.leads!) {
-        const spans = (await ctx.pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [l.hypothesisId])).rows.map((x) => x.span_id);
-        const finding = { class: l.class as FindingClass, contract: l.contract, function: l.function, file: l.file, line: l.line, claim: "", rationale: "", requiredChecks: [], alternatives: [], spans: [], chain: [], assumptions: [], confidence: "low", detail: {} } as Finding;
-        mine.push({ id: l.hypothesisId, finding, spanIds: spans });
-      }
+      mine = await externalLeadsAsStored(ctx.pool, out.capability?.id ? `${out.capability.id}@${out.capability.version ?? "?"}` : prod.stepKey, out.leads!);
     }
     await runChallenge(ctx.pool, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, mine);
     const evals = (await ctx.pool.query<{ outcome: string; n: string }>("SELECT outcome, count(*) n FROM hypothesis_evaluations WHERE produced_by_step_id = $1 GROUP BY outcome ORDER BY outcome", [step.id])).rows;

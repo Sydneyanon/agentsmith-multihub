@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MAX_SPAN_LINES, type ResearchStore, type StepLease } from "../../research-state.js";
 import { SLITHER_DETECTOR_CLASS, SLITHER_VERSION } from "../capabilities.js";
 import { inputManifestSha256, materialise, runFixed, sha256, toolVersion, type ToolFailure } from "./run-tool.js";
 
@@ -45,7 +46,12 @@ export function parseSlitherJson(raw: string): { detections: SlitherDetection[] 
   return { detections };
 }
 
-export async function runSlither(input: { files: ReadonlyArray<{ path: string; content: Buffer }>; slitherBin: string; solcBin: string; timeoutMs?: number }): Promise<SlitherRun | { ok: false; failure: ToolFailure; durationMs: number }> {
+/**
+ * `timeoutMs` bounds each Slither invocation (default 300 s). Optional, for callers that need a hard overall bound: `totalTimeoutMs`
+ * bounds the sum of all invocations (each one gets at most the time remaining), and `maxOutputBytes` bounds what one invocation may
+ * print (output beyond it is an explicit `output_invalid`, never a truncated parse). Without them the behaviour is the original one.
+ */
+export async function runSlither(input: { files: ReadonlyArray<{ path: string; content: Buffer }>; slitherBin: string; solcBin: string; timeoutMs?: number; totalTimeoutMs?: number; maxOutputBytes?: number }): Promise<SlitherRun | { ok: false; failure: ToolFailure; durationMs: number }> {
   const started = Date.now();
   const fail = (failure: ToolFailure) => ({ ok: false as const, failure, durationMs: Date.now() - started });
   if (!input.files.length) return fail({ code: "input_invalid", detail: "no Solidity files in the snapshot" });
@@ -59,9 +65,14 @@ export async function runSlither(input: { files: ReadonlyArray<{ path: string; c
     const all: SlitherDetection[] = []; const outputs: string[] = []; const argsUsed: string[][] = []; const exitCodes: Array<number | null> = []; const seen = new Set<string>();
     for (const dir of dirs) {
       const args = SLITHER_ARGS(dir, input.solcBin); argsUsed.push(args.map((x) => (x === input.solcBin ? "<solc>" : x)));
-      const r = await runFixed(input.slitherBin, args, { cwd: work.dir, timeoutMs: input.timeoutMs ?? 300_000, home });
+      const perRun = input.timeoutMs ?? 300_000;
+      const remaining = input.totalTimeoutMs === undefined ? perRun : input.totalTimeoutMs - (Date.now() - started);
+      if (remaining <= 0) return fail({ code: "timeout", detail: `overall limit of ${input.totalTimeoutMs} ms reached before ${dir}` });
+      const timeoutMs = Math.min(perRun, remaining);
+      const r = await runFixed(input.slitherBin, args, { cwd: work.dir, timeoutMs, home, ...(input.maxOutputBytes !== undefined ? { maxBuffer: input.maxOutputBytes } : {}) });
+      if (r.spawnError === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return fail({ code: "output_invalid", detail: `output exceeded ${input.maxOutputBytes ?? "the output limit"} bytes in ${dir}` });
       if (r.spawnError) return fail({ code: "tool_unavailable", detail: r.spawnError });
-      if (r.timedOut) return fail({ code: "timeout", detail: `killed after ${input.timeoutMs ?? 300_000} ms in ${dir}` });
+      if (r.timedOut) return fail({ code: "timeout", detail: `killed after ${timeoutMs} ms in ${dir}` });
       // reproducibility: the private working directory differs per run, so its absolute path is replaced before hashing or storing
       const stdout = r.stdout.split(work.dir).join("<snapshot>");
       const parsed = parseSlitherJson(stdout);
@@ -76,4 +87,43 @@ export async function runSlither(input: { files: ReadonlyArray<{ path: string; c
     return { ok: true, version: v.version, solcVersion: sv.version, args: argsUsed, inputManifestSha256: inputManifestSha256(input.files),
       rawOutput, rawOutputSha256: sha256(rawOutput), exitCodes, durationMs: Date.now() - started, detections: all };
   } finally { work.cleanup(); rmSync(home, { recursive: true, force: true }); }
+}
+
+/** Structured lead summary every producer returns, so a challenge step treats all producers alike. */
+export type LeadRef = { hypothesisId: string; class: string; contract: string; function: string; file: string; line: number };
+export type SlitherLeadRecord = { leads: LeadRef[]; unmapped: Record<string, number>; outside: number; unanchored: number; notRecorded: number };
+
+/**
+ * The ONE mapping from Slither detections to plane-1 hypotheses, shared by every step that runs Slither (the engine loop's assignment
+ * step and the repository_research `slither_scan` step). A detection whose check has no AgentSmith class is informational: counted in
+ * `unmapped`, never stored. A mapped detection is anchored to its first element on an included contract (a function element preferred);
+ * the span is created through the research store, which hash-verifies it against the sealed snapshot, and a detection that cannot be
+ * anchored is counted (`unanchored`), never stored without evidence. The generator is `slither@<version>`: tool output is a claim.
+ * `maxLeads` (optional) bounds how many hypotheses one run may write; detections beyond it are counted in `notRecorded`.
+ */
+export async function recordSlitherLeads(store: ResearchStore, lease: StepLease, input: {
+  snapshotId: string; run: Pick<SlitherRun, "version" | "detections">; paths: ReadonlySet<string>; includeContract: (contract: string) => boolean; maxLeads?: number;
+}): Promise<SlitherLeadRecord> {
+  const { run, snapshotId } = input; const include = input.includeContract;
+  const leads: LeadRef[] = []; const unmapped: Record<string, number> = {}; let outside = 0; let unanchored = 0; let notRecorded = 0;
+  for (const d of run.detections) {
+    if (!d.bugClass) { unmapped[d.check] = (unmapped[d.check] ?? 0) + 1; continue; }
+    const el = d.elements.find((e) => e.type === "function" && e.contract && include(e.contract)) ?? d.elements.find((e) => e.contract && include(e.contract));
+    if (!el) { outside++; continue; }
+    if (!input.paths.has(el.file) || !el.lines.length) { unanchored++; continue; }
+    if (input.maxLeads !== undefined && leads.length >= input.maxLeads) { notRecorded++; continue; }
+    const start = Math.min(...el.lines); const end = Math.max(...el.lines); const span = end - start + 1 <= MAX_SPAN_LINES ? [start, end] : [start, start];
+    let spanId: string;
+    try { spanId = await store.createEvidenceSpan(lease, { snapshotId, path: el.file, lineStart: span[0]!, lineEnd: span[1]! }); } catch { unanchored++; continue; }
+    const fn = el.type === "function" ? el.name : "";
+    const h = await store.createHypothesis(lease, {
+      snapshotId, family: `slither-${d.check}`,
+      claim: `Slither ${d.check} (${d.impact} impact, ${d.confidence} confidence) in ${el.contract}${fn ? `.${fn}` : ""}: ${d.description.split("\n")[0]!.slice(0, 600)}`,
+      rationale: `Slither ${run.version} detector ${d.check}, mapped to AgentSmith class ${d.bugClass}. Tool output is a claim, not evidence. Full description: ${d.description.slice(0, 3000)}`,
+      requiredChecks: ["independent validation by an evaluator other than Slither"], alternativeExplanations: ["detector false positive", "behaviour intended and guarded elsewhere"],
+      generator: { kind: "deterministic_rule", id: "slither", version: run.version }, spans: [{ spanId, role: "primary" }],
+    });
+    if (!leads.some((l) => l.hypothesisId === h.id)) leads.push({ hypothesisId: h.id, class: d.bugClass, contract: el.contract!, function: fn, file: el.file, line: start });
+  }
+  return { leads, unmapped, outside, unanchored, notRecorded };
 }

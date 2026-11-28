@@ -9,7 +9,8 @@ import { createRepositoryResearchRun } from "./step.js";
  *   from what was approved;
  * - no other run is queued, running or awaiting approval, so a run-scoped worker has exactly this one to execute.
  * It connects with WORKER_DATABASE_URL when set (the restricted role), else DATABASE_URL. It fetches nothing and starts no worker.
- *   node dist/apps/api/src/acquisition/create-run-main.js --input '<json>' --expect-sha256 <hex>
+ *   node dist/apps/api/src/acquisition/create-run-main.js --input '<json>' --expect-sha256 <hex> [--slither-scan]
+ * `--slither-scan` (off by default) also inserts the optional pinned Slither stage; a worker runs it only with SLITHER_SCAN_ENABLED=true.
  */
 export function canonicalJson(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
@@ -32,7 +33,7 @@ if (process.argv[1]?.endsWith("create-run-main.js") || process.argv[1]?.endsWith
     const pending = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM workflow_runs WHERE status IN ('queued', 'running', 'awaiting_approval')")).rows[0]!.n;
     if (pending > 0) { console.error(`${pending} run(s) are already pending; refusing so the scoped worker executes only the approved run`); process.exitCode = 66; }
     else {
-      const r = await createRepositoryResearchRun(pool, input, "operator", { structuralAnalysis: true });
+      const r = await createRepositoryResearchRun(pool, input, "operator", { structuralAnalysis: true, ...(args.includes("--slither-scan") ? { slitherScan: true } : {}) });
       console.log(JSON.stringify({ created: true, run_id: r.runId, acquire_step_id: r.stepId, input_sha256: got, connected_as: urlVariable }));
     }
   } finally { await pool.end(); }
