@@ -2,10 +2,10 @@
   "schema": "agentsmith-release/1",
   "note": "The ONE release baseline. Every production machine must run `candidate.image` once approved; scripts/release-check.ts compares production with this file and exits non-zero on any drift. Update this file in the same commit as a new release candidate; set `approved` only when the owner approves it.",
   "candidate": {
-    "commit": "d09d0c23c39110df4725a8e049e967c124d43a35",
-    "image": "registry.fly.io/agentsmith-hub@sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0",
+    "commit": "ab5ab57c0d4cc53490606770ce8c1be0692f9e1b",
+    "image": "registry.fly.io/agentsmith-hub@sha256:c1c14787635418b898c854612689486a104244f39cabd48c18907522cdcaa286",
     "smoke": "41/41",
-    "built_on": "2026-11-27",
+    "built_on": "2026-11-28",
     "analyzer": "structural-solidity/2 (specialists 1 + storage-reference writes, execution validators 1)",
     "migrations": [
       "0001",
@@ -18,23 +18,25 @@
       "0011",
       "0012",
       "0013",
-      "0014"
+      "0014",
+      "0015",
+      "0016"
     ]
   },
   "approved": {
-    "commit": "d09d0c23c39110df4725a8e049e967c124d43a35",
-    "image": "registry.fly.io/agentsmith-hub@sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0",
-    "approved_on": "2026-11-27",
-    "scope": "A1-A4, A6, A7 (plan first), A8 after owner selects the repository; no schedules"
+    "commit": "ab5ab57c0d4cc53490606770ce8c1be0692f9e1b",
+    "image": "registry.fly.io/agentsmith-hub@sha256:c1c14787635418b898c854612689486a104244f39cabd48c18907522cdcaa286",
+    "approved_on": "2026-11-28",
+    "scope": "production migrations 0015 and 0016; API and collector on this image. Not approved: worker app, worker tokens, WORKER_API_ENABLED, worker activation, the USX run, merge to main."
   },
   "previous": {
     "api": {
-      "commit": "563389761c90f67659d013b5be6789072dd4e826",
-      "image": "registry.fly.io/agentsmith-hub@sha256:95c65bb0d39d4af04060d210500cc4312e9e992d12941073fcdad7cf13ebd6c8"
+      "commit": "d09d0c23c39110df4725a8e049e967c124d43a35",
+      "image": "registry.fly.io/agentsmith-hub@sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0"
     },
     "collector": {
-      "commit": "c3cb953f9fed54a7f517339d761806a76d5ceba7",
-      "image": "registry.fly.io/agentsmith-hub@sha256:faef363a35bca3c63a4d7a8f7e685fbd63a20329551dba3118882a975d28d0f9"
+      "commit": "d09d0c23c39110df4725a8e049e967c124d43a35",
+      "image": "registry.fly.io/agentsmith-hub@sha256:b52ce901d3325c101d63b2840160cc2b22b63257f68c14da1e1068e3e6a2d5e0"
     }
   },
   "critical_fixes": [

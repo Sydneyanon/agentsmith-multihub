@@ -27,3 +27,19 @@ confirmed with `crane digest`).
 All nine revocation classes were refused by Fly (42501 "MPG system roles cannot be modified"), including every per-object
 revocation from PUBLIC. The transaction was rolled back, and the privilege fingerprint is identical before and after. **A7 is blocked
 on the platform**; see `docs/a7-worker-grants.md` §9–10. A8 has not started.
+
+## 2026-11-28: release ab5ab57 (owner-approved: "I approve production migrations 0015 and 0016 and deploying image c1c14787 to the API and collector.")
+Image `registry.fly.io/agentsmith-hub@sha256:c1c14787635418b898c854612689486a104244f39cabd48c18907522cdcaa286` (tag `hub-ab5ab57c0d4c`),
+built daemonlessly from `ab5ab57`; migrations shipped 0001–0007, 0011–0016 (0008 and drafts excluded); image smoke test 41/41; pushed image
+checked against the tested layer.
+
+| step | done (UTC) | result | verification |
+|---|---|---|---|
+| migrations | 06:13:14 | exactly `Applied 0015_worker_api.sql`, `Applied 0016_research_independence.sql`; exit 0 | engine status: applied = expected, 0001–0007, 0011–0016 |
+| API deploy | ~06:15 | `2870320f99dd68` on `c1c14787`, healthy 1/1 | `/health/live`, `/health/ready`, `/hub/`, `/bounties/`, `/public/bounties.json` 200; engine status build `ab5ab57…`; `/v1/research/timeline`, `/v1/engine/components`, `/v1/research/overview` 200 (read inside the machine, token never printed); Operations view present in the served hub |
+| collector | ~06:17 | `8747e47a1501d8` on `c1c14787`; schedule `hourly`, command unchanged | `fly machine list` |
+
+Not done (not approved): worker app, worker tokens, `WORKER_API_ENABLED` (the private worker listener is off), worker activation,
+the USX run, removal of the unused `agentsmith_worker` user and `WORKER_DATABASE_URL` secret, merge to main.
+Rollback: API and collector to `b52ce901` (old code runs on the migrated schema: the new objects are additive); migrations via
+`db/rollbacks/0016_…` then `0015_…` only if required.
