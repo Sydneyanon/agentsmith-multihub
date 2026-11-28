@@ -101,7 +101,7 @@ export type SlitherLeadRecord = { leads: LeadRef[]; unmapped: Record<string, num
  * anchored is counted (`unanchored`), never stored without evidence. The generator is `slither@<version>`: tool output is a claim.
  * `maxLeads` (optional) bounds how many hypotheses one run may write; detections beyond it are counted in `notRecorded`.
  */
-export async function recordSlitherLeads(store: ResearchStore, lease: StepLease, input: {
+export async function recordSlitherLeads(store: Pick<ResearchStore, "createEvidenceSpan" | "createHypothesis">, lease: StepLease, input: {
   snapshotId: string; run: Pick<SlitherRun, "version" | "detections">; paths: ReadonlySet<string>; includeContract: (contract: string) => boolean; maxLeads?: number;
 }): Promise<SlitherLeadRecord> {
   const { run, snapshotId } = input; const include = input.includeContract;

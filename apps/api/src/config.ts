@@ -26,6 +26,10 @@ const configSchema = z.object({
   AI_BUDGET_EMERGENCY_STOP: z.enum(["true", "false"]).default("false"),
   /** What the connected database holds, as declared by the operator; shown on the Control Room. Never inferred. */
   HUB_DATA_KIND: z.enum(["production", "synthetic", "test", "unlabelled"]).default("unlabelled"),
+  /** Option D: serve the internal worker API, only on a second listener (WORKER_API_HOST:WORKER_API_PORT, the private 6PN address). Off by default. */
+  WORKER_API_ENABLED: z.enum(["true", "false"]).default("false"),
+  WORKER_API_PORT: z.coerce.number().int().min(1).max(65535).default(8081),
+  WORKER_API_HOST: z.string().min(1).default("fly-local-6pn"),
 });
 
 const parsed = configSchema.safeParse(process.env);
@@ -43,4 +47,5 @@ export const config = {
   requireRestrictedDbRole: parsed.data.HUB_REQUIRE_RESTRICTED_DB_ROLE === "true",
   aiBudgetEmergencyStop: parsed.data.AI_BUDGET_EMERGENCY_STOP === "true",
   dataKind: parsed.data.HUB_DATA_KIND,
+  workerApi: { enabled: parsed.data.WORKER_API_ENABLED === "true", port: parsed.data.WORKER_API_PORT, host: parsed.data.WORKER_API_HOST },
 } as const;

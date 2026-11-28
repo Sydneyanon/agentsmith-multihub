@@ -9,6 +9,7 @@ import type { AuthorityFacts } from "./authority.js";
 import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
 import { slitherScanOfSnapshot } from "./slither-record.js";
 import { SLITHER_VERSION as SLITHER_PINNED } from "./keys.js";
+import type { ResearchReads } from "../../research-port.js";
 
 /**
  * Glue between the structural analysis and the durable research state (5.1): findings become evidence-linked hypotheses citing
@@ -31,6 +32,24 @@ export async function readSnapshotSources(pool: Pool, snapshotId: string): Promi
 }
 
 /**
+ * The reads the pipeline makes (option D's port, see research-port.ts). Given a pool, the SQL is exactly what these functions always
+ * ran; given a `PipelineReads` (the remote worker's client), the same functions run with no database connection at all.
+ */
+export type PipelineReads = Pick<ResearchReads, "snapshotSources" | "specialistHypothesisId" | "hypothesisSpanIds">;
+export function pipelineReads(pool: Pick<Pool, "query">): PipelineReads {
+  return {
+    snapshotSources: (snapshotId) => readSnapshotSources(pool as Pool, snapshotId),
+    specialistHypothesisId: async (snapshotId, claim) =>
+      (await pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE snapshot_id = $1 AND claim = $2 AND generator_id = $3", [snapshotId, claim, SPECIALIST_ID])).rows[0]?.id ?? null,
+    hypothesisSpanIds: async (hypothesisId) =>
+      (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [hypothesisId])).rows.map((x) => x.span_id),
+  };
+}
+export type PoolOrReads = Pick<Pool, "query"> | PipelineReads;
+export const asPipelineReads = (source: PoolOrReads): PipelineReads =>
+  typeof (source as { query?: unknown }).query === "function" ? pipelineReads(source as Pick<Pool, "query">) : source as PipelineReads;
+
+/**
  * A finding may only cite lines that exist in the sealed snapshot. One that does not is an analyzer attribution error: it is rejected
  * and reported as a problem (never stored, never "fixed up"), so one bad finding cannot abort the analysis of a whole repository and
  * no unverifiable evidence is ever recorded.
@@ -47,8 +66,8 @@ export function rejectUncitableFindings(findings: Finding[], sources: ReadonlyAr
   return { kept, problems };
 }
 
-export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
-  const sources = await readSnapshotSources(pool, snapshotId);
+export async function runStructuralAnalysis(pool: PoolOrReads, store: Pick<ResearchStore, "putBlob" | "createEvidenceSpan" | "createHypothesis">, lease: StepLease, snapshotId: string, options: { include?: (f: Finding) => boolean } = {}): Promise<{ stored: StoredHypothesis[]; problems: string[]; contracts: number; functions: number; protocolModel: StoredProtocolModel }> {
+  const sources = await asPipelineReads(pool).snapshotSources(snapshotId);
   // P1: the protocol model is built from the same sealed sources and stored content-addressed; the step output links it (T-149 stage 4)
   const pm = buildProtocolModel(sources); const bytes = Buffer.from(pm.json, "utf8");
   const storedModel = bytes.length <= MODEL_BLOB_LIMIT ? (await store.putBlob(lease, bytes)).sha256 === pm.sha256 : false;
@@ -79,10 +98,10 @@ export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, le
  * function and the location, with the hypothesis's own recorded spans (primary first). Nothing of the producer's reasoning is passed on,
  * so the evaluators judge the lead by their own method; a class with no validator is recorded as "no independent validator".
  */
-export async function externalLeadsAsStored(pool: Pick<Pool, "query">, producer: string, leads: ReadonlyArray<{ hypothesisId: string; class: string; contract: string; function: string; file: string; line: number }>): Promise<StoredHypothesis[]> {
-  const out: StoredHypothesis[] = [];
+export async function externalLeadsAsStored(pool: PoolOrReads, producer: string, leads: ReadonlyArray<{ hypothesisId: string; class: string; contract: string; function: string; file: string; line: number }>): Promise<StoredHypothesis[]> {
+  const out: StoredHypothesis[] = []; const reads = asPipelineReads(pool);
   for (const l of leads) {
-    const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [l.hypothesisId])).rows.map((x) => x.span_id);
+    const spans = await reads.hypothesisSpanIds(l.hypothesisId);
     const finding = { class: l.class as Finding["class"], contract: l.contract, function: l.function, file: l.file, line: l.line, claim: "", rationale: "", requiredChecks: [], alternatives: [], spans: [], chain: [], assumptions: [], confidence: "low", detail: {} } as Finding;
     out.push({ id: l.hypothesisId, finding, spanIds: spans, producer });
   }
@@ -94,8 +113,8 @@ export type Validation = { hypothesisId: string; outcome: SimOutcome };
 const CHALLENGED_CLASSES: ReadonlySet<string> = new Set(["access-control", "selfdestruct", "delegatecall", "initializer", "unchecked-call"]);
 
 /** Independent challenge of reentrancy leads by execution; other classes are recorded as inconclusive (no independent validator exists yet). */
-export async function runChallenge(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string, stored: StoredHypothesis[]): Promise<Validation[]> {
-  const index = new ProgramIndex(await readSnapshotSources(pool, snapshotId)); const out: Validation[] = [];
+export async function runChallenge(pool: PoolOrReads, store: Pick<ResearchStore, "recordEvaluation">, lease: StepLease, snapshotId: string, stored: StoredHypothesis[]): Promise<Validation[]> {
+  const index = new ProgramIndex(await asPipelineReads(pool).snapshotSources(snapshotId)); const out: Validation[] = [];
   for (const h of stored) {
     const primary = h.spanIds[0]!;
     if (h.finding.class !== "reentrancy") {
@@ -351,13 +370,13 @@ export function buildStructuralMap(sources: ReadonlyArray<{ path: string; text: 
 }
 
 /** Rebuild the stored hypotheses of a snapshot (ids and primary spans) by matching the deterministic findings to the database records. */
-export async function loadStoredHypotheses(pool: Pool, snapshotId: string): Promise<StoredHypothesis[]> {
-  const sources = await readSnapshotSources(pool, snapshotId); const { findings } = analyzeSources(sources); const out: StoredHypothesis[] = [];
+export async function loadStoredHypotheses(pool: PoolOrReads, snapshotId: string): Promise<StoredHypothesis[]> {
+  const reads = asPipelineReads(pool);
+  const sources = await reads.snapshotSources(snapshotId); const { findings } = analyzeSources(sources); const out: StoredHypothesis[] = [];
   for (const f of findings) {
-    const h = (await pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE snapshot_id = $1 AND claim = $2 AND generator_id = $3", [snapshotId, f.claim, SPECIALIST_ID])).rows[0];
-    if (!h) continue;
-    const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [h.id])).rows;
-    out.push({ id: h.id, finding: f, spanIds: spans.map((x) => x.span_id) });
+    const id = await reads.specialistHypothesisId(snapshotId, f.claim);
+    if (!id) continue;
+    out.push({ id, finding: f, spanIds: await reads.hypothesisSpanIds(id) });
   }
   return out;
 }
