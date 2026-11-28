@@ -99,6 +99,28 @@ only where pinned `forge` and `solc` are configured. The engine-reproduction int
 to `prepared` would make it unassignable even there. The fix is in reporting: wherever its status is shown, it reads "active where
 installed; unavailable in production (no binary, 0010 not applied)". Increment 1 is therefore declarations and documentation only.
 
+### Capability declaration versus environment availability (owner requirement, 2026-11-28)
+A declared capability is not an executable one. The registry will expose these as **separate fields**, so that orchestration never
+assumes a declared capability can run:
+
+| field | meaning | source |
+|---|---|---|
+| `implementation_status` | designed / implemented / tested | the declaration plus its tests |
+| `assignability` | whether the engine may assign it at all, and under which gates (env switches, migrations) | the declaration |
+| `environment_availability` | **measured at run time, in this environment**: binaries present, the pinned version matches, dependencies are reachable | probe results recorded per environment (e.g. `production-worker`, `tools-image`, `ci`) |
+| `requirements` | binaries, versions, compilers, migrations, secrets **by name only** | the declaration |
+| `execution_restrictions` | network, CPU, memory, time and output limits; whether it may execute code from the snapshot | the declaration plus the tools-image profile |
+| `tested_in_environment` | the last successful probe or test run in that environment, with its date and evidence hash | recorded |
+| `operationally_verified` | an actual use in a real research run, with the run id | recorded from the research-run register |
+
+Rule: selection (`mapAndAssign` / `chooseCapability`) reads `environment_availability` for the environment it runs in. A capability
+that is declared but not measured as available there is recorded as `unavailable_here` with the reason, never assigned. The current
+`availability()` env-variable check becomes the first probe. Foundry today: `implemented, tested`; assignable when the engine loop is
+enabled (0010) and its binaries are configured; **unavailable** in `production-worker`; never operationally verified.
+
+Planned as its own increment after increment 1: registry fields, probes and recorded availability, with unit tests. It is a
+separate change, it does not alter any capability's current declaration, and it does not break the reproduction tests.
+
 ---
 
 ## 2. Component connections through the shared research state
