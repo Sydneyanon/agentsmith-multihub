@@ -268,14 +268,14 @@ async function surfaceMap(db: Db, version: readonly string[]): Promise<SurfaceMa
 }
 
 /**
- * Claims that need reproduction (T-202): an independent reviewer supports them, there is no technical evidence yet (a supports or
- * weakens evaluation by an evaluator other than the producer), no human outcome, and no reproduction already appended for them.
+ * Claims that need reproduction (T-202): an independent reviewer supports them, there is no technical evidence yet (a supports,
+ * weakens or contradicts evaluation by an evaluator other than the producer), no human outcome, and no reproduction already appended for them.
  */
 async function claimsNeedingReproduction(db: Db, version: readonly string[]): Promise<Array<{ id: string; generator_id: string; workflow_run_id: string }>> {
   return (await db.query<{ id: string; generator_id: string; workflow_run_id: string }>(
     `SELECT h.id, h.generator_id, h.workflow_run_id FROM hypotheses h WHERE h.snapshot_id = ANY($1::uuid[])
         AND EXISTS (SELECT 1 FROM hypothesis_reviews r WHERE r.hypothesis_id = h.id AND r.reviewer_kind = 'attended_model' AND r.verdict = 'supports')
-        AND NOT EXISTS (SELECT 1 FROM hypothesis_evaluations e WHERE e.hypothesis_id = h.id AND e.outcome IN ('supports','weakens') AND e.evaluator_id <> h.generator_id AND e.evaluator_id <> 'no-independent-validator')
+        AND NOT EXISTS (SELECT 1 FROM hypothesis_evaluations e WHERE e.hypothesis_id = h.id AND e.outcome IN ('supports','weakens','contradicts') AND e.evaluator_id <> h.generator_id AND e.evaluator_id <> 'no-independent-validator')
         AND NOT EXISTS (SELECT 1 FROM hypothesis_outcomes o WHERE o.hypothesis_id = h.id)
         AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.step_key = $2 AND s.status <> 'failed' AND s.input->'claims' @> jsonb_build_array(jsonb_build_object('hypothesisId', h.id::text)))
       ORDER BY h.created_at, h.id`, [version, ATTENDED_REPRODUCE_STEP_KEY])).rows;
@@ -504,7 +504,7 @@ export async function outcomeLedger(pool: Pool, snapshotId: string, env: Env = p
     notModelled += TRACKED_CLASSES.filter((k) => !done.has(k) && !examinable.has(k)).length;
   }
   const classes = TRACKED_CLASSES.length;
-  const unadj = Number((await pool.query<{ n: string }>(`SELECT count(DISTINCT h.id) n FROM hypotheses h JOIN hypothesis_evaluations e ON e.hypothesis_id = h.id AND e.evaluator_id <> h.generator_id AND e.outcome IN ('supports','weakens')
+  const unadj = Number((await pool.query<{ n: string }>(`SELECT count(DISTINCT h.id) n FROM hypotheses h JOIN hypothesis_evaluations e ON e.hypothesis_id = h.id AND e.evaluator_id <> h.generator_id AND e.outcome IN ('supports','weakens','contradicts')
       WHERE h.snapshot_id = ANY($1::uuid[]) AND NOT EXISTS (SELECT 1 FROM hypothesis_outcomes x WHERE x.hypothesis_id = h.id)`, [version])).rows[0]!.n);
   return { confirmed: o["confirmed"] ?? 0, refuted: o["refuted"] ?? 0, inconclusive: o["inconclusive"] ?? 0, duplicate: o["duplicate"] ?? 0, missed: o["missed"] ?? 0,
     unexplored: comps.length * classes - examined, notModelled, unadjudicatedLeads: unadj };

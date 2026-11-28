@@ -4,7 +4,7 @@ import { ResearchStore } from "../../research-state.js";
 import type { ClaimedStep, WorkflowWorker } from "../../worker.js";
 import { ACQUIRE_STEP_KEY } from "../../acquisition/step.js";
 import { ANALYZER_VERSION, ANALYZE_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY } from "./keys.js";
-import { buildDossier, buildStructuralMap, externalLeadsAsStored, loadStoredHypotheses, runChallenge, runStructuralAnalysis, SPECIALIST_ID } from "./pipeline.js";
+import { buildDossier, buildStructuralMap, externalLeadsAsStored, runChallenge, runStructuralAnalysis, SPECIALIST_ID, storedHypothesesFromRecords } from "./pipeline.js";
 import { isResearchSlitherStep, slitherScanOfRun } from "./slither-record.js";
 import { processResearchSlitherScanStep } from "./slither-step.js";
 import { createHash } from "node:crypto";
@@ -44,7 +44,7 @@ export async function processAnalyzeStructureStep(ctx: AnalysisStepContext, step
     const map = buildStructuralMap(sources); const mapJson = JSON.stringify(map);
     await ctx.worker.complete(step.id, {
       status: "structure_analyzed", analyzer: ANALYZER_VERSION, analyzer_build: { commit: readBuildInfo().commit, image: readBuildInfo().image }, specialist: SPECIALIST_ID, snapshot_id: snap.snapshotId, repository: snap.repository, commit_sha: snap.commitSha, manifest_sha256: snap.manifestSha256,
-      contracts: a.contracts, functions: a.functions, hypotheses: a.stored.length, hypothesis_ids: a.stored.map((h) => h.id), problems: a.problems,
+      contracts: a.contracts, functions: a.functions, hypotheses: a.stored.length, hypothesis_ids: a.stored.map((h) => h.id), finding_payloads: Object.fromEntries(a.stored.map((h) => [h.id, h.payloadSha256])), problems: a.problems,
       protocol_model_sha256: a.protocolModel.sha256, protocol_model_stored: a.protocolModel.stored, protocol_model_counts: { components: a.protocolModel.components, functions: a.protocolModel.functions, call_edges: a.protocolModel.callEdges, unknowns: a.protocolModel.unknowns },
       structural_map_sha256: createHash("sha256").update(mapJson).digest("hex"), structural_map: mapJson.length <= 400_000 ? map : { truncated: true, reason: "map exceeds 400 kB; see structural_map_sha256 and rebuild from the snapshot" }, ...passive,
     });
@@ -54,20 +54,28 @@ export async function processAnalyzeStructureStep(ctx: AnalysisStepContext, step
 export async function processChallengeLeadsStep(ctx: AnalysisStepContext, step: ClaimedStep): Promise<void> {
   const store = new ResearchStore(ctx.pool); const snap = await sealedSnapshot(ctx.pool, store, step.workflow_run_id);
   await withHeartbeat(ctx, step, async () => {
-    const stored = await loadStoredHypotheses(ctx.pool, snap.snapshotId);
+    // exactly the hypotheses analyze_structure stored, by id from ITS step output, with their findings from the stored payloads; the
+    // analyzer is not re-run (a changed analyzer between steps can no longer silently change which leads are challenged)
+    const analysis = (await ctx.pool.query<{ output: { snapshot_id?: unknown; hypothesis_ids?: unknown; finding_payloads?: Record<string, unknown> } | null }>(
+      "SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = $2 AND status = 'succeeded'", [step.workflow_run_id, ANALYZE_STEP_KEY])).rows[0]?.output;
+    if (!analysis || analysis.snapshot_id !== snap.snapshotId || !Array.isArray(analysis.hypothesis_ids)) throw new Error("the analysis step has not recorded its hypotheses for this run's snapshot");
+    const stored = await storedHypothesesFromRecords(ctx.pool, snap.snapshotId, analysis.hypothesis_ids.map(String), analysis.finding_payloads);
     // the optional Slither stage's leads (runs created with `slitherScan` only): challenged by the SAME independent evaluators, never by
-    // Slither; only hypotheses that really are Slither's on this snapshot are taken from the step output
+    // Slither; only hypotheses that really are Slither's on this snapshot are taken from the step output, and any other id is reported
     const slither = await slitherScanOfRun(ctx.pool, step.workflow_run_id);
-    let external: typeof stored = [];
+    let external: typeof stored = []; let unmatched: string[] = [];
     if (slither.outcome?.status === "tool_completed" && slither.outcome.leads.length) {
       const ids = slither.outcome.leads.map((l) => l.hypothesisId);
       const ok = new Set((await ctx.pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE id = ANY($1::uuid[]) AND snapshot_id = $2 AND generator_id = 'slither'", [ids, snap.snapshotId])).rows.map((x) => x.id));
       external = await externalLeadsAsStored(ctx.pool, `slither@${slither.outcome.version}`, slither.outcome.leads.filter((l) => ok.has(l.hypothesisId)));
+      unmatched = ids.filter((id) => !ok.has(id));
     }
     const validations = await runChallenge(ctx.pool, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, [...stored, ...external]);
     const verdicts: Record<string, number> = {}; for (const v of validations) verdicts[v.outcome.verdict] = (verdicts[v.outcome.verdict] ?? 0) + 1;
+    const unresolved = stored.filter((h) => h.unresolved).map((h) => ({ hypothesis_id: h.id, reason: h.unresolved }));
     await ctx.worker.complete(step.id, { status: "leads_challenged", analyzer: ANALYZER_VERSION, snapshot_id: snap.snapshotId, leads: stored.length, reentrancy_verdicts: verdicts,
-      ...(slither.exists ? { slither: { status: slither.outcome?.status ?? "not_recorded", leads_challenged: external.length } } : {}), ...passive });
+      hypothesis_ids: stored.map((h) => h.id), unresolved,
+      ...(slither.exists ? { slither: { status: slither.outcome?.status ?? "not_recorded", leads_challenged: external.length, ...(unmatched.length ? { unmatched_ids: unmatched } : {}) } } : {}), ...passive });
   });
 }
 
