@@ -591,3 +591,45 @@ Full suite: `npm run typecheck` exit 0; `npm test`: 68 files, 1047 passed, 1 ski
   before any real repository.
 - The independence marker compared only against the structural specialists. Slither was not run.
 - The prototype says **nothing** about detection quality on real code.
+
+## 10. Owner requirements (2026-11-28): binding on every later increment
+
+### 10.1 Mandatory release gate: semantic fidelity
+No APEX result may enter a research dossier's eligible findings unless every step of its sequence was **fully modelled**. This is a
+release gate: an APEX stage cannot be enabled in any release until it is implemented and tested.
+
+| what the interpreter met | required behaviour | recorded as |
+|---|---|---|
+| an **unsupported** feature (external call, other contract, token, oracle, `block.*`, struct, array, hashing, `try`, proxy) | **abstain** on that region, saying which feature and where | coverage: `abstained(<feature>@<file:line>)` |
+| an **approximation** (loop cap reached, narrow-integer or cast semantics, string literal, `tx.origin`, another address's balance) anywhere on the counterexample's path | **suppress** the counterexample; never stored as a hypothesis | coverage: `suppressed(<approximation>)`, with a count per kind |
+| a **fully modelled** sequence | a hypothesis, generator `apex-state-explorer@1` | eligible for independent reproduction only |
+| **independently reproduced** (Foundry or Echidna against the actual contracts, by a separate test author) | evidence that may support `confirmed`, subject to the cross-family independence rule | an evaluation by the replaying capability |
+
+The gate is checked by tests that inject each unsupported feature and each approximation into a vulnerable contract, and require
+abstention or suppression, never a hypothesis.
+
+### 10.2 Investigations required before APEX is scored anywhere
+1. **State-space coverage.** Measure, not assume, what was reached: distinct abstract states, transitions per function, guards
+   exercised and not exercised, and functions never called successfully. Report every unexplored region in the dossier. Compare
+   coverage against exhaustive enumeration on small controlled contracts, where exhaustion is feasible.
+2. **Invariant quality.** A candidate that "holds on the honest sequences" is not yet a protocol invariant. Required:
+   - a minimum of exercising transitions, with both sides moving;
+   - survival under randomised honest sequences beyond those used to accept it;
+   - rejection of candidates that only hold because of the explored depth;
+   - a reported false-invariant rate on the controlled corpus's correct-but-asymmetric controls.
+3. **Actor and permission modelling.** Actors are derived from the protocol model's authority facts (deployer, roles, holders),
+   never assumed. A violation whose attacker needs a privilege the model shows the attacker cannot obtain is suppressed. Privilege
+   boundaries come from evidence-cited authority records.
+4. **Counterexample minimisation.** Delta-debugging over steps and arguments must re-check after each removal that the violation
+   still occurs *for the same invariant and the same reason*, and that no approximation was introduced. Both the original and the
+   minimised sequences are kept.
+5. **Independent replay against the actual contracts.** A separate test author (a template, not APEX) turns the sequence into a
+   Foundry test against the real snapshot, compiled with the pinned solc, offline. It runs in the isolated tools image. Agreement is
+   evidence; disagreement is recorded as `contradicts` against the interpreter's claim and feeds the interpreter's fidelity record.
+   **APEX never validates its own discoveries.**
+
+### 10.3 Standing rules
+- **Off by default** (`APEX_STATE_EXPLORE_ENABLED`). The v1 limitations in §3 stay in every dossier that includes APEX.
+- **Self-authored tests demonstrate mechanism only,** never intelligence or real-world value.
+- **The blind evaluation** uses corpus 5 only after the owner approves A22 and A23. APEX is registered for it only after it passes
+  its gates on the controlled corpus.
