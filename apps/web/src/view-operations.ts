@@ -4,7 +4,7 @@ import { duration, exactTime, relativeTime, shortHash } from "./format.js";
 import { livePanel } from "./live.js";
 import { link, linkWith } from "./router.js";
 import type { Ctx } from "./ctx.js";
-import type { Metric, Page, ProgressPanel, ProjectSummary, RunProgress, StepActivity, SystemComponents, TimelineItem, TimelinePage } from "./types.js";
+import type { ApexShadowView, Metric, Page, ProgressPanel, ProjectSummary, RunProgress, StepActivity, SystemComponents, TimelineItem, TimelinePage } from "./types.js";
 import { RUN_STATUS, type Tone, type Word, word } from "./vocab.js";
 
 /**
@@ -89,10 +89,48 @@ function issuesBlock(p: ProgressPanel): HTMLElement | null {
   return rows.length ? h("ul", { class: "issues" }, ...rows) : null;
 }
 
+const seqText = (s: Array<{ actor: string; call: string; value: string }> | null) => (s ?? []).map((x) => `${x.actor}:${x.call}${x.value && x.value !== "0" ? ` {value ${x.value}}` : ""}`).join(" → ");
+const more = (c: { truncated: number; total: number }) => (c.truncated ? h("li", { class: "muted small" }, `… ${c.truncated} more of ${c.total} (all in the stored record)`) : null);
+const list = (title: string, n: number, items: Node[], open = false) => h("details", { class: "shadow-list", open }, h("summary", { class: "small" }, `${title} (${n})`), h("ul", { class: "rows small" }, ...items));
+
+/**
+ * The APEX shadow record of a run (panel 6): measurement only. Every heading carries the label "APEX shadow: unvalidated, not evidence",
+ * claims are "APEX-generated, unvalidated", and nothing here is counted anywhere else on the page.
+ */
+export function shadowSection(s: ApexShadowView): HTMLElement {
+  const tone: Tone = s.status === "completed" ? "violet" : s.status === "refused" ? "amber" : "red";
+  const pv = s.provenance;
+  const feat = Object.entries(s.abstentions_by_feature).sort((a, b) => b[1] - a[1]);
+  const acc = s.candidates.items.filter((c) => c.decision === "accepted"); const rej = s.candidates.items.filter((c) => c.decision === "rejected");
+  return h("div", { class: "apex-shadow stack-sm", "data-status": s.status },
+    h("p", { class: "callout callout-warn shadow-label" }, h("strong", {}, s.label), " · measurement only: what APEX could and could not model. Nothing here is a finding, a lead or an evaluation.", " ", chip(`shadow ${s.status}`, tone), " ", chip("reported by the worker", "amber")),
+    s.refusal ? h("p", { class: "issue" }, chip("refused", "amber"), ` ${s.refusal.code}: ${s.refusal.reason}`) : null,
+    s.failure ? h("p", { class: "issue issue-error" }, chip("shadow failure (not a run failure)", "red"), ` ${s.failure.code}: ${s.failure.message}`) : null,
+    pv ? h("dl", { class: "kv small shadow-provenance" },
+      h("dt", {}, "APEX"), h("dd", {}, `${pv.apex_version} · engine ${pv.engine_generator ?? "not run"} · strategy ${pv.strategy}`),
+      h("dt", {}, "snapshot"), h("dd", {}, mono(pv.snapshot_id ?? "none"), " · commit ", mono(pv.commit_sha ? shortHash(pv.commit_sha, 12) : "none"), " · manifest ", mono(pv.manifest_sha256 ? shortHash(pv.manifest_sha256, 12) : "none")),
+      h("dt", {}, "approved"), h("dd", {}, `${pv.approved_by ?? "?"} for commit `, mono(pv.approved_commit ? shortHash(pv.approved_commit, 12) : "?")),
+      h("dt", {}, "record"), h("dd", {}, `audit event #${s.record.audit_event_id} at ${exactTime(s.record.at)} · ${s.record.via ?? ""} · worker ${pv.worker.mode} · report `, mono(s.record.report_sha256 ? shortHash(s.record.report_sha256, 12) : "?"))) : null,
+    pv?.input_files.length ? list(`${s.label}: input files (in-scope only, with digests)`, pv.input_files.length, pv.input_files.map((f) => h("li", {}, mono(f.path), h("span", { class: "muted" }, ` sha256 ${shortHash(f.sha256, 16)} · ${f.bytes} bytes`)))) : null,
+    feat.length ? h("div", { class: "shadow-features" }, h("p", { class: "small" }, h("strong", {}, `${s.label}: abstentions by unsupported feature`)), h("ul", { class: "legend" }, ...feat.map(([k, v]) => h("li", {}, chip(k, "violet"), h("strong", {}, ` ${v}`))))) : null,
+    s.abstentions.total ? list(`${s.label}: abstentions with file:line`, s.abstentions.total, [...s.abstentions.items.map((a) => h("li", { class: "row-static" }, h("span", { class: "row-main" }, h("strong", {}, `${a.contract}.${a.function}`), " ", chip(a.feature, "violet"), " ", mono(a.at), h("span", { class: "muted" }, ` · ${a.phase}${a.located_by === "definition" ? " · located at the definition" : ""} · ${a.why}`)))), more(s.abstentions)].filter(Boolean) as Node[], true) : null,
+    h("p", { class: "small" }, h("strong", {}, `${s.label}: suppressed counterexamples `), `${s.suppressions.total}`, Object.keys(s.suppressions.by_kind).length ? ` (${Object.entries(s.suppressions.by_kind).map(([k, v]) => `${k} ${v}`).join(", ")})` : "", s.withheld.total ? ` · ${s.withheld.total} candidates withheld by the gate` : ""),
+    s.suppressions.examples.total ? list(`${s.label}: suppression examples`, s.suppressions.examples.total, [...s.suppressions.examples.items.map((x) => h("li", {}, h("strong", {}, `${x.contract}: ${x.candidate}`), ` by ${x.breaking_function} (${x.phase}) · ${x.approximations.map((a) => `${a.kind} @ ${a.at}`).join(", ")}`, h("div", { class: "muted mono" }, seqText(x.sequence)))), more(s.suppressions.examples)].filter(Boolean) as Node[]) : null,
+    list(`${s.label}: candidate invariants accepted`, acc.length, acc.map((c) => h("li", {}, h("strong", {}, `${c.contract}: ${c.id}`), h("span", { class: "muted" }, ` · ${c.rule} · ${c.reason}`)))),
+    list(`${s.label}: candidate invariants rejected, with reasons`, rej.length, [...rej.map((c) => h("li", {}, h("strong", {}, `${c.contract}: ${c.id}`), " ", chip(c.rule, "grey"), h("span", { class: "muted" }, ` ${c.reason}`))), more(s.candidates)].filter(Boolean) as Node[]),
+    s.reclassified.total ? list(`${s.label}: reclassified counterexamples (rule and evidence)`, s.reclassified.total, s.reclassified.items.map((x) => h("li", {}, h("strong", {}, `${x.contract}: ${x.candidate}`), ` ${x.rule} by ${x.breaking_function}: ${x.why}`))) : null,
+    list(`${s.label}: what APEX would have claimed (APEX-generated, unvalidated; not stored as hypotheses)`, s.would_be_hypotheses.total, [...s.would_be_hypotheses.items.map((x) => h("li", {}, chip(x.label, "amber"), ` ${x.claim}`, h("div", { class: "muted mono" }, `minimised: ${seqText(x.minimised ?? x.counterexample)}`))), more(s.would_be_hypotheses)].filter(Boolean) as Node[]),
+    s.overlaps ? h("p", { class: "small" }, h("strong", {}, `${s.label}: overlaps with this run's leads `), `same line ${s.overlaps.summary.same_line} · same function ${s.overlaps.summary.same_function} · same file ${s.overlaps.summary.same_file} (of ${s.overlaps.leads_considered} leads; derived by the recorder). `, h("span", { class: "muted" }, s.overlaps.note)) : null,
+    s.contracts.total ? list(`${s.label}: contracts`, s.contracts.total, s.contracts.items.map((c) => h("li", {}, h("strong", {}, c.contract), " ", mono(c.file), " ", chip(c.status.replace(/_/g, " "), c.status === "explored" ? "cyan" : "grey"), h("span", { class: "muted" }, `${c.entry_points ? ` · entry points ${c.entry_points.completed}/${c.entry_points.total}` : ""}${c.statements ? ` · statements ${c.statements.reached}/${c.statements.total}` : ""}${c.frontier_dropped ? ` · ${c.frontier_dropped} frontier states dropped` : ""}${c.reason ? ` · ${c.reason}` : ""}`)))) : null,
+    s.not_deployable.total ? h("p", { class: "muted small" }, `${s.label}: not deployable (interfaces, libraries, abstract): ${s.not_deployable.items.map((x) => `${x.contract} (${x.kind})`).join(", ")}`) : null,
+    s.in_scope_paths_missing.length ? h("p", { class: "issue issue-blocker small" }, chip("missing", "amber"), ` in-scope paths missing from the snapshot: ${s.in_scope_paths_missing.join(", ")}`) : null);
+}
+
 export function panelCard(p: ProgressPanel): HTMLElement {
   const st = word(PANEL_STATE, p.state);
   const blocked = p.availability && (p.availability.state === "unavailable" || p.availability.state === "experimental");
   const body: Array<Node | null> = [
+    p.shadow ? h("p", { class: "shadow-banner" }, h("strong", {}, p.shadow.label)) : null,
     h("p", { class: "muted small" }, p.state_basis),
     blocked ? h("p", { class: `callout availability tone-${p.availability!.state === "unavailable" ? "red" : "violet"}` }, h("strong", {}, p.availability!.state === "unavailable" ? "Unavailable" : "Experimental"), `: ${p.availability!.reason}`, h("span", { class: "muted small" }, ` (evidence: ${p.availability!.evidence})`)) : null,
     ...p.activity.map(activityLine),
@@ -101,11 +139,12 @@ export function panelCard(p: ProgressPanel): HTMLElement {
     p.capabilities?.length ? h("ul", { class: "rows caps" }, ...p.capabilities.map((c) => h("li", { class: "row-static" },
       h("span", { class: "row-main" }, h("strong", {}, `${c.id}@${c.version}`), h("span", { class: "muted small" }, `${c.kind} · ${c.reason || c.state}${c.in_run ? "" : " · not in this run"} · environment: ${c.environment} · ${c.source}`)),
       chip(c.state.replace(/_/g, " "), c.state === "completed" ? "green" : c.state === "unavailable" ? "red" : c.state === "abstained" ? "violet" : "grey")))) : null,
+    p.shadow ? shadowSection(p.shadow) : null,
     issuesBlock(p),
     p.notes.length ? h("ul", { class: "notes muted small" }, ...p.notes.map((n) => h("li", {}, n))) : null,
     !blocked && !p.processing.length && !p.coverage.length && !p.counts.length && !p.activity.length && !p.capabilities?.length ? h("p", { class: "muted small" }, "No records for this stage in this run.") : null,
   ];
-  return panel(p.title, body.filter((x): x is Node => x !== null), { class: `ops-panel ops-${p.id} state-${p.state}`, actions: [badge(st)] });
+  return panel(p.title, body.filter((x): x is Node => x !== null), { class: `ops-panel ops-${p.id} state-${p.state}${p.shadow ? " ops-apex-shadow" : ""}`, actions: [badge(st)] });
 }
 
 function stagesStrip(r: RunProgress): HTMLElement {

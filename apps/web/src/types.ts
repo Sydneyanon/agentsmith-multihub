@@ -157,6 +157,31 @@ export interface CapabilityRow { id: string; version: string; kind: string; in_r
 export interface ProgressPanel {
   id: string; title: string; state: string; state_basis: string; availability: { state: ComponentState; reason: string; evidence: string } | null;
   processing: Metric[]; coverage: Metric[]; counts: Metric[]; activity: StepActivity[]; issues: PanelIssues; notes: string[]; capabilities?: CapabilityRow[];
+  /** the APEX panel only, for a run with a shadow step (APEX shadow: unvalidated, not evidence) */
+  shadow?: ApexShadowView;
+}
+type Capped<T> = { items: T[]; total: number; truncated: number };
+type Seq = Array<{ actor: string; call: string; value: string }>;
+/** GET /v1/research/runs/:id/progress, panel "apex": the recorded shadow report of a run (measurement only; never a finding). */
+export interface ApexShadowView {
+  label: string; measurement_only: true; status: "completed" | "refused" | "failed"; records: number;
+  refusal: { code: string; reason: string } | null; failure: { code: string; message: string; wall_ms: number } | null;
+  record: { audit_event_id: string; at: string; reported_by: "worker"; via: string | null; report_sha256: string | null; recorder: { checked: string[]; refused_worker_status: string | null } | null };
+  provenance: { apex_version: string; engine_generator: string | null; strategy: string; snapshot_id: string | null; commit_sha: string | null; manifest_sha256: string | null; repository: string | null; approved_by: string | null; approved_commit: string | null;
+    input_files: Array<{ path: string; sha256: string; bytes: number }>; worker: { mode: string; build_commit: string | null }; compute_limits: Record<string, number>; shadow_limits: Record<string, number> } | null;
+  engine: { generator: string; strategy: string; options: Record<string, unknown> } | null;
+  cost: { transitions_requested: number; transitions_interpreted: number; wall_ms: number; peak_rss_bytes: number | null } | null;
+  contracts: Capped<{ contract: string; file: string; status: string; reason: string | null; entry_points: { total: number; completed: number } | null; statements: { total: number; reached: number } | null; frontier_dropped: number }>;
+  not_deployable: Capped<{ contract: string; file: string; kind: string }>;
+  abstentions_by_feature: Record<string, number>;
+  abstentions: Capped<{ contract: string; function: string; feature: string; file: string; line: number | null; at: string; why: string; phase: string; located_by: string }>;
+  suppressions: { total: number; by_kind: Record<string, number>; examples: Capped<{ contract: string; candidate: string; phase: string; breaking_function: string; sequence: Seq; approximations: Array<{ kind: string; at: string; what: string }> }> };
+  withheld: Capped<{ contract: string; candidate: string; why: string; kinds: string[] }>;
+  candidates: Capped<{ contract: string; id: string; kind: string; statement: string; decision: "accepted" | "rejected"; rule: string; reason: string }>;
+  reclassified: Capped<{ contract: string; candidate: string; rule: string; breaking_function: string; why: string; sequence: Seq }>;
+  would_be_hypotheses: Capped<{ contract: string; label: string; claim: string; candidate: string; breaking_function: string; minimised: Seq | null; counterexample: Seq }>;
+  overlaps: { summary: { same_line: number; same_function: number; same_file: number }; leads_considered: number; note: string; items: Array<{ apex_kind: string; apex_ref: string; relation: string; lead_function: string | null; lead_at: string | null; lead_family: string }>; truncated: number } | null;
+  parse_problems: string[]; in_scope_paths_missing: string[];
 }
 export interface RunProgress {
   version: string; generated_at: string;
