@@ -9,6 +9,7 @@ import { acquireRepository, type AcquireRequest, type AcquisitionResult, type Ac
 import { AcquisitionError } from "./errors.js";
 import { parseRepositoryName, type RepositorySource } from "./github-source.js";
 import { parseBountyScope, type BountyScope } from "./bounty-scope.js";
+import { acquisitionProgress, progressFor, type ProgressSink } from "../step-progress.js";
 
 export const REPOSITORY_RESEARCH_WORKFLOW = "repository_research";
 export const ACQUIRE_STEP_KEY = "acquire_repository";
@@ -83,7 +84,7 @@ export async function createRepositoryResearchRunIn(client: Pick<PoolClient, "qu
 
 export type AcquireStepContext = {
   /** The direct worker's connection. Option D's remote worker passes `store` instead and has no pool. */
-  pool?: Pool; worker: Pick<WorkflowWorker, "heartbeat" | "complete">; workerId: string; source: RepositorySource;
+  pool?: Pool; worker: Pick<WorkflowWorker, "heartbeat" | "complete"> & { reportProgress?: ProgressSink }; workerId: string; source: RepositorySource;
   store?: AcquisitionStore;
   /** How often the step lease is renewed while the acquisition runs (the worker's lease is 90 s by default). */
   heartbeatMs?: number;
@@ -117,7 +118,15 @@ export async function processAcquireRepositoryStep(context: AcquireStepContext, 
   try {
     const store = context.store ?? (context.pool ? new ResearchStore(context.pool) : null);
     if (!store) throw new Error("acquisition needs either a database pool or a research store port");
-    const result = await acquireRepository({ store, source: context.source, signal: controller.signal, progress: (event, fields) => context.log?.(`acquisition ${event}`, fields) }, { stepId: step.id, workerId: context.workerId }, request);
+    // intra-step progress (step-progress.ts): reported by the worker, throttled, never a reason to fail the acquisition
+    const reporter = progressFor(context.worker, step.id, { onError: (error) => context.log?.("acquisition progress report not stored", { error: error instanceof Error ? error.message : String(error) }) });
+    const progress = (event: string, fields?: Record<string, unknown>) => {
+      context.log?.(`acquisition ${event}`, fields);
+      const p = acquisitionProgress(event, fields);
+      if (p) reporter.report(p.phase, p.done, p.total, p.unit);
+    };
+    const result = await acquireRepository({ store, source: context.source, signal: controller.signal, progress }, { stepId: step.id, workerId: context.workerId }, request);
+    await reporter.flush();
     await context.worker.complete(step.id, stepOutput(result));
   } catch (error) {
     if (leaseLost) throw new LeaseLostError("the step lease was lost during acquisition");

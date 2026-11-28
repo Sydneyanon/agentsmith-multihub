@@ -14,6 +14,7 @@ import { AuthFailureLimiter, rawPath } from "./auth.js";
 import { IndependenceError, MAX_BLOB_BYTES, ResearchConflictError, ResearchStore, sha256Hex, type SnapshotFileInput } from "./research-state.js";
 import type { ResearchReads, SealedSnapshotRef } from "./research-port.js";
 import { LeaseLostError } from "./step-errors.js";
+import { doneWithinTotal, recordStepProgress, stepProgressFields, type StepProgress } from "./step-progress.js";
 import { WorkflowWorker } from "./worker.js";
 import { assertProcessingBudget, chargeProcessing, chargeRead, DEFAULT_QUOTAS, QuotaExceeded, reserveStorage, type WorkerQuotas } from "./worker-quotas.js";
 import { mintWorkerToken, parseWorkerToken, redactWorkerTokens, revokeWorkerToken, secretMatches, WorkerTokenError } from "./worker-tokens.js";
@@ -183,6 +184,20 @@ export const OPERATIONS: Record<string, Operation> = {
     },
   },
   heartbeat: { kind: "plain", lease: "held", stepKeys: "any", bodyLimit: 4 * KiB, schema: z.object(stepId).strict(), run: (ctx) => ctx.worker.heartbeat(ctx.step!.id) },
+  /**
+   * Intra-step progress, REPORTED BY THE WORKER (the dashboard labels it so; it is never a verified count). Valid only for the token's
+   * leased step; strict schema; counted against the token's storage quota (D4) before it is written; throttled and capped per step by
+   * the writer (step-progress.ts), so a flood stores nothing more. Not idempotent: a retried report is at worst one more observation.
+   */
+  report_progress: {
+    kind: "plain", lease: "held", stepKeys: "any", bodyLimit: 1 * KiB,
+    schema: z.object({ ...stepId, ...stepProgressFields }).strict().refine(doneWithinTotal, { message: "done must not exceed total" }),
+    async run(ctx, a: { phase: string; done: number; total: number | null; unit: StepProgress["unit"] }) {
+      const progress: StepProgress = { phase: a.phase, done: a.done, total: a.total, unit: a.unit };
+      await reserveStorage(ctx.db, ctx.tokenId, Buffer.byteLength(JSON.stringify(progress)), ctx.services.quotas, 0); // D4: quota-counted
+      return recordStepProgress(ctx.db, { stepId: ctx.step!.id, owner: ctx.owner, actor: `worker-token:${ctx.tokenId}`, via: "worker_api", tokenId: ctx.tokenId, progress });
+    },
+  },
   complete: {
     kind: "idempotent", lease: "held", stepKeys: "any", bodyLimit: 2 * MiB,
     schema: z.object({ ...stepId, output: z.record(z.unknown()) }).strict(),

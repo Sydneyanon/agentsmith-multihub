@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { LeaseLostError } from "./step-errors.js";
+import { recordStepProgress, type ProgressWrite, type StepProgress } from "./step-progress.js";
 
 export type ClaimedStep = {
   id: string;
@@ -192,6 +193,11 @@ export class WorkflowWorker {
     } finally {
       client.release();
     }
+  }
+
+  /** Intra-step progress (step-progress.ts): stored only while this worker holds the step's live lease; throttled by the writer. */
+  reportProgress(stepId: string, progress: StepProgress): Promise<ProgressWrite> {
+    return recordStepProgress(this.pool, { stepId, owner: this.workerId, actor: this.workerId, via: "direct_worker", progress });
   }
 
   async complete(stepId: string, output: Record<string, unknown> = {}): Promise<void> {

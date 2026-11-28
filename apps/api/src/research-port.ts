@@ -2,6 +2,7 @@ import type { Dossier, StoredHypothesis } from "./analysis/solidity/pipeline.js"
 import type { SlitherScanOutcome } from "./analysis/solidity/slither-record.js";
 import type { ResearchStore } from "./research-state.js";
 import type { ClaimedStep } from "./worker.js";
+import type { StepProgress } from "./step-progress.js";
 
 /**
  * Option D: the port between a `repository_research` worker and the database. Everything such a worker does to the database goes
@@ -24,6 +25,8 @@ export type ResearchStorePort = Pick<ResearchStore,
 export type StepLifecyclePort = {
   heartbeat(stepId: string): Promise<boolean>;
   complete(stepId: string, output?: Record<string, unknown>): Promise<void>;
+  /** Optional: intra-step progress (step-progress.ts), reported by the worker; a port without it simply reports nothing. */
+  reportProgress?(stepId: string, progress: StepProgress): Promise<unknown>;
 };
 export type WorkerLoopPort = StepLifecyclePort & {
   claimNext(allowedStepKeys?: readonly string[], onlyRunId?: string): Promise<ClaimedStep | null>;

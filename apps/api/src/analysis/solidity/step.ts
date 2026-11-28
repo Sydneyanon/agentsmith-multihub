@@ -10,6 +10,7 @@ import type { ResearchReads, ResearchStorePort, SealedSnapshotRef, StepLifecycle
 import { processResearchSlitherScanStep } from "./slither-step.js";
 import { createHash } from "node:crypto";
 import { readBuildInfo } from "../../engine-status.js";
+import { progressFor } from "../../step-progress.js";
 
 /**
  * Worker steps that continue a `repository_research` run AFTER acquisition: analyse the sealed snapshot, challenge the leads, build the dossier.
@@ -91,10 +92,14 @@ export function analyzeStepOutput(snap: SealedSnapshotRef, a: Awaited<ReturnType
 
 export async function processAnalyzeStructureStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   const ctx = researchContext(context); const { store, reads } = ctx; const snap = await reads.sealedSnapshot(step.workflow_run_id);
+  const progress = progressFor(ctx.worker, step.id);
   await withHeartbeat(ctx, step, async () => {
     const lease = { stepId: step.id, workerId: ctx.workerId };
     const sources = await reads.snapshotSources(snap.snapshotId);
+    progress.report("analysing_sources", 0, sources.length, "solidity_files");
     const a = await writeStructuralAnalysis(store, lease, snap.snapshotId, computeStructuralAnalysis(sources));
+    progress.report("analysis_recorded", a.stored.length, a.stored.length, "hypotheses");
+    await progress.flush();
     await ctx.worker.complete(step.id, analyzeStepOutput(snap, a, buildStructuralMap(sources)));
   });
 }
@@ -128,9 +133,13 @@ export function challengeStepOutput(snap: SealedSnapshotRef, inputs: ChallengeIn
 
 export async function processChallengeLeadsStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   const ctx = researchContext(context); const { store, reads } = ctx; const snap = await reads.sealedSnapshot(step.workflow_run_id);
+  const progress = progressFor(ctx.worker, step.id);
   await withHeartbeat(ctx, step, async () => {
     const inputs = await challengeInputs(reads, step.workflow_run_id, snap.snapshotId);
+    progress.report("challenging_leads", 0, inputs.stored.length + inputs.external.length, "leads");
     const validations = await runChallenge(reads, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, [...inputs.stored, ...inputs.external]);
+    progress.report("evaluations_recorded", validations.length, validations.length, "evaluations");
+    await progress.flush();
     await ctx.worker.complete(step.id, challengeStepOutput(snap, inputs, validations));
   });
 }
@@ -140,7 +149,11 @@ export function dossierStepOutput(snap: SealedSnapshotRef, d: Dossier): Record<s
 }
 export async function processBuildDossierStep(context: AnyAnalysisStepContext, step: ClaimedStep): Promise<void> {
   const ctx = researchContext(context); const snap = await ctx.reads.sealedSnapshot(step.workflow_run_id);
+  const progress = progressFor(ctx.worker, step.id);
+  progress.report("building_dossier", 0, 1, "dossiers");
   const d = await ctx.reads.buildDossier(snap.snapshotId); // fails closed if any cited span cannot be verified
+  progress.report("dossier_built", 1, 1, "dossiers");
+  await progress.flush();
   await ctx.worker.complete(step.id, dossierStepOutput(snap, d));
 }
 
