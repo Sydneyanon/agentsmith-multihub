@@ -18,6 +18,10 @@ primary_region = "syd"
   # The hub is served only under its permanent hostname; any other Host (including the app's default *.fly.dev name) gets 421.
   # Health checks are exempt. Smoke-test before DNS exists with `fly proxy` and a Host header (docs/hub-production-plan.md).
   HUB_ALLOWED_HOSTS = "hub.agentsmithdesk.xyz"
+  # Owner decision 2026-11-28: a link an operator pastes into Import is one user-initiated retrieval (like opening it in a browser),
+  # so robots.txt does not block it, and X posts are read through X's documented oEmbed endpoint. One page per paste, no crawling,
+  # no login, honest user agent. Automated collection ALWAYS respects robots.txt, whatever this setting (bounties/import.ts).
+  BOUNTY_IMPORT_FETCH_POLICY = "user_initiated"
   # Secrets are never listed here. Set with `fly secrets set` (names only in docs/hub-production-plan.md):
   #   API_BEARER_TOKEN, DATABASE_URL
 
