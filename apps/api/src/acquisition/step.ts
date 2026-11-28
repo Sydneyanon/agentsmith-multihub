@@ -21,6 +21,8 @@ const stepInput = z.object({
 }).strict();
 
 export type RepositoryResearchInput = z.infer<typeof stepInput>;
+/** The acquisition step's input schema (the API's snapshot verification re-reads the queued options with it). */
+export const acquireStepInput = stepInput;
 
 /**
  * Creates a `repository_research` run with its single `acquire_repository` step. Nothing creates these automatically yet:
