@@ -1,0 +1,24 @@
+# AgentSmith research worker: a SEPARATE Fly app (owner decision 2026-11-28, option D).
+# PREPARED ONLY. Creating this app, setting its single secret and starting any machine each need explicit owner approval.
+#
+# Why a separate app: every machine of an app receives ALL of that app's secrets as environment variables (observed: one-off
+# machines in agentsmith-hub had DATABASE_URL without being given it). The worker must hold NO database credential and NO operator
+# secret, so it cannot live in agentsmith-hub. This app has no DATABASE_URL, no API_BEARER_TOKEN, no WORKER_DATABASE_URL and no
+# GITHUB_TOKEN. Its only secret is one short-lived, run-scoped, revocable worker token, minted per run.
+#
+# No [[services]] / [http_service]: the worker accepts no inbound traffic. It calls the API's private listener over Fly's 6PN network
+# (http to <app>.internal is allowed only for Fly private hosts; see worker-remote.ts).
+app = "agentsmith-worker"
+primary_region = "syd"
+
+[build]
+  # The same release image as the hub; the entrypoint is chosen per machine (see docs/security/worker-app-deployment.md).
+
+[env]
+  NODE_ENV = "production"
+  LOG_LEVEL = "info"
+  WORKER_STORE = "api"
+  WORKER_API_URL = "http://agentsmith-hub.internal:8081"
+  WORKER_API_TOKEN_FILE = "/run/secrets/worker-token"
+  STRUCTURAL_ANALYSIS_ENABLED = "true"
+  # Per-run, set on the machine (not here): WORKER_ONLY_RUN_ID, WORKER_EXIT_WHEN_RUN_DONE=true.

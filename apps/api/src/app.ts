@@ -9,7 +9,7 @@ import { registerDiscoveryRoutes } from "./discovery/api.js";
 import { registerBountyRoutes } from "./bounties/api.js";
 import { registerHubStatic } from "./hub-static.js";
 import { registerHostGuard } from "./host-guard.js";
-import { isWorkerApiRequest, registerWorkerApi, type WorkerApiOptions } from "./worker-api.js";
+import { isWorkerApiRequest, registerWorkerApi, WORKER_API_PREFIX, type WorkerApiOptions } from "./worker-api.js";
 import { expectedMigrations, readBuildInfo, registerEngineStatusRoutes, type EngineInfo } from "./engine-status.js";
 
 export type AppOptions = {
@@ -49,7 +49,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     return reply.code(status).send(error);
   });
-  registerHostGuard(app, options.hubAllowedHosts);
+  registerHostGuard(app, options.hubAllowedHosts, options.workerApi?.privateListenerPort !== undefined ? { port: options.workerApi.privateListenerPort, pathPrefix: WORKER_API_PREFIX } : undefined);
   const trusted = parseCidrList((options.trustedProxyCidrs ?? []).join(","));
   if ("error" in trusted) throw new Error(`Invalid trusted proxy range: ${trusted.error}`);
   registerBearerAuth(app, options.apiBearerToken, options.limiter, createClientIdentity(trusted.cidrs), options.workerApi ? isWorkerApiRequest : undefined);
