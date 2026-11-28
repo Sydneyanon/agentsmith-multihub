@@ -62,7 +62,12 @@ export function staticSurface(engine: Engine): { statements: Set<string>; guards
 const sign = (v: bigint): string => (v === 0n ? "0" : v > 0n ? "+" : "-");
 const absValue = (v: Value): string => (typeof v === "bigint" ? sign(v) : typeof v === "boolean" ? String(v) : Array.isArray(v) ? `[${v.map(absValue).join(",")}]` : String(v));
 /** abstraction: every number becomes its sign; booleans and addresses are kept; balance, receipts and sends become signs */
+const abstractKeys = new WeakMap<Node, string>();
+/** nodes are immutable once created, so their abstract keys are memoised */
 export function abstractKey(n: Node): string {
+  let k = abstractKeys.get(n); if (k === undefined) { k = abstractKeyUncached(n); abstractKeys.set(n, k); } return k;
+}
+function abstractKeyUncached(n: Node): string {
   return [...n.w.storage.entries()].filter(([k, v]) => !(k.includes("|") && (v === 0n || v === false || v === "zero" || v === null))).map(([k, v]) => `${k}=${absValue(v)}`).sort().join(";") + `#${sign(n.w.balance)}#${sign(n.w.received)}#${sign(n.sentByAttacker)}${n.approx.length ? "#T" : ""}`;
 }
 

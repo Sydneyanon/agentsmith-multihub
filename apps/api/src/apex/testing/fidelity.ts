@@ -71,9 +71,25 @@ export class FidelityInterp extends Interp {
   private locate<T>(f: Frame, line: number, run: () => T): T {
     try { return run(); } catch (err) { if (err instanceof Unsupported && !this.where.has(err)) this.where.set(err, `${f.fn.file}:${line}`); throw err; }
   }
-  private guard(at: string, ok: boolean): void { const g = this.guards.get(at) ?? { passed: 0, failed: 0 }; if (ok) g.passed++; else g.failed++; this.guards.set(at, g); }
+  /**
+   * when set, the coverage side effects of the current transaction (guard outcomes and statements entered, in order) are logged here, so
+   * that a memoised transaction (state-explorer-prototype.ts: Engine.step) can replay them into a later collector exactly
+   */
+  txLog: { guards: Array<[string, boolean]>; reached: string[] } | null = null;
+  /** records a guard outcome (also used to replay a memoised transaction's guard outcomes) */
+  noteGuard(at: string, ok: boolean): void { const g = this.guards.get(at) ?? { passed: 0, failed: 0 }; if (ok) g.passed++; else g.failed++; this.guards.set(at, g); }
+  private guard(at: string, ok: boolean): void { this.noteGuard(at, ok); this.txLog?.guards.push([at, ok]); }
 
+  /** a state variable's type check is a pure function of its declaration: memoised (the throwing outcomes are re-thrown as new errors) */
+  private readonly typeMemo = new Map<string, { t: string | null } | { unsupported: string }>();
   private checkType(name: string, ks: Value[]): string | null {
+    let m = this.typeMemo.get(name);
+    if (!m) { try { m = { t: this.checkTypeUncached(name) }; } catch (e) { if (!(e instanceof Unsupported)) throw e; m = { unsupported: e.why }; } this.typeMemo.set(name, m); }
+    void ks;
+    if ("unsupported" in m) throw new Unsupported(m.unsupported);
+    return m.t;
+  }
+  private checkTypeUncached(name: string): string | null {
     const sv = this.pix.stateVar(this.pcontract, name); if (!sv) return null;
     const t = sv.type.replace(/\s+/g, " ").trim();
     if (/\[/.test(t)) throw new Unsupported(`array ${name} (${t})`);
@@ -82,7 +98,7 @@ export class FidelityInterp extends Interp {
       if (this.pix.isContractLike(vt)) throw new Unsupported(`other-contract: contract-typed variable ${name} (${vt})`);
       throw new Unsupported(`struct ${name} (${vt}: user-defined type, not modelled)`);
     }
-    void ks; return t;
+    return t;
   }
   private declaredAt(name: string): string { const sv = this.pix.stateVar(this.pcontract, name)!; return `${this.pix.contracts.get(sv.owner)?.file ?? "?"}:${sv.line}`; }
   override readVar(name: string, ks: Value[]): Value {
@@ -159,6 +175,7 @@ export class FidelityInterp extends Interp {
   }
 
   override stmt(s: Stmt, f: Frame): ReturnType<Interp["stmt"]> {
+    this.txLog?.reached.push(`${f.fn.file}:${s.line}`); // the statement Interp.stmt (or the replays below) marks as reached
     return this.locate(f, s.line, () => {
       switch (s.k) {
         case "try": throw new Unsupported("try statement");

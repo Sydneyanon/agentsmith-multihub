@@ -93,18 +93,31 @@ function stateDerived(n: Node, actor: Actor): bigint[] {
   const vs = new Set<bigint>();
   for (const [k, v] of n.w.storage) {
     if (typeof v !== "bigint" || v === 0n) continue;
-    const parts = k.split("|"); if (parts.length > 1 && !parts.slice(1).includes(actor)) continue;
+    // a mapping entry counts only if one of its keys is the actor (the key segments after the variable name)
+    if (k.includes("|") && !k.split("|").slice(1).includes(actor)) continue;
     vs.add(v - 1n); vs.add(v); vs.add(v + 1n);
   }
   return [...vs].filter((x) => x > 1n && x < MAX_UINT).sort((a, b) => (a < b ? -1 : 1));
 }
 
-function movesFrom(n: Node, t: ReturnType<typeof moveTemplates>, d: DeepDomain): Move[] {
-  const extra: Move[] = [];
+/** the state-derived values each derivable move takes from a state (cheap: no move is built), and how many moves they add */
+type Derived = { specs: Array<{ g: ReturnType<typeof moveTemplates>["derivable"][number]; xs: bigint[] }>; count: number };
+function derivedFrom(n: Node, t: ReturnType<typeof moveTemplates>, haveAmounts: ReadonlySet<bigint>, haveValues: ReadonlySet<bigint>): Derived {
+  const specs: Derived["specs"] = []; let count = 0; const perActor = new Map<Actor, bigint[]>();
   for (const g of t.derivable) {
-    const have = new Set(g.uintAt >= 0 ? d.amounts : d.values);
-    const xs = stateDerived(n, g.actor).filter((x) => !have.has(x)).slice(0, DEEP_DEFAULTS.maxStateDerived);
+    const have = g.uintAt >= 0 ? haveAmounts : haveValues;
+    let derived = perActor.get(g.actor); if (!derived) { derived = stateDerived(n, g.actor); perActor.set(g.actor, derived); }
+    const xs = derived.filter((x) => !have.has(x)).slice(0, DEEP_DEFAULTS.maxStateDerived);
     if (!xs.length) continue;
+    specs.push({ g, xs }); count += xs.length * ((g.uintAt >= 0 ? 1 : 0) + (g.payable ? 1 : 0));
+  }
+  return { specs, count };
+}
+/** the moves available from a state: the static domain, then the state-derived moves, in a fixed order */
+function movesFrom(t: ReturnType<typeof moveTemplates>, dv: Derived): Move[] {
+  if (!dv.specs.length) return t.statics;
+  const extra: Move[] = [];
+  for (const { g, xs } of dv.specs) {
     const base: Value[] = g.fn.params.map((p) => (/^u?int/.test(p.type) ? ETHER : /^address/.test(p.type) ? g.actor : /^bool/.test(p.type) ? true : null));
     for (const x of xs) {
       if (g.uintAt >= 0) { const args = [...base]; args[g.uintAt] = x; extra.push({ actor: g.actor, fn: g.fn, args, value: g.payable ? ETHER : 0n }); }
@@ -122,7 +135,7 @@ export type LayeredResult = { col: CoverageCollector; layers: number; fixpoint: 
  * state is expanded with every move, so every executed layer is complete over its (possibly reduced) frontier.
  */
 export function layeredSearch(engine: Engine, d: DeepDomain, maxLayers: number, budget: number, onTransition: (ev: TransitionEvent, layer: number) => void, onLayerStart: (layer: number) => void = () => {}): LayeredResult {
-  const t = moveTemplates(engine, d);
+  const t = moveTemplates(engine, d); const haveAmounts = new Set(d.amounts); const haveValues = new Set(d.values);
   const col = new CoverageCollector(engine, maxLayers); col.start(t.excluded);
   const root = engine.root!;
   const seen = new Set<string>([stateKey(root)]); col.state(root, stateKey(root));
@@ -132,13 +145,14 @@ export function layeredSearch(engine: Engine, d: DeepDomain, maxLayers: number, 
   let dropped = 0; let layers = 0; let stoppedByBudget = false;
   for (let k = 1; k <= maxLayers && frontier.length; k++) {
     const allowance = Math.floor((budget - col.sequences) / (maxLayers - k + 1));
-    const withMoves = frontier.map((e) => ({ ...e, moves: movesFrom(e.n, t, d) }));
-    const total = withMoves.reduce((s, e) => s + e.moves.length, 0);
+    // each state's number of moves is known without building them; moves are built only for the states selected for expansion
+    const withMoves = frontier.map((e) => { const dv = derivedFrom(e.n, t, haveAmounts, haveValues); return { ...e, dv, cost: t.statics.length + dv.count }; });
+    const total = withMoves.reduce((s, e) => s + e.cost, 0);
     let selected = withMoves;
     if (total > allowance) {
       const order = [...withMoves].sort((a, b) => a.prio - b.prio); // stable: BFS order within a priority
       selected = []; let cost = 0;
-      for (const e of order) { if (cost + e.moves.length > allowance) continue; selected.push(e); cost += e.moves.length; }
+      for (const e of order) { if (cost + e.cost > allowance) continue; selected.push(e); cost += e.cost; }
       if (!selected.length) { stoppedByBudget = true; dropped += frontier.length; break; }
       dropped += frontier.length - selected.length;
       const keep = new Set(selected); selected = withMoves.filter((e) => keep.has(e)); // expand in BFS order
@@ -147,7 +161,7 @@ export function layeredSearch(engine: Engine, d: DeepDomain, maxLayers: number, 
     const next: Entry[] = []; const novelHere = new Set<string>();
     for (const e of selected) {
       expandedAbs.add(abstractKey(e.n));
-      for (const m of e.moves) {
+      for (const m of movesFrom(t, e.dv)) {
         const outcome = engine.step(e.n, m); col.transition(e.n, m, outcome); onTransition({ pre: e.n, m, outcome }, k);
         if (outcome.k !== "ok") continue;
         const key = stateKey(outcome.post); if (seen.has(key)) continue; seen.add(key); col.state(outcome.post, key);
@@ -248,7 +262,7 @@ export type DeepResult = { report: ExploreReport; engine: Engine; collectors: Co
 export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string }>, contract: string, options: ExploreOptions = {}): DeepResult {
   const depth = options.depth ?? DEEP_DEFAULTS.depth; const budget = options.maxSequences ?? DEEP_DEFAULTS.budget;
   const q = options.quality === false ? null : { minSupport: 2, randomSequences: 200, seed: 1, depthExtension: true, refinement: true, direction: true, ...(options.quality ?? {}) };
-  const engine = new Engine(sources, contract);
+  const engine = new Engine(sources, contract); engine.memo = options.memo !== false;
   const empty = () => CoverageCollector.empty(depth);
   const report: ExploreReport = {
     contract, abstained: engine.abstained, candidates: [], violations: [], hypotheses: [], coverage: { honest: empty(), adversarial: empty() },
@@ -394,6 +408,8 @@ export function exploreDeep(sources: ReadonlyArray<{ path: string; text: string 
     randomTransitions: report.candidates.reduce((s, c) => Math.max(s, typeof c.quality.randomised === "object" && "transitions" in c.quality.randomised ? c.quality.randomised.transitions : 0), 0),
     budget, frontierDropped: { honest: honest.dropped, adversarial: adversarial.dropped }, amounts: dom.amounts.map(fmt), values: dom.values.map(fmt),
   };
-  return { report: finishReport(engine, sources, report, results, checks, clean, tainted, abst, options), engine, collectors: [honest.col, adversarial.col] };
+  const finished = finishReport(engine, sources, report, results, checks, clean, tainted, abst, options);
+  finished.search!.cost = { requested: engine.executions + engine.memoHits, interpreted: engine.executions };
+  return { report: finished, engine, collectors: [honest.col, adversarial.col] };
 }
 export type { CandidateResult };
