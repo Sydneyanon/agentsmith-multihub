@@ -1,0 +1,258 @@
+{
+ "label": "baseline on fresh set 2: deep strategy as at d32f960 (default options), recorded before any false-positive rule",
+ "options": {},
+ "totals": {
+  "detected": 4,
+  "vulnerable": 7,
+  "recall": 0.5714285714285714,
+  "falseNegatives": [
+   "W02 BonusPool",
+   "W03 Treasury",
+   "W07 RebasePool"
+  ],
+  "falsePositives": 23,
+  "wrongClaims": 5,
+  "twinFalsePositives": 9,
+  "controlFalsePositives": 9,
+  "falseAccepted": 9,
+  "trueAccepted": 7,
+  "falseInvariantRate": 0.5625,
+  "falseAcceptedIds": [
+   "Harvester:conservation:managed=sum(units)",
+   "Harvester:actor-value:attacker-net<=0",
+   "Cycle3:one-way:phase",
+   "Cycle3:one-way:marks",
+   "Lap:one-way:lap",
+   "DonationShares:conservation:totalAssets=sum(shares)",
+   "DonationShares:actor-value:attacker-net<=0",
+   "Membership:conservation:totalJoined=sum(credit)",
+   "Membership:actor-value:attacker-net<=0"
+  ],
+  "trueRejected": [],
+  "unlabelled": [],
+  "transitions": 168207
+ },
+ "vulnerable": [
+  {
+   "id": "W01",
+   "contract": "StartVault",
+   "detected": true,
+   "violations": [
+    "conservation:totalDeposits=sum(balances) by exit",
+    "solvency:balance>=sum(balances) by exit",
+    "actor-value:attacker-net<=0 by exit"
+   ],
+   "wrongClaims": [],
+   "transitions": 11993,
+   "abstained": null
+  },
+  {
+   "id": "W02",
+   "contract": "BonusPool",
+   "detected": false,
+   "violations": [],
+   "wrongClaims": [],
+   "transitions": 11907,
+   "abstained": null
+  },
+  {
+   "id": "W03",
+   "contract": "Treasury",
+   "detected": false,
+   "violations": [
+    "conservation:totalDeposited=sum(balances) by credit",
+    "actor-value:attacker-net<=0 by withdraw"
+   ],
+   "wrongClaims": [
+    "conservation:totalDeposited=sum(balances) by credit",
+    "actor-value:attacker-net<=0 by withdraw"
+   ],
+   "transitions": 11952,
+   "abstained": null
+  },
+  {
+   "id": "W04",
+   "contract": "Epochs",
+   "detected": true,
+   "violations": [
+    "one-way:stage by abort"
+   ],
+   "wrongClaims": [],
+   "transitions": 162,
+   "abstained": null
+  },
+  {
+   "id": "W05",
+   "contract": "Ballot",
+   "detected": true,
+   "violations": [
+    "one-way:stage by newRound"
+   ],
+   "wrongClaims": [],
+   "transitions": 99,
+   "abstained": null
+  },
+  {
+   "id": "W06",
+   "contract": "PricedVault",
+   "detected": true,
+   "violations": [
+    "conservation:totalAssets=sum(shares) by harvest",
+    "conservation:totalShares=sum(shares) by redeem",
+    "actor-value:attacker-net<=0 by redeem"
+   ],
+   "wrongClaims": [
+    "conservation:totalAssets=sum(shares) by harvest",
+    "actor-value:attacker-net<=0 by redeem"
+   ],
+   "transitions": 11985,
+   "abstained": null
+  },
+  {
+   "id": "W07",
+   "contract": "RebasePool",
+   "detected": false,
+   "violations": [
+    "conservation:totalStaked=sum(stakes) by rebase"
+   ],
+   "wrongClaims": [
+    "conservation:totalStaked=sum(stakes) by rebase"
+   ],
+   "transitions": 11949,
+   "abstained": null
+  }
+ ],
+ "twins": [
+  {
+   "id": "W01",
+   "contract": "StartVault",
+   "falsePositives": [],
+   "transitions": 11993
+  },
+  {
+   "id": "W02",
+   "contract": "BonusPool",
+   "falsePositives": [
+    "actor-value:attacker-net<=0 by withdraw"
+   ],
+   "transitions": 11991
+  },
+  {
+   "id": "W03",
+   "contract": "Treasury",
+   "falsePositives": [
+    "conservation:totalDeposited=sum(balances) by credit",
+    "actor-value:attacker-net<=0 by withdraw"
+   ],
+   "transitions": 11931
+  },
+  {
+   "id": "W04",
+   "contract": "Epochs",
+   "falsePositives": [
+    "one-way:stage by finish"
+   ],
+   "transitions": 162
+  },
+  {
+   "id": "W05",
+   "contract": "Ballot",
+   "falsePositives": [
+    "one-way:stage by newRound",
+    "one-way:tally by newRound"
+   ],
+   "transitions": 99
+  },
+  {
+   "id": "W06",
+   "contract": "PricedVault",
+   "falsePositives": [
+    "conservation:totalAssets=sum(shares) by harvest",
+    "actor-value:attacker-net<=0 by redeem"
+   ],
+   "transitions": 11961
+  },
+  {
+   "id": "W07",
+   "contract": "RebasePool",
+   "falsePositives": [
+    "conservation:totalStaked=sum(stakes) by rebase"
+   ],
+   "transitions": 11955
+  }
+ ],
+ "controls": [
+  {
+   "contract": "Allowances",
+   "falsePositives": [],
+   "accepted": [
+    "solvency:balance>=sum(owed)"
+   ],
+   "transitions": 11942
+  },
+  {
+   "contract": "Harvester",
+   "falsePositives": [
+    "conservation:managed=sum(units) by addYield",
+    "actor-value:attacker-net<=0 by leave"
+   ],
+   "accepted": [
+    "conservation:managed=sum(units)",
+    "conservation:totalUnits=sum(units)",
+    "solvency:balance>=sum(units)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 11961
+  },
+  {
+   "contract": "Cycle3",
+   "falsePositives": [
+    "one-way:phase by wrap",
+    "one-way:marks by wrap"
+   ],
+   "accepted": [
+    "one-way:phase",
+    "one-way:cycles",
+    "one-way:marks"
+   ],
+   "transitions": 207
+  },
+  {
+   "contract": "Lap",
+   "falsePositives": [
+    "one-way:lap by clear"
+   ],
+   "accepted": [
+    "one-way:lap"
+   ],
+   "transitions": 60
+  },
+  {
+   "contract": "DonationShares",
+   "falsePositives": [
+    "conservation:totalAssets=sum(shares) by donate",
+    "actor-value:attacker-net<=0 by redeem"
+   ],
+   "accepted": [
+    "conservation:totalAssets=sum(shares)",
+    "conservation:totalShares=sum(shares)",
+    "solvency:balance>=sum(shares)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 11979
+  },
+  {
+   "contract": "Membership",
+   "falsePositives": [
+    "conservation:totalJoined=sum(credit) by bonus",
+    "actor-value:attacker-net<=0 by leave"
+   ],
+   "accepted": [
+    "conservation:totalJoined=sum(credit)",
+    "solvency:balance>=sum(credit)",
+    "actor-value:attacker-net<=0"
+   ],
+   "transitions": 11919
+  }
+ ]
+}
