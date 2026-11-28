@@ -1152,3 +1152,63 @@ No migration was added. Every result below comes from controlled, self-authored 
 
 **Still required before C3 is used on a real repository:** the owner's approval to fetch submodule repositories (Part 6, item 15), and a
 real compiler in a tools worker (C4). Until then the stage stays off by default.
+
+## Part 8. The intelligence-model vision, and how C1–C3 keep it open (owner clarification 2026-11-28)
+
+**Principle.** The engines (structural analysis, Slither, APEX, Foundry, future tools) are instruments. AgentSmith's intelligence is the
+set of capabilities below, all operating on the ONE shared protocol model and the ONE shared investigation identity. None of these
+capabilities is implemented as a learned model today; this section states status honestly and adds no code.
+
+### 8.1 Capabilities, and what each will read and write
+| capability | reads | writes | status today |
+|---|---|---|---|
+| Attention and prioritisation | shared model (open questions, unsupported features), investigation history, programme ranking | decisions, including non-actions (draft 0010) | deterministic ranking only (`discovery/priority.ts`, bounty ranking); no learned model |
+| Opportunity discovery | shared model sections, past investigations by lead key | hypotheses with generator identity | rule-based specialists only |
+| Protocol understanding and state modelling | sealed snapshot, dependencies (C3) | the shared model itself (C1) | implemented for structure; `assets_accounting`, `invariants`, actors are `not_computed` |
+| Mechanism and causal reasoning | model + evidence spans | reviews, proposed experiments (never evaluations) | not built (AI client deferred) |
+| Future-state and consequence prediction | model + APEX/validator traces | predictions registered BEFORE the experiment, then scored | not built |
+| Counterfactual reasoning | model, action sequences | experiments for APEX / Foundry | APEX explores sequences (shadow, unvalidated); no reasoning layer |
+| Self-model | capability registry, APEX abstention map, model `not_computed` sections, per-engine history | "unsupported by model" reasons in decisions | data exists (C1 records predicted vs observed unsupported features); no model uses it |
+| Failure attribution | contradictions, refuted evaluations, limitation records | lessons (`knowledge_items`, no writer yet) | not built |
+| Linked experience memory | — | hypotheses, evaluations, events, audit, decisions, lessons, linked by lead key | records exist; linking by lead key exists in code (C2); decisions and lessons unbuilt |
+| Discovery of new relationships | model across programmes and snapshots | candidate invariants / questions, as hypotheses | not built |
+| Learned action policy | decisions with outcomes | next-experiment choice | not built; `docs/ml-readiness.md`: no honest training data exists yet |
+
+### 8.2 How the shared protocol model supports the intelligence models
+- One representation, addressed by hash, versioned (`agentsmith-shared-protocol-model/1`), with sections. A new capability adds or
+  fills a section; it does not create a second model. Engine integrations do not change when a section is added.
+- Every fact carries provenance and an epistemic status (`parsed`, `derived`, `verified`, `unknown`), and uncomputed sections say
+  `not_computed` with a reason. A model can therefore be trained or prompted on what is known, and can see what is not.
+- The model is tied to a sealed snapshot and manifest digest, so any feature, prediction or lesson is reproducible against exactly
+  the code it was about.
+
+### 8.3 How shared issue identity and evidence support linked experience memory
+- The lead key gives one identity to an issue across engines and across commits, so "what did we already try here, and what
+  happened" is answerable.
+- Each engine's evidence stays separate, with generator and analysis family; contradictions keep both sides. A learning signal can
+  therefore weight independent execution evidence above same-family agreement, and never treats tool agreement as a label.
+- Labels for learning come only from independently evaluated outcomes (0016 rules), including refuted and inconclusive ones.
+  Unverified scanner findings and hypotheses are never training labels.
+
+### 8.4 Existing model and learning infrastructure that can be reused
+- Research state (0007): hypotheses, evidence spans, evaluations, reviews, append-only events; independence (0016).
+- AI budget gateway and price catalogue (0002–0004) with hard caps; `docs/cost-and-model-policy.md`, `docs/claude-runtime-options.md`.
+- Drafts: 0009 research memory (coverage, outcomes), 0010 engine loop (decisions and non-actions), R3b outcome independence.
+- `knowledge_items` (table exists, no writer). Capability registry (`engine/capabilities.ts`).
+- Frozen corpora and the registry (`eval/`, `verify-frozen.sh`), preregistration and held-out discipline, corpus 5 (untouched).
+- `docs/ml-readiness.md` (data and baseline before any model), `docs/research-decision-records.md`.
+
+### 8.5 What remains unbuilt before a genuine learning and decision-making loop exists
+1. Independent reproduction on real code (C4 tools machine, C5 Foundry reproduction): without it there are no trustworthy outcomes to learn from.
+2. Recorded decisions and non-actions with their outcomes (promote drafts 0009/0010; C6).
+3. Question-directed selection that actually chooses the next experiment (C7), first as rules, so a learned policy has a baseline to beat.
+4. A lessons writer for `knowledge_items`, gated on evaluated outcomes (failure attribution).
+5. Real research runs that produce this data (the first is the USX run; many more are needed).
+6. The AI client within the gateway caps (reasoning, challenge, prediction), able to write reviews and proposals only.
+7. The missing model sections (assets and accounting, invariants, actors) and APEX reading them.
+8. Preregistered prediction records, so prediction and counterfactual quality can be scored.
+9. Only then: a learned prioritisation or action policy, trained on evaluated outcomes, compared with the rule baseline on held-out
+   data, with leakage checks, before any claim of improvement.
+
+**Compatibility check for C1–C3:** no code change was needed. The model is sectioned and versioned, the lead key is derived from
+stable facts, and evidence is stored per engine, so the capabilities above can be added without rebuilding the engine integrations.
