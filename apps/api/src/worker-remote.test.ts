@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyStepError, LeaseLostError, StepError } from "./step-errors.js";
-import { isWorkerApiRequest, TokenBucket } from "./worker-api.js";
+import { asRefusal, COMPLETE_SCHEMAS, isWorkerApiRequest, OPERATIONS, TokenBucket } from "./worker-api.js";
 import { derivedIdempotencyKey, RunTerminalError, WorkerApiClient, WorkerApiRefusedError, WorkerTokenRejectedError } from "./worker-api-client.js";
 import { remoteStepKeys, remoteWorkerSettings } from "./worker-remote.js";
 import { parseWorkerToken, redactWorkerTokens } from "./worker-tokens.js";
@@ -136,3 +136,23 @@ describe("option D: D7 derived idempotency keys and D4 final refusals", () => {
     expect(e).toBeInstanceOf(RunTerminalError); expect((e as RunTerminalError).runStatus).toBe("cancelled");
   });
 });
+
+describe("option D: D5 refusal mapping and D1/D3 surface", () => {
+  it("maps pool and connect timeouts to a RETRYABLE 503 before the generic 'rejected' mapping (they are plain Errors)", () => {
+    for (const m of ["timeout exceeded when trying to connect", "Connection terminated unexpectedly", "connect ECONNREFUSED 127.0.0.1:5432"]) {
+      const r = asRefusal(new Error(m)); expect([r.status, r.code], m).toEqual([503, "database_unavailable"]);
+    }
+    expect(asRefusal(new Error("some validation message")).status).toBe(422);
+    expect(asRefusal(new TypeError("x")).status).toBe(500);
+  });
+  it("D1: record_evaluation exists only to be refused; D3: every research step key has a strict completion schema", async () => {
+    await expect(OPERATIONS.record_evaluation!.run({} as never, {}, null)).rejects.toMatchObject({ status: 403, code: "evaluations_are_api_derived" });
+    expect(Object.keys(COMPLETE_SCHEMAS).sort()).toEqual(["acquire_repository", "analyze_structure", "build_dossier", "challenge_leads", "slither_scan"]);
+    const snap = "00000000-0000-4000-8000-000000000001";
+    for (const key of ["analyze_structure", "challenge_leads", "build_dossier"]) {
+      expect(COMPLETE_SCHEMAS[key]!.safeParse({ status: { analyze_structure: "structure_analyzed", challenge_leads: "leads_challenged", build_dossier: "dossier_built" }[key], snapshot_id: snap }).success, key).toBe(true);
+      expect(COMPLETE_SCHEMAS[key]!.safeParse({ status: "x", snapshot_id: snap, authorization_status: "authorized" }).success, key).toBe(false);
+    }
+  });
+});
+

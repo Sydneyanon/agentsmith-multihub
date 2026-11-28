@@ -475,6 +475,10 @@ export function evidenceIntegrity(gen: { kind: string; id: string; version: stri
   };
 }
 
+/** What of the provenance is CONTENT (hashed): who established each part and the verified counts; not run-specific ids or times. */
+const provenanceDigest = (p: DossierProvenance) => ({ ...p, note: undefined, snapshot: p.snapshot.status === "api_verified_against_github"
+  ? { status: p.snapshot.status, files_matched: p.snapshot.files_matched, skips_verified: p.snapshot.skips_verified, skips_unverified: p.snapshot.skips_unverified } : p.snapshot });
+
 /** D3: which parts of the dossier the API verified or derived itself, from stored records only. */
 async function dossierProvenance(pool: Pool, snapshotId: string, keyed: boolean, entries: DossierEntry[]): Promise<DossierProvenance> {
   const v = keyed ? (await pool.query<{ resolved_commit: string; tree_sha: string; files_matched: number; skips_verified: number; skips_unverified: number; verified_at: Date; result_blob_sha256: string }>(
@@ -559,7 +563,7 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
     limitations.push(`Bounty scope (${scope.programme}, evidence ${scope.evidence}, sha256 ${scope.evidence_sha256.slice(0, 12)}…): ${scope.in_scope_paths.length} files are in scope. The whole repository was analysed so that interactions are visible, but only leads whose primary location is in scope can be eligible bounty findings; every other lead is labelled OUT OF SCOPE.`);
   }
   const provenance = await dossierProvenance(pool, snapshotId, keyed, entries);
-  const hashed: unknown[] = [content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer, provenance, entries.map((e) => [e.provenance.claim, e.provenance.evaluations.map((x) => `${x.evaluator}:${x.outcome}:${x.recorded_by}`)])];
+  const hashed: unknown[] = [content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer, provenanceDigest(provenance), entries.map((e) => [e.provenance.claim, e.provenance.evaluations.map((x) => `${x.evaluator}:${x.outcome}:${x.recorded_by}`)])];
   if (bountyScope) hashed.push(bountyScope, entries.map((e) => [e.hypothesis_id, e.scope_status]));
   const content_sha256 = createHash("sha256").update(JSON.stringify(hashed)).digest("hex");
   return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, provenance, coverage, analyzer, summary, entries, architecture, limitations, content_sha256, ...(bountyScope ? { bounty_scope: bountyScope } : {}) };

@@ -32,10 +32,13 @@ try {
     client.claimNext = async (keys) => {
       const s = await original(keys);
       if (s && pauseBefore.has(s.step_key)) {
-        const { writeFileSync } = await import("node:fs");
-        writeFileSync(process.env.REMOTE_CHILD_PAUSE_FILE!, s.id);
+        const { existsSync, writeFileSync } = await import("node:fs");
+        const pauseFile = process.env.REMOTE_CHILD_PAUSE_FILE!;
+        writeFileSync(pauseFile, s.id);
         log("paused", { step: s.step_key, step_id: s.id });
-        await new Promise(() => undefined); // until killed
+        pauseBefore.delete(s.step_key); // pause once per key
+        while (existsSync(pauseFile)) await new Promise((r) => setTimeout(r, 50)); // until the test removes the file (or kills us)
+        log("resumed", { step: s.step_key });
       }
       return s;
     };

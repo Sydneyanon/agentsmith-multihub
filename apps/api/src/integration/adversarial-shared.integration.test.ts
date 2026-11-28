@@ -518,7 +518,7 @@ describe.skipIf(skipIntegration)("ADVERSARIAL (shared scenarios) against D: a co
       for (const pid of pids) { const environ = readFileSync(`/proc/${pid}/environ`, "utf8"); expect(environ).not.toContain(R10.token); expect(environ).not.toMatch(/WORKER_API_TOKEN=/); }
       expect(existsSync(tokenFile)).toBe(false); // unlinked after reading
       expect(out).toContain('"environ_has_token":false'); expect(out).toContain('"token_file_removed":true'); expect(out).not.toContain(secretOf(R10.token));
-      child.kill("SIGKILL");
+      for (const pid of pids.reverse()) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
       // a token in the environment refuses the start (exit 64), without echoing it
       const refused = spawn(`${REPO_ROOT}node_modules/.bin/tsx`, [`${REPO_ROOT}apps/api/src/worker-remote-main.ts`], { cwd: REPO_ROOT, env: { PATH: process.env.PATH ?? "", WORKER_STORE: "api", WORKER_API_URL: base, WORKER_API_TOKEN: R10.token }, stdio: ["ignore", "pipe", "pipe"] });
       let rout = ""; refused.stdout.on("data", (c) => { rout += c; }); refused.stderr.on("data", (c) => { rout += c; });
