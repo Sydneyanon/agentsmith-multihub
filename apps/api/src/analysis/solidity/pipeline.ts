@@ -7,6 +7,8 @@ import { analyzeSources, type Finding } from "./specialists.js";
 import { buildProtocolModel, reachableCalls, type ProtocolModel } from "./protocol-model.js";
 import type { AuthorityFacts } from "./authority.js";
 import { sha256Hex, type ResearchStore, type StepLease } from "../../research-state.js";
+import { slitherScanOfSnapshot } from "./slither-record.js";
+import { SLITHER_VERSION as SLITHER_PINNED } from "./keys.js";
 
 /**
  * Glue between the structural analysis and the durable research state (5.1): findings become evidence-linked hypotheses citing
@@ -16,7 +18,7 @@ import { sha256Hex, type ResearchStore, type StepLease } from "../../research-st
 export const SPECIALIST_ID = "solidity-structural-specialists"; export const SPECIALIST_VERSION = "1";
 export const VALIDATOR_ID = "reentrancy-execution-validator"; export const VALIDATOR_VERSION = "1";
 
-export type StoredHypothesis = { id: string; finding: Finding; spanIds: string[] };
+export type StoredHypothesis = { id: string; finding: Finding; spanIds: string[]; /** set for an external producer's lead (e.g. "slither@0.11.3"); absent for the specialists' own */ producer?: string };
 /** research_blobs holds at most 1 MiB per blob; a larger model is not stored (and the step says so) rather than truncated. */
 const MODEL_BLOB_LIMIT = 1_048_576;
 export type StoredProtocolModel = { sha256: string; stored: boolean; components: number; functions: number; callEdges: number; unknowns: number };
@@ -72,7 +74,24 @@ export async function runStructuralAnalysis(pool: Pool, store: ResearchStore, le
   return { stored, problems, contracts: index.contracts.size, functions: fns, protocolModel };
 }
 
+/**
+ * An EXTERNAL producer's stored leads (e.g. Slither's), as the input the independent evaluators need: the class, the contract, the
+ * function and the location, with the hypothesis's own recorded spans (primary first). Nothing of the producer's reasoning is passed on,
+ * so the evaluators judge the lead by their own method; a class with no validator is recorded as "no independent validator".
+ */
+export async function externalLeadsAsStored(pool: Pick<Pool, "query">, producer: string, leads: ReadonlyArray<{ hypothesisId: string; class: string; contract: string; function: string; file: string; line: number }>): Promise<StoredHypothesis[]> {
+  const out: StoredHypothesis[] = [];
+  for (const l of leads) {
+    const spans = (await pool.query<{ span_id: string }>("SELECT span_id FROM hypothesis_evidence WHERE hypothesis_id = $1 ORDER BY (role = 'primary') DESC, span_id", [l.hypothesisId])).rows.map((x) => x.span_id);
+    const finding = { class: l.class as Finding["class"], contract: l.contract, function: l.function, file: l.file, line: l.line, claim: "", rationale: "", requiredChecks: [], alternatives: [], spans: [], chain: [], assumptions: [], confidence: "low", detail: {} } as Finding;
+    out.push({ id: l.hypothesisId, finding, spanIds: spans, producer });
+  }
+  return out;
+}
+
 export type Validation = { hypothesisId: string; outcome: SimOutcome };
+/** the classes `challengeFinding` has a method for (reentrancy has its own validator, below) */
+const CHALLENGED_CLASSES: ReadonlySet<string> = new Set(["access-control", "selfdestruct", "delegatecall", "initializer", "unchecked-call"]);
 
 /** Independent challenge of reentrancy leads by execution; other classes are recorded as inconclusive (no independent validator exists yet). */
 export async function runChallenge(pool: Pool, store: ResearchStore, lease: StepLease, snapshotId: string, stored: StoredHypothesis[]): Promise<Validation[]> {
@@ -80,10 +99,12 @@ export async function runChallenge(pool: Pool, store: ResearchStore, lease: Step
   for (const h of stored) {
     const primary = h.spanIds[0]!;
     if (h.finding.class !== "reentrancy") {
-      const c = challengeFinding(index, h.finding);
+      // a class with no challenger (e.g. an external producer's missing-zero-check) is "no independent validator", even when its
+      // function cannot be found; for the specialists' own classes this is exactly the previous behaviour
+      const c = CHALLENGED_CLASSES.has(h.finding.class) ? challengeFinding(index, h.finding) : null;
       if (!c) {
         await store.recordEvaluation(lease, { hypothesisId: h.id, evaluatorId: "no-independent-validator", evaluatorVersion: "1", outcome: "inconclusive",
-          rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by the specialist and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim) });
+          rationale: `No independent validator exists yet for ${h.finding.class} leads; this lead has only been produced by ${h.producer ?? "the specialist"} and has not been challenged.`, spanIds: [], inputSha256: sha256Hex(h.finding.claim) });
         continue;
       }
       const outcome = c.verdict === "validated" ? "supports" : c.verdict === "refuted" ? "weakens" : "inconclusive";
@@ -119,7 +140,14 @@ export type AuthoritySummary = {
  * `not_analysable` means the snapshot holds no Solidity (e.g. a non-EVM repository); `not_analysed` means no successful analysis
  * step is recorded for the snapshot's run.
  */
-export type AnalysisCoverage = { status: "complete" | "partial" | "not_analysable" | "not_analysed"; solidity_files: number; contracts: number | null; functions: number | null; problems: string[] };
+export type AnalysisCoverage = {
+  status: "complete" | "partial" | "not_analysable" | "not_analysed"; solidity_files: number; contracts: number | null; functions: number | null; problems: string[];
+  /** present ONLY for runs created with the optional Slither stage: what the external tool did, or why it abstained */
+  external_tools?: ExternalToolCoverage[];
+};
+export type ExternalToolCoverage =
+  | { tool: "slither"; pinned_version: string; status: "completed"; version: string; solc_version: string; generator: string; leads: number; informational_detections: number; unanchored: number; leads_not_recorded: number }
+  | { tool: "slither"; pinned_version: string; status: "abstained"; code: string; detail: string };
 export type Dossier = {
   snapshot: { id: string; repository: string; commit_sha: string; file_count: number; manifest_sha256: string; verified: boolean };
   coverage: AnalysisCoverage;
@@ -197,6 +225,28 @@ async function architectureFromStoredModel(pool: Pool, snapshotId: string): Prom
   };
 }
 
+/**
+ * The optional Slither stage in the dossier (runs created with `slitherScan` only; otherwise nothing changes). A completed scan is listed
+ * as an external tool with its generator; an abstention is listed with its code and reason, is added to the coverage problems (so the
+ * dossier is PARTIAL, never presented as complete) and to the limitations. A stage that exists but has no recorded outcome is the same.
+ */
+async function addSlitherCoverage(pool: Pool, snapshotId: string, coverage: AnalysisCoverage, limitations: string[]): Promise<void> {
+  const s = await slitherScanOfSnapshot(pool, snapshotId);
+  if (!s.exists) return;
+  const o = s.outcome ?? { status: "abstained" as const, code: "not_recorded", detail: "the Slither stage has no recorded outcome" };
+  if (o.status === "tool_completed") {
+    coverage.external_tools = [{ tool: "slither", pinned_version: SLITHER_PINNED, status: "completed", version: o.version, solc_version: o.solcVersion, generator: `slither@${o.version}`, leads: o.leads.length, informational_detections: o.informational, unanchored: o.unanchored, leads_not_recorded: o.notRecorded }];
+    if (o.notRecorded > 0) { coverage.problems.push(`Slither ${o.version}: ${o.notRecorded} mapped detections were not recorded (the per-run lead limit was reached)`); if (coverage.status === "complete") coverage.status = "partial"; }
+    limitations[0] = `Leads generated by ${SPECIALIST_ID} come from deterministic rules over source text. Leads generated by slither@${o.version} come from Slither compiling the snapshot with solc ${o.solcVersion} on the worker (pinned, offline); nothing was run against a chain or tested with a fuzzer.`;
+    limitations.push(`Slither leads are claims by an external tool, not evidence. Each is challenged by AgentSmith's own validators where its class has one; other classes are recorded as "no independent validator". ${o.informational} informational detections were counted, not stored${o.unanchored ? `; ${o.unanchored} mapped detections could not be anchored to the snapshot and were not stored` : ""}.`);
+  } else {
+    coverage.external_tools = [{ tool: "slither", pinned_version: SLITHER_PINNED, status: "abstained", code: o.code, detail: o.detail }];
+    coverage.problems.push(`Slither ${SLITHER_PINNED} abstained (${o.code}): ${o.detail}`);
+    if (coverage.status === "complete") coverage.status = "partial";
+    limitations.push(`Slither ${SLITHER_PINNED} was requested for this run but abstained (${o.code}), so no Slither leads are included. That is NOT evidence that Slither would find nothing.`);
+  }
+}
+
 /** Builds the dossier ONLY from stored records; spans are re-resolved and re-verified; fails closed if any cited span cannot be verified. */
 export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId: string): Promise<Dossier> {
   const snap = (await pool.query("SELECT id, repository, commit_sha, file_count, manifest_sha256 FROM repo_snapshots WHERE id = $1", [snapshotId])).rows[0];
@@ -216,7 +266,8 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
     const evals = (await pool.query<{ evaluator_id: string; outcome: string; rationale: string }>("SELECT evaluator_id, outcome, rationale FROM hypothesis_evaluations WHERE hypothesis_id = $1 ORDER BY evaluator_id, created_at", [h.id])).rows;
     const st = (await store.getStatus(h.id)) as Record<string, unknown> | null;
     const cls = h.family.replace(/^solidity-/, "");
-    entries.push({ hypothesis_id: h.id, class: cls, function: /^(\w+\.\w+)/.exec(h.claim)?.[1] ?? "", claim: h.claim, rationale: h.rationale, required_checks: h.required_checks, alternative_explanations: h.alternative_explanations,
+    const fn = h.generator_id === "slither" ? /^Slither \S+ \([^)]*\) in ([\w$]+(?:\.[\w$]+)?):/.exec(h.claim)?.[1] ?? "" : /^(\w+\.\w+)/.exec(h.claim)?.[1] ?? "";
+    entries.push({ hypothesis_id: h.id, class: cls, function: fn, claim: h.claim, rationale: h.rationale, required_checks: h.required_checks, alternative_explanations: h.alternative_explanations,
       generator: `${h.generator_id}@${h.generator_version}`, evidence, evaluations: evals.map((e) => ({ evaluator: e.evaluator_id, outcome: e.outcome, rationale: e.rationale })),
       status: (st?.status as string) ?? null, static_outcome: (st?.static_outcome as string) ?? null, human_review: "none recorded" });
   }
@@ -230,6 +281,7 @@ export async function buildDossier(pool: Pool, store: ResearchStore, snapshotId:
   ];
   const architecture = await architectureFromStoredModel(pool, snapshotId);
   const coverage = await analysisCoverage(pool, snapshotId); const analyzer = await analyzerRecord(pool, snapshotId);
+  await addSlitherCoverage(pool, snapshotId, coverage, limitations); // no-op unless the run was created with the Slither stage
   const content = entries.map((e) => [e.class, e.function, e.claim, e.evidence.map((x) => `${x.path}:${x.lines}:${x.text}`), e.evaluations.map((x) => `${x.evaluator}:${x.outcome}`), e.status]);
   const content_sha256 = createHash("sha256").update(JSON.stringify([content, architecture.available ? architecture.model_sha256 : null, coverage, analyzer])).digest("hex");
   return { snapshot: { id: snap.id, repository: snap.repository, commit_sha: snap.commit_sha, file_count: snap.file_count, manifest_sha256: snap.manifest_sha256, verified: verified.ok === true }, coverage, analyzer, summary, entries, architecture, limitations, content_sha256 };
@@ -240,7 +292,10 @@ export function renderDossierMarkdown(d: Dossier): string {
     `Snapshot ${d.snapshot.id}: ${d.snapshot.file_count} files, manifest \`${d.snapshot.manifest_sha256}\`, database verification ok=${d.snapshot.verified}. Content hash \`${d.content_sha256}\`.\n`,
     `Analyzer: ${d.analyzer.version ?? "not recorded"}; build commit ${d.analyzer.build_commit ?? "not recorded"}${d.analyzer.image ? ` (image \`${d.analyzer.image}\`)` : ""}.\n`,
     `**Analysis coverage: ${d.coverage.status.toUpperCase().replace("_", " ")}** — ${d.coverage.solidity_files} Solidity files${d.coverage.contracts !== null ? `, ${d.coverage.contracts} contracts, ${d.coverage.functions} functions analysed` : ""}.${d.coverage.status === "complete" ? "" : " This is NOT a complete investigation of the snapshot."}\n`
-      + (d.coverage.problems.length ? d.coverage.problems.map((p) => `- ${p}`).join("\n") + "\n" : ""),
+      + (d.coverage.problems.length ? d.coverage.problems.map((p) => `- ${p}`).join("\n") + "\n" : "")
+      + (d.coverage.external_tools?.length ? d.coverage.external_tools.map((t) => t.status === "completed"
+        ? `External tool: **${t.generator}** completed (solc ${t.solc_version}): ${t.leads} leads, ${t.informational_detections} informational detections counted, not stored.`
+        : `External tool: **slither ${t.pinned_version} ABSTAINED** (${t.code}): ${t.detail}`).join("\n") + "\n" : ""),
     `Status counts (derived by the database view): ${Object.entries(d.summary).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}.\n`, "## Leads\n"];
   if (!d.entries.length) o.push("_No leads were generated. That is NOT evidence that the code is free of vulnerabilities: it means only that this analyzer's patterns did not match (see coverage and limitations)._\n");
   d.entries.forEach((e, i) => {

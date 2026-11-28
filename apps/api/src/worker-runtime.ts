@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ACQUIRE_STEP_KEY, processAcquireRepositoryStep, type AcquireStepContext } from "./acquisition/step.js";
-import { ANALYSIS_STEP_KEYS, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
+import { ANALYSIS_STEP_KEYS, SLITHER_STEP_KEY, STRUCTURAL_ANALYSIS_SWITCH } from "./analysis/solidity/keys.js";
+import { slitherScanClaimable } from "./analysis/solidity/slither-step.js";
 import { dispatchAnalysisStep } from "./analysis/solidity/step.js";
 import { dispatchEngineStep, ENGINE_LOOP_SWITCH, ENGINE_STEP_KEYS } from "./engine/steps.js";
 import { githubSourceFromEnv, type RepositorySource } from "./acquisition/github-source.js";
@@ -1026,7 +1027,10 @@ const INTAKE_STEP_KEYS = [
 export function intakeStepKeys(env: Record<string, string | undefined>): readonly string[] {
   if (env[STRUCTURAL_ANALYSIS_SWITCH] !== "true") return INTAKE_STEP_KEYS;
   // research-loop assignments need BOTH switches (exactly "true"); both are off everywhere by default
-  return env[ENGINE_LOOP_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS] : [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS];
+  const keys: string[] = env[ENGINE_LOOP_SWITCH] === "true" ? [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS, ...ENGINE_STEP_KEYS] : [...INTAKE_STEP_KEYS, ...ANALYSIS_STEP_KEYS];
+  // the optional Slither stage additionally needs SLITHER_SCAN_ENABLED=true AND both pinned binaries configured (off by default)
+  if (slitherScanClaimable(env) && !keys.includes(SLITHER_STEP_KEY)) keys.push(SLITHER_STEP_KEY);
+  return keys;
 }
 
 async function dispatchIntakeStep(pool: Pool, worker: WorkflowWorker, step: ClaimedStep, acquire: Omit<AcquireStepContext, "pool" | "worker">): Promise<void> {

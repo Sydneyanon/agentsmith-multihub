@@ -4,7 +4,9 @@ import { ResearchStore } from "../../research-state.js";
 import type { ClaimedStep, WorkflowWorker } from "../../worker.js";
 import { ACQUIRE_STEP_KEY } from "../../acquisition/step.js";
 import { ANALYZER_VERSION, ANALYZE_STEP_KEY, CHALLENGE_STEP_KEY, DOSSIER_STEP_KEY } from "./keys.js";
-import { buildDossier, buildStructuralMap, loadStoredHypotheses, runChallenge, runStructuralAnalysis, SPECIALIST_ID } from "./pipeline.js";
+import { buildDossier, buildStructuralMap, externalLeadsAsStored, loadStoredHypotheses, runChallenge, runStructuralAnalysis, SPECIALIST_ID } from "./pipeline.js";
+import { isResearchSlitherStep, slitherScanOfRun } from "./slither-record.js";
+import { processResearchSlitherScanStep } from "./slither-step.js";
 import { createHash } from "node:crypto";
 import { readBuildInfo } from "../../engine-status.js";
 
@@ -14,7 +16,7 @@ import { readBuildInfo } from "../../engine-status.js";
  * lease, and read nothing from the network. They exist only in runs created with `structuralAnalysis`, and a worker claims them only when
  * STRUCTURAL_ANALYSIS_ENABLED=true. Passive: nothing from the analysed repository is executed on the host.
  */
-export type AnalysisStepContext = { pool: Pool; worker: WorkflowWorker; workerId: string; heartbeatMs?: number };
+export type AnalysisStepContext = { pool: Pool; worker: WorkflowWorker; workerId: string; heartbeatMs?: number; /** defaults to process.env (read only by the optional Slither stage) */ env?: Record<string, string | undefined> };
 
 export async function sealedSnapshot(pool: Pool, store: ResearchStore, runId: string): Promise<{ snapshotId: string; commitSha: string; manifestSha256: string; repository: string }> {
   const r = await pool.query<{ output: Record<string, unknown> }>("SELECT output FROM workflow_steps WHERE workflow_run_id = $1 AND step_key = $2 AND status = 'succeeded'", [runId, ACQUIRE_STEP_KEY]);
@@ -53,9 +55,19 @@ export async function processChallengeLeadsStep(ctx: AnalysisStepContext, step: 
   const store = new ResearchStore(ctx.pool); const snap = await sealedSnapshot(ctx.pool, store, step.workflow_run_id);
   await withHeartbeat(ctx, step, async () => {
     const stored = await loadStoredHypotheses(ctx.pool, snap.snapshotId);
-    const validations = await runChallenge(ctx.pool, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, stored);
+    // the optional Slither stage's leads (runs created with `slitherScan` only): challenged by the SAME independent evaluators, never by
+    // Slither; only hypotheses that really are Slither's on this snapshot are taken from the step output
+    const slither = await slitherScanOfRun(ctx.pool, step.workflow_run_id);
+    let external: typeof stored = [];
+    if (slither.outcome?.status === "tool_completed" && slither.outcome.leads.length) {
+      const ids = slither.outcome.leads.map((l) => l.hypothesisId);
+      const ok = new Set((await ctx.pool.query<{ id: string }>("SELECT id FROM hypotheses WHERE id = ANY($1::uuid[]) AND snapshot_id = $2 AND generator_id = 'slither'", [ids, snap.snapshotId])).rows.map((x) => x.id));
+      external = await externalLeadsAsStored(ctx.pool, `slither@${slither.outcome.version}`, slither.outcome.leads.filter((l) => ok.has(l.hypothesisId)));
+    }
+    const validations = await runChallenge(ctx.pool, store, { stepId: step.id, workerId: ctx.workerId }, snap.snapshotId, [...stored, ...external]);
     const verdicts: Record<string, number> = {}; for (const v of validations) verdicts[v.outcome.verdict] = (verdicts[v.outcome.verdict] ?? 0) + 1;
-    await ctx.worker.complete(step.id, { status: "leads_challenged", analyzer: ANALYZER_VERSION, snapshot_id: snap.snapshotId, leads: stored.length, reentrancy_verdicts: verdicts, ...passive });
+    await ctx.worker.complete(step.id, { status: "leads_challenged", analyzer: ANALYZER_VERSION, snapshot_id: snap.snapshotId, leads: stored.length, reentrancy_verdicts: verdicts,
+      ...(slither.exists ? { slither: { status: slither.outcome?.status ?? "not_recorded", leads_challenged: external.length } } : {}), ...passive });
   });
 }
 
@@ -67,6 +79,7 @@ export async function processBuildDossierStep(ctx: AnalysisStepContext, step: Cl
 
 export async function dispatchAnalysisStep(ctx: AnalysisStepContext, step: ClaimedStep): Promise<boolean> {
   if (step.step_key === ANALYZE_STEP_KEY) { await processAnalyzeStructureStep(ctx, step); return true; }
+  if (isResearchSlitherStep(step)) { await processResearchSlitherScanStep(ctx, step); return true; } // an engine-loop slither_scan step falls through
   if (step.step_key === CHALLENGE_STEP_KEY) { await processChallengeLeadsStep(ctx, step); return true; }
   if (step.step_key === DOSSIER_STEP_KEY) { await processBuildDossierStep(ctx, step); return true; }
   return false;
