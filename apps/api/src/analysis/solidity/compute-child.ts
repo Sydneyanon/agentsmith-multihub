@@ -1,5 +1,6 @@
 import { buildStructuralMap, computeChallenge, computeStructuralAnalysis, type StoredHypothesis } from "./pipeline.js";
 import { computeApexShadow, type ShadowLimits } from "../../apex/shadow.js";
+import type { SharedModelContext } from "./shared-model.js";
 
 /**
  * The child process in which the API runs the deterministic analysis and the execution validators on a sealed snapshot (option D, D1
@@ -7,7 +8,7 @@ import { computeApexShadow, type ShadowLimits } from "../../apex/shadow.js";
  * It has no database connection, no network use, no token and a minimal environment; the parent bounds its CPU time, wall time, heap
  * and output size, and kills it on any limit. Nothing from the repository is executed: the sources are parsed as text.
  */
-type Request = { task: "analyze"; sources: Array<{ path: string; text: string }> } | { task: "challenge"; sources: Array<{ path: string; text: string }>; stored: StoredHypothesis[] }
+type Request = { task: "analyze"; sources: Array<{ path: string; text: string }>; /** C1: the snapshot identity and dependency manifest the shared model is built with */ shared?: SharedModelContext } | { task: "challenge"; sources: Array<{ path: string; text: string }>; stored: StoredHypothesis[] }
   // the APEX shadow stage (measurement only), started by the WORKER's own BoundedCompute on the in-scope sources of the sealed snapshot
   | { task: "apex_shadow"; sources: Array<{ path: string; text: string }>; in_scope_paths: string[]; limits?: Partial<ShadowLimits> };
 
@@ -20,7 +21,7 @@ async function readStdin(): Promise<string> {
 try {
   const req = JSON.parse(await readStdin()) as Request;
   const result = req.task === "analyze"
-    ? { structure: computeStructuralAnalysis(req.sources), map: buildStructuralMap(req.sources) }
+    ? { structure: computeStructuralAnalysis(req.sources, req.shared), map: buildStructuralMap(req.sources) }
     : req.task === "challenge" ? { planned: computeChallenge(req.sources, req.stored) }
     : req.task === "apex_shadow" ? { shadow: computeApexShadow({ sources: req.sources, inScopePaths: req.in_scope_paths, ...(req.limits ? { limits: req.limits } : {}) }) } : null;
   if (!result) throw new Error("unknown task");

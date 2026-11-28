@@ -13,7 +13,9 @@ import { inputManifestSha256, materialise, runFixed, sha256, toolVersion, type T
  * the reproducibility record (versions, arguments, input manifest hash, raw output hash, exit code, duration) and the structured
  * detector results; every failure is an explicit code, never an empty "no findings".
  */
-export const SLITHER_ARGS = (dir: string, solc: string) => [dir, "--solc", solc, "--json", "-", "--disable-color"];
+export const SLITHER_ARGS = (dir: string, solc: string, remappings: readonly string[] = []) => [dir, "--solc", solc, "--json", "-", "--disable-color", ...(remappings.length ? ["--solc-remaps", remappings.join(" ")] : [])];
+/** a remapping is passed to the compiler only in this shape (no whitespace, no option-looking text); anything else is refused */
+const SAFE_REMAPPING = /^(?:[A-Za-z0-9@._\/-]+:)?[A-Za-z0-9@._\/-]+=[A-Za-z0-9@._\/-]+$/;
 
 export type SlitherElement = { type: string; name: string; contract: string | null; file: string; lines: number[] };
 export type SlitherDetection = { check: string; impact: string; confidence: string; description: string; bugClass: string | null; elements: SlitherElement[] };
@@ -51,11 +53,20 @@ export function parseSlitherJson(raw: string): { detections: SlitherDetection[] 
  * bounds the sum of all invocations (each one gets at most the time remaining), and `maxOutputBytes` bounds what one invocation may
  * print (output beyond it is an explicit `output_invalid`, never a truncated parse). Without them the behaviour is the original one.
  */
-export async function runSlither(input: { files: ReadonlyArray<{ path: string; content: Buffer }>; slitherBin: string; solcBin: string; timeoutMs?: number; totalTimeoutMs?: number; maxOutputBytes?: number }): Promise<SlitherRun | { ok: false; failure: ToolFailure; durationMs: number }> {
+export async function runSlither(input: { files: ReadonlyArray<{ path: string; content: Buffer }>; slitherBin: string; solcBin: string; timeoutMs?: number; totalTimeoutMs?: number; maxOutputBytes?: number;
+  /** C3: dependency sources, written beside the snapshot so imports resolve; never scanned as targets and never anchored (only `files` are) */
+  dependencyFiles?: ReadonlyArray<{ path: string; content: Buffer }>;
+  /** C3: import remappings from the run's dependency manifest (only those whose target is available) */
+  remappings?: readonly string[] }): Promise<SlitherRun | { ok: false; failure: ToolFailure; durationMs: number }> {
   const started = Date.now();
   const fail = (failure: ToolFailure) => ({ ok: false as const, failure, durationMs: Date.now() - started });
   if (!input.files.length) return fail({ code: "input_invalid", detail: "no Solidity files in the snapshot" });
-  const work = materialise(input.files); const home = mkdtempSync(join(tmpdir(), "agentsmith-tool-home-"));
+  const remappings = [...(input.remappings ?? [])];
+  const unsafe = remappings.find((r) => !SAFE_REMAPPING.test(r));
+  if (unsafe !== undefined) return fail({ code: "input_invalid", detail: `a remapping is not in the accepted shape and was not passed to the compiler: ${unsafe.slice(0, 120)}` });
+  const own = new Set(input.files.map((f) => f.path));
+  const extra = (input.dependencyFiles ?? []).filter((f) => !own.has(f.path)); // a dependency never overwrites a file of the analysed snapshot
+  const work = materialise([...input.files, ...extra]); const home = mkdtempSync(join(tmpdir(), "agentsmith-tool-home-"));
   try {
     const v = await toolVersion(input.slitherBin, home, work.dir); if ("code" in v) return fail(v);
     if (v.version !== SLITHER_VERSION) return fail({ code: "version_mismatch", detail: `slither ${v.version}; pinned ${SLITHER_VERSION}` });
@@ -64,7 +75,7 @@ export async function runSlither(input: { files: ReadonlyArray<{ path: string; c
     if (!dirs.length) return fail({ code: "input_invalid", detail: "no Solidity files in the snapshot" });
     const all: SlitherDetection[] = []; const outputs: string[] = []; const argsUsed: string[][] = []; const exitCodes: Array<number | null> = []; const seen = new Set<string>();
     for (const dir of dirs) {
-      const args = SLITHER_ARGS(dir, input.solcBin); argsUsed.push(args.map((x) => (x === input.solcBin ? "<solc>" : x)));
+      const args = SLITHER_ARGS(dir, input.solcBin, remappings); argsUsed.push(args.map((x) => (x === input.solcBin ? "<solc>" : x)));
       const perRun = input.timeoutMs ?? 300_000;
       const remaining = input.totalTimeoutMs === undefined ? perRun : input.totalTimeoutMs - (Date.now() - started);
       if (remaining <= 0) return fail({ code: "timeout", detail: `overall limit of ${input.totalTimeoutMs} ms reached before ${dir}` });
@@ -84,7 +95,7 @@ export async function runSlither(input: { files: ReadonlyArray<{ path: string; c
       }
     }
     const rawOutput = outputs.length === 1 ? outputs[0]! : JSON.stringify(outputs.map((o) => JSON.parse(o)));
-    return { ok: true, version: v.version, solcVersion: sv.version, args: argsUsed, inputManifestSha256: inputManifestSha256(input.files),
+    return { ok: true, version: v.version, solcVersion: sv.version, args: argsUsed, inputManifestSha256: inputManifestSha256(extra.length ? [...input.files, ...extra] : input.files),
       rawOutput, rawOutputSha256: sha256(rawOutput), exitCodes, durationMs: Date.now() - started, detections: all };
   } finally { work.cleanup(); rmSync(home, { recursive: true, force: true }); }
 }
