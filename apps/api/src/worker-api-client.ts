@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Dossier, StoredHypothesis } from "./analysis/solidity/pipeline.js";
 import type { SlitherScanOutcome } from "./analysis/solidity/slither-record.js";
 import { ResearchConflictError, type EvaluationOutcome, type GeneratorIdentity, type SnapshotFileInput, type SpanRole, type StepLease } from "./research-state.js";
@@ -24,7 +24,8 @@ export class WorkerTokenRejectedError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = "WorkerTokenRejectedError"; }
 }
 export class RunTerminalError extends Error {
-  constructor(message: string) { super(message); this.name = "RunTerminalError"; }
+  /** the run's status as the API reported it (e.g. "cancelled", "succeeded"); null when not reported */
+  constructor(message: string, readonly runStatus: string | null = null) { super(message); this.name = "RunTerminalError"; }
 }
 /** The API refused the request outright (validation, scope, operation not allowed): permanent, like a store validation error. */
 export class WorkerApiRefusedError extends Error {
@@ -36,6 +37,8 @@ export type WorkerApiClientOptions = {
   fetchImpl?: typeof fetch;
   /** Per-request timeout. Default 30 s (a dossier build or a large source read happens server-side). */
   timeoutMs?: number;
+  /** Timeout of `complete` and `seal_snapshot`, where the API verifies against GitHub or runs its own bounded analysis. Default 180 s. */
+  longTimeoutMs?: number;
   /** Attempts per call for transient failures. Default 5. */
   attempts?: number;
   /** First backoff; doubles per attempt, capped at 8 s. Default 250 ms. */
@@ -45,8 +48,22 @@ export type WorkerApiClientOptions = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-type Envelope = { ok: boolean; result?: unknown; error?: string; message?: string; entity?: string; identity?: string; differing?: string[]; retry_after_seconds?: number };
+type Envelope = { ok: boolean; result?: unknown; error?: string; message?: string; entity?: string; identity?: string; differing?: string[]; retry_after_seconds?: number; run_status?: string };
 const TOKEN_CODES = new Set(["token_invalid", "token_expired", "token_revoked", "run_not_eligible"]);
+/** quota refusals are final for this token whatever their HTTP status (D4): retrying cannot help, so they are never retried */
+const FINAL_CODES = new Set(["storage_quota_exceeded", "read_quota_exceeded", "processing_budget_exhausted", "processing_limit_exceeded"]);
+const LONG_OPERATIONS = new Set(["complete", "seal_snapshot"]);
+
+/**
+ * D7: the idempotency key of a state-changing call is DERIVED, not random: a UUID from sha256(step id, attempt, operation, request body).
+ * A worker that restarts, or retries after a lost answer, sends the same key for the same logical write in the same attempt and gets the
+ * API's ORIGINAL answer back; a new attempt (after the lease was lost) gets new keys and relies on the store's own idempotency. A claim,
+ * which names no step yet, keeps a random key.
+ */
+export function derivedIdempotencyKey(stepId: string, attempt: number, operation: string, body: unknown): string {
+  const h = createHash("sha256").update(`agentsmith-worker-key/1\n${stepId}\n${attempt}\n${operation}\n${JSON.stringify(body)}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h[16]!, 16) & 0x3) | 0x8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
 
 export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, ResearchReads {
   private readonly base: string;
@@ -62,8 +79,19 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
     this.fetchImpl = options.fetchImpl ?? internalApiFetch;
   }
 
+  /** attempt number of each step this client claimed (or adopted), for derived idempotency keys */
+  private readonly attempts = new Map<string, number>();
+  /** Registers a step claimed elsewhere (e.g. by a previous process) so its writes get derived keys. */
+  adoptStep(step: { id: string; attempt: number }): void { this.attempts.set(step.id, step.attempt); }
+
+  private keyFor(operation: string, body: Record<string, unknown>): string {
+    const stepId = typeof body["step_id"] === "string" ? body["step_id"] : null;
+    const attempt = stepId ? this.attempts.get(stepId) : undefined;
+    return stepId && attempt !== undefined ? derivedIdempotencyKey(stepId, attempt, operation, body) : randomUUID();
+  }
+
   private async call<T>(operation: string, body: Record<string, unknown>, idempotent: boolean): Promise<T> {
-    const key = idempotent ? randomUUID() : null;
+    const key = idempotent ? this.keyFor(operation, body) : null;
     const attempts = this.options.attempts ?? 5; const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     let lastProblem = "unknown";
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -72,7 +100,7 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
         response = await this.fetchImpl(this.base + operation, {
           method: "POST", redirect: "error",
           headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) },
-          body: JSON.stringify(body), signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000),
+          body: JSON.stringify(body), signal: AbortSignal.timeout(LONG_OPERATIONS.has(operation) ? this.options.longTimeoutMs ?? 180_000 : this.options.timeoutMs ?? 30_000),
         });
       } catch (error) {
         lastProblem = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -83,6 +111,7 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
       try { envelope = JSON.parse(await this.readBounded(response)) as Envelope; } catch { envelope = null; }
       const message = redactWorkerTokens(String(envelope?.message ?? envelope?.error ?? `HTTP ${response.status}`));
       if (response.ok && envelope?.ok) return envelope.result as T;
+      if (envelope && FINAL_CODES.has(envelope.error ?? "")) throw new WorkerApiRefusedError(response.status, envelope.error!, `worker API refused ${operation} (${envelope.error}): ${message}`);
       if (response.status === 429 || response.status >= 500 || !envelope) {
         lastProblem = `HTTP ${response.status} ${envelope?.error ?? ""}`.trim();
         const hinted = Number(response.headers.get("retry-after") ?? 0) * 1000;
@@ -91,7 +120,7 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
       }
       const code = envelope.error ?? "unknown";
       if (response.status === 401 || TOKEN_CODES.has(code)) throw new WorkerTokenRejectedError(code, `worker API refused the token (${code})`);
-      if (code === "run_terminal") throw new RunTerminalError(message);
+      if (code === "run_terminal") throw new RunTerminalError(message, envelope.run_status ?? null);
       if (code === "lease_not_held" || code === "lease_lost") throw new LeaseLostError(`worker API: ${message}`);
       if (code === "research_conflict") throw new ResearchConflictError(envelope.entity ?? "record", envelope.identity ?? "", envelope.differing ?? [], message);
       throw new WorkerApiRefusedError(response.status, code, `worker API refused ${operation} (${code}): ${message}`);
@@ -116,7 +145,7 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
   async claimNext(allowedStepKeys?: readonly string[]): Promise<ClaimedStep | null> {
     if (!allowedStepKeys || allowedStepKeys.length === 0) return null;
     const step = await this.call<ClaimedStep | null>("claim", { step_keys: [...allowedStepKeys] }, true);
-    if (step) this.tainted.delete(step.id);
+    if (step) { this.tainted.delete(step.id); this.attempts.set(step.id, step.attempt); }
     return step;
   }
   async heartbeat(stepId: string): Promise<boolean> {
@@ -167,6 +196,7 @@ export class WorkerApiClient implements WorkerLoopPort, ResearchStorePort, Resea
       generator: { kind: input.generator.kind, id: input.generator.id, version: input.generator.version }, spans: input.spans.map((s) => ({ span_id: s.spanId, role: s.role })),
     }, true);
   }
+  /** D1: the API refuses this, always (evaluations are API-derived). Kept so the port's type is complete; the honest remote worker never calls it. */
   recordEvaluation(lease: StepLease, input: { hypothesisId: string; evaluatorId: string; evaluatorVersion: string; outcome: EvaluationOutcome; rationale: string; spanIds: readonly string[]; inputSha256: string }): Promise<string> {
     return this.call("record_evaluation", { step_id: lease.stepId, hypothesis_id: input.hypothesisId, evaluator_id: input.evaluatorId, evaluator_version: input.evaluatorVersion,
       outcome: input.outcome, rationale: input.rationale, span_ids: [...input.spanIds], input_sha256: input.inputSha256 }, true);

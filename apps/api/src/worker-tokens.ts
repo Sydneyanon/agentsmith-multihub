@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { REPOSITORY_RESEARCH_WORKFLOW } from "./acquisition/step.js";
 
 /**
- * Option D: run-scoped worker capability tokens (draft migration db/drafts/d-worker-api).
+ * Option D: run-scoped worker capability tokens (migration 0015, db/migrations/0015_worker_api.sql).
  *
  * Shape: `wct1_<token id, 32 hex>_<secret, 43 base64url chars = 256 random bits>`. The id is not secret (it is what audit records and
  * operators name); only SHA-256(secret) is stored. A token is bound to exactly one workflow run, expires, can be revoked, and is
