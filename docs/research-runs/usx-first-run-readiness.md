@@ -51,7 +51,7 @@ the run:** the research path uses 0007 and 0012–0014, which are applied. The e
 its own small token and request-log migration; B′ adds 0015. Either is one production migration, which needs your approval.
 
 ## 3. Known limitations the first dossier will state (not blockers)
-1. **Submodules are not fetched.** `usx-contracts` has submodules (e.g. libraries under `lib/`). Calls into them are unresolved, and
+1. **Submodules are not fetched.** `usx-contracts` contains submodule entries (gitlinks) in its tree at this commit (seen in the authenticated tree read on 2026-11-27). Which libraries they are has not been inspected. Calls into them are unresolved, and
    the dossier's architecture section lists them as unresolved. Coverage says "complete" when every in-repository file parsed; it does
    not yet treat unresolved imports as partial. The limitation will be stated in the report and the dossier. A coverage rule for
    unresolved imports is a follow-up.
