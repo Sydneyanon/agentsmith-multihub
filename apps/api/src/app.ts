@@ -10,6 +10,7 @@ import { registerBountyRoutes } from "./bounties/api.js";
 import { registerHubStatic } from "./hub-static.js";
 import { registerHostGuard } from "./host-guard.js";
 import { isWorkerApiRequest, registerWorkerApi, type WorkerApiOptions } from "./worker-api.js";
+import { registerOperationsRoutes } from "./operations-api.js";
 import { expectedMigrations, readBuildInfo, registerEngineStatusRoutes, type EngineInfo } from "./engine-status.js";
 
 export type AppOptions = {
@@ -77,6 +78,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerBountyRoutes(app, pool, options.bounties ?? {});
   registerEngineStatusRoutes(app, pool, { build: options.engineInfo?.build ?? readBuildInfo(), dataKind: options.engineInfo?.dataKind ?? "unlabelled", expectedMigrations: options.engineInfo?.expectedMigrations !== undefined ? options.engineInfo.expectedMigrations : expectedMigrations() });
   if (options.workerApi) registerWorkerApi(app, pool, options.workerApi);
+  registerOperationsRoutes(app, pool, { workerApiEnabled: Boolean(options.workerApi), githubVerifierConfigured: options.workerApi ? Boolean(options.workerApi.github) : null });
   registerHubStatic(app);
   app.addHook("onClose", async () => { await pool?.end(); });
   return app;
