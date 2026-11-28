@@ -23,6 +23,9 @@
  *     that the SAME candidate breaks at the SAME final function for the SAME reason with no approximation on the path;
  *  8. coverage (§10.2 item 1): distinct concrete and abstract states, transitions per function, guards exercised, functions never
  *     completed, statements never reached, abstentions, and an explicit list of unexplored regions.
+ * Two search strategies (§11.1): `deep` (default, `deep-explorer.ts`: layered search to depth + 1 under a budget, boundary/constant/state-
+ * derived amounts, coverage-guided frontier selection, refinement/direction/coincidence refutation rules) and `baseline` (this file's
+ * breadth-first search exactly as at ae41658, kept to measure the difference). Steps 6-7 (gate, minimisation) are one shared function.
  * Nothing here writes to the research store and nothing here is an evaluation: APEX may not validate its own output.
  */
 import { ProgramIndex } from "../../analysis/solidity/index.js";
@@ -32,6 +35,7 @@ import { namesWithRole, stateVariableRoles } from "../../analysis/solidity/state
 import { analyzeSources } from "../../analysis/solidity/specialists.js";
 import { Tracer } from "../../analysis/solidity/trace.js";
 import { CoverageCollector, type Coverage } from "./coverage.js";
+import { exploreDeep } from "./deep-explorer.js";
 import { classifyUnsupported, FidelityInterp, type Approximation, type ApproximationKind, type UnsupportedFeature } from "./fidelity.js";
 
 export type { Coverage } from "./coverage.js";
@@ -44,7 +48,7 @@ const DEPLOYER: Actor = "owner0";
 
 export type Move = { actor: Actor; fn: FunctionDef; args: Value[]; value: bigint };
 export type StepRecord = { actor: Actor; call: string; value: string };
-export type InvariantKind = "conservation" | "solvency" | "actor-value" | "one-way";
+export type InvariantKind = "conservation" | "solvency" | "actor-value" | "one-way" | "partition";
 export type Candidate = { id: string; kind: InvariantKind; statement: string; vars: string[] };
 export type QualityRecord = {
   /** fully modelled honest transitions that moved both sides of the relation and preserved it */
@@ -52,6 +56,8 @@ export type QualityRecord = {
   /** functions that broke it in the breadth-first honest phase (fully modelled or not) */
   honestBreakers: string[];
   depthExtension: "not-run" | "passed" | { rejected: string } | "incomplete";
+  /** deep strategy only: the single-term refinement that explains every honest transition of this candidate, breakers included */
+  explainedBy?: string;
   randomised: "not-run" | { sequences: number; seed: number; transitions: number; passed: true } | { rejected: string; sequence: StepRecord[] };
 };
 export type CandidateResult = Candidate & {
@@ -74,6 +80,8 @@ export type HypothesisDraft = {
 export type ExploreReport = {
   contract: string; abstained: string | null; candidates: CandidateResult[]; violations: Violation[]; hypotheses: HypothesisDraft[];
   coverage: { honest: Coverage; adversarial: Coverage };
+  /** how the search was run (deep strategy only; absent for the baseline strategy) */
+  search?: SearchRecord;
   gate: {
     /** `abstained(<feature>@<file:line>)`, one per distinct feature and location */
     abstentions: AbstentionRecord[];
@@ -92,10 +100,32 @@ export type ExploreReport = {
 export type Domain = { amounts: bigint[]; values: bigint[]; bools: boolean[]; addresses: "self" | "actors" };
 export const EXPLORER_DOMAIN = (adversarial: boolean): Domain => ({ amounts: [ETHER], values: [ETHER], bools: [true], addresses: adversarial ? "actors" : "self" });
 
+export type SearchRecord = {
+  strategy: "deep"; acceptingDepth: number; extensionDepth: number | null; fixpoint: boolean;
+  honestTransitions: number; adversarialTransitions: number; randomTransitions: number; budget: number;
+  /** frontier states not expanded because a layer did not fit its share of the budget (coverage-guided selection) */
+  frontierDropped: { honest: number; adversarial: number };
+  amounts: string[]; values: string[];
+};
 export type ExploreOptions = {
-  depth?: number; maxSequences?: number;
+  /**
+   * `deep` (default): layered breadth-first search to depth + 1 under a transition budget, with boundary, constant-derived and
+   * state-derived amounts, coverage-guided frontier selection, and refutation of candidates explained by a single-term refinement
+   * (`deep-explorer.ts`). `baseline`: the explorer exactly as it was at ae41658, kept to measure the difference.
+   */
+  strategy?: "deep" | "baseline";
+  /** baseline: the breadth-first depth. deep: the accepting depth; layer depth + 1 is the depth-extension check. */
+  depth?: number;
+  /** transitions per search (baseline default 50 000; deep default 6 000 for the honest search, the same again for the adversarial one) */
+  maxSequences?: number;
   /** invariant-quality rules (§10.2 item 2); `false` restores the bare sensitivity rule (support > 0), kept only to measure the difference */
-  quality?: false | { minSupport?: number; randomSequences?: number; randomLength?: number; seed?: number; depthExtension?: boolean };
+  quality?: false | {
+    minSupport?: number; randomSequences?: number; randomLength?: number; seed?: number; depthExtension?: boolean;
+    /** deep only: refutation by a single-term refinement, and the partition candidates it yields (default true) */
+    refinement?: boolean;
+    /** deep only: refutation of a solvency candidate whose ledger moves against the ether held (default true) */
+    direction?: boolean;
+  };
   minimise?: boolean;
 };
 
@@ -104,8 +134,8 @@ export type StepOutcome =
   | { k: "ok"; post: Node; tx: Approximation[] }
   | { k: "revert"; why: string }
   | { k: "unsupported"; feature: UnsupportedFeature; at: string; why: string };
-type Verdict = "support" | "maintain" | "violate" | null;
-type Check = {
+export type Verdict = "support" | "maintain" | "violate" | null;
+export type Check = {
   c: Candidate; holds: (n: Node) => boolean; touched: (pre: Node, post: Node) => boolean; supports: (pre: Node, post: Node) => boolean;
   transitionOk?: (pre: Node, post: Node, m: Move) => boolean; reason: (pre: Node, post: Node) => string;
 };
@@ -134,7 +164,7 @@ export function stateKey(n: Node): string {
   return [...n.w.storage.entries()].filter(([k, v]) => !isDefaultMappingEntry(k, v)).map(([k, v]) => `${k}=${fmt(v)}`).sort().join(";") + `#${n.w.balance}#${n.w.received}#${n.sentByAttacker}${n.approx.length ? "#T" : ""}`;
 }
 
-function sumLedger(w: World, ledger: string): bigint {
+export function sumLedger(w: World, ledger: string): bigint {
   let s = 0n; for (const [k, v] of w.storage) if (k.startsWith(`${ledger}|`) && typeof v === "bigint") s += v; return s;
 }
 
@@ -142,6 +172,8 @@ function sumLedger(w: World, ledger: string): bigint {
 export class Engine {
   readonly ix: ProgramIndex; readonly fns: FunctionDef[]; readonly it: FidelityInterp;
   abstained: string | null = null; root: Node | null = null; checks: Check[] = [];
+  /** shared facts kept for the deep strategy: ledgers and aggregates (P2), and every non-constant uint state variable */
+  ledgers: string[] = []; aggregates: string[] = []; uintScalars: string[] = [];
   readonly deployedValues = new Map<string, Value>();
   constructor(readonly sources: ReadonlyArray<{ path: string; text: string }>, readonly contract: string) {
     this.ix = new ProgramIndex(sources);
@@ -159,13 +191,15 @@ export class Engine {
     const traces = new Map<FunctionDef, ReturnType<Tracer["run"]>>();
     const roles = stateVariableRoles(ix, (f) => { let t = traces.get(f); if (!t) { t = new Tracer(ix).run(f); traces.set(f, t); } return t; }, contract);
     const ledgers = namesWithRole(roles, "ledger"); const aggregates = namesWithRole(roles, "aggregate");
+    this.ledgers = ledgers; this.aggregates = aggregates;
+    this.uintScalars = ix.linearize(contract).flatMap((c) => c.stateVars).filter((v) => !v.constant && !v.immutable && /^uint\d*$/.test(v.type.trim())).map((v) => v.name);
     const handlesEther = fns.some((f) => f.mutability === "payable");
     // phase-like scalars only: a bool/uint (not an aggregate) that some entry point READS IN A GUARD, so the protocol branches on it
     const guardReads = new Set(fns.flatMap((f) => new Tracer(ix).run(f).events.flatMap((e) => (e.k === "guard" ? e.reads : []))));
     const scalar = ix.linearize(contract).flatMap((c) => c.stateVars).filter((v) => !v.constant && !v.immutable && /^(bool|u?int\d*)$/.test(v.type.trim()) && !aggregates.includes(v.name) && guardReads.has(v.name));
     this.phaseVars = [...scalar.map((v) => v.name), ...aggregates];
     // an unwritten slot reads as its declared value or type default (as the interpreter reads it), so `closed = false` on a fresh slot is no change
-    const val = (n: Node, name: string): Value => (n.w.storage.has(name) ? (n.w.storage.get(name) ?? null) : (this.deployedValues.get(name) ?? null));
+    const val = (n: Node, name: string): Value => this.valueOf(n, name);
     const num = (v: Value): bigint => (typeof v === "bigint" ? v : 0n);
     const checks: Check[] = [];
     for (const a of aggregates) for (const l of ledgers) checks.push({
@@ -207,6 +241,8 @@ export class Engine {
     this.checks = checks;
   }
   private phaseVars: string[] = [];
+  /** a scalar's value in a state: an unwritten slot reads as its deployed value or type default, as the interpreter reads it */
+  valueOf(n: Node, name: string): Value { return n.w.storage.has(name) ? (n.w.storage.get(name) ?? null) : (this.deployedValues.get(name) ?? null); }
 
   private deploy(): void {
     const { ix, contract, it } = this;
@@ -226,7 +262,7 @@ export class Engine {
     it.w.trace = [];
     const w = it.w.clone();
     this.root = { w, sentByAttacker: 0n, seq: [], moves: [], approx: deployApprox };
-    for (const name of this.phaseVars) { try { it.w.restore(w); this.deployedValues.set(name, it.readVar(name, [])); } catch { this.deployedValues.set(name, null); } }
+    for (const name of new Set([...this.phaseVars, ...this.uintScalars])) { try { it.w.restore(w); this.deployedValues.set(name, it.readVar(name, [])); } catch { this.deployedValues.set(name, null); } }
   }
 
   moves(d: Domain): { moves: Move[]; excluded: Map<string, string> } {
@@ -365,6 +401,89 @@ export function minimiseCounterexample(engine: Engine, candidateId: string, move
 }
 
 export function exploreStateInvariants(sources: ReadonlyArray<{ path: string; text: string }>, contract: string, options: ExploreOptions = {}): ExploreReport {
+  return (options.strategy ?? "deep") === "baseline" ? exploreBaseline(sources, contract, options) : exploreDeep(sources, contract, options).report;
+}
+
+export type Stat = { maintaining: number; approximatedSupport: number; approximatedKinds: Set<ApproximationKind>; honestViolations: number; example: StepRecord[] | null; breakers: Set<string> };
+export type Found = { k: Check; phase: "honest" | "adversarial"; pre: Node; post: Node; m: Move };
+export const newStat = (): Stat => ({ maintaining: 0, approximatedSupport: 0, approximatedKinds: new Set(), honestViolations: 0, example: null, breakers: new Set<string>() });
+
+/** establishment from honest-phase statistics: minimum support, and the gate's "withheld" record when only approximated support exists */
+export function establish(report: ExploreReport, checks: Check[], stats: Map<string, Stat>, minSupportOpt: number | null, coincidental: (id: string) => string | null = () => null): Map<string, CandidateResult> {
+  const results = new Map<string, CandidateResult>();
+  for (const k of checks) {
+    const st = stats.get(k.c.id)!;
+    const quality: QualityRecord = { support: st.maintaining, minSupport: minSupportOpt ?? 1, honestBreakers: [...st.breakers].sort(), depthExtension: "not-run", randomised: "not-run" };
+    const r: CandidateResult = { ...k.c, established: st.maintaining >= (minSupportOpt ?? 1), maintaining: st.maintaining, honestViolations: st.honestViolations, example: st.example, quality };
+    const minSupport = minSupportOpt ?? 1;
+    // deep strategy only: support that exists only through boundary or derived amounts is not evidence, approximated or not (never "withheld")
+    const why = st.maintaining + st.approximatedSupport >= minSupport ? coincidental(k.c.id) : null;
+    if (why) { r.established = false; r.dropReason = why; results.set(k.c.id, r); continue; }
+    if (!r.established && st.maintaining + st.approximatedSupport >= minSupport) {
+      // the gate, not the protocol, removed the evidence: count it as withheld (it may hide a true bug)
+      r.dropReason = `support only through transitions that touched an approximation (${[...st.approximatedKinds].sort().join(", ")}): not trusted`;
+      report.gate.withheld.push({ candidate: k.c.id, why: "support-only-through-approximations", kinds: [...st.approximatedKinds].sort() as ApproximationKind[] });
+    } else if (!r.established) r.dropReason = st.maintaining === 0
+      ? (st.honestViolations > 0 ? "never preserved by any honest transition: not an invariant of this protocol" : "never exercised by honest sequences: vacuous")
+      : `exercised by only ${st.maintaining} fully modelled honest transition(s) moving both sides; at least ${minSupport} required`;
+    results.set(k.c.id, r);
+  }
+  return results;
+}
+
+/**
+ * The semantic-fidelity gate and everything after it, shared by both strategies so that the gate is literally the same code: abstentions,
+ * suppressed counterexamples counted per kind, withheld candidates, violations from fully modelled sequences only, minimisation, and
+ * hypothesis drafts with the independence marker.
+ */
+export function finishReport(engine: Engine, sources: ReadonlyArray<{ path: string; text: string }>, report: ExploreReport, results: Map<string, CandidateResult>, checks: Check[],
+  clean: Map<string, Found>, tainted: Found[], abst: Map<string, AbstentionRecord>, options: ExploreOptions): ExploreReport {
+  const { contract } = report; const { fns } = engine;
+  const established = new Set(report.candidates.filter((r) => r.established).map((r) => r.id));
+  // ---- the gate: abstentions, suppressed counterexamples, then violations from fully modelled sequences only
+  report.gate.abstentions = [...abst.values()];
+  const seenSup = new Set<string>();
+  for (const f of tainted) {
+    if (!established.has(f.k.c.id)) continue;
+    const id = `${f.k.c.id}|${f.post.seq.map((s) => `${s.actor}:${s.call}:${s.value}`).join(">")}`; if (seenSup.has(id)) continue; seenSup.add(id);
+    report.gate.suppressed.total++;
+    for (const kind of new Set(f.post.approx.map((a) => a.kind))) report.gate.suppressed.byKind[kind] = (report.gate.suppressed.byKind[kind] ?? 0) + 1;
+    if (report.gate.suppressed.examples.length < 20) report.gate.suppressed.examples.push({ candidate: f.k.c.id, phase: f.phase, breakingFunction: fnName(f.m.fn), sequence: f.post.seq, approximations: f.post.approx });
+  }
+  report.gate.candidatesWithOnlySuppressedCounterexamples = [...established].filter((id) => !clean.has(id) && tainted.some((t) => t.k.c.id === id)).sort();
+  for (const id of report.gate.candidatesWithOnlySuppressedCounterexamples) report.gate.withheld.push({ candidate: id, why: "only-suppressed-counterexamples", kinds: [...new Set(tainted.filter((t) => t.k.c.id === id).flatMap((t) => t.post.approx.map((a) => a.kind)))].sort() });
+  // honest-phase counterexamples are kept over adversarial ones for the same candidate (they were found first, and are shorter or equal)
+  for (const k of checks) {
+    const f = clean.get(k.c.id); if (!f || !established.has(k.c.id)) continue;
+    if (f.post.approx.length) continue; // unreachable by construction; kept as the gate's last line
+    const min = options.minimise === false ? null : minimiseCounterexample(engine, k.c.id, f.post.moves);
+    report.violations.push({
+      candidate: k.c.id, kind: k.c.kind, phase: f.phase, breakingFunction: fnName(f.m.fn), sequence: f.post.seq, reason: k.reason(f.pre, f.post),
+      detail: k.c.kind === "actor-value" ? `observed actor received ${fmt(f.post.w.received)} having sent ${fmt(f.post.sentByAttacker)}` : `${k.c.statement} fails after the last step`,
+      minimisation: min?.record ?? null,
+    });
+  }
+
+  // ---- hypothesis drafts, with the "independent of scanners" marker computed against the specialists' leads (Slither is not run here)
+  const prior = analyzeSources(sources).findings;
+  for (const v of report.violations) {
+    const fn = fns.find((f) => fnName(f) === v.breakingFunction)!;
+    const onFn = prior.filter((f) => f.contract === contract && f.function === v.breakingFunction).map((f) => `solidity-structural-specialists@1:${f.class}`);
+    const steps = [...new Set(v.sequence.map((s) => s.call.split("(")[0]!))].filter((n) => n !== v.breakingFunction);
+    const r = results.get(v.candidate)!;
+    report.hypotheses.push({
+      generator: PROTOTYPE_GENERATOR, capabilityFamily: "agentsmith-interpreter", family: `apex-invariant-${v.kind}`,
+      claim: `${contract}.${v.breakingFunction}: the sequence ${v.sequence.map((s) => `${s.actor}:${s.call}`).join(" -> ")} violates the inferred invariant "${r.statement}"`,
+      spans: [{ file: fn.file, line: fn.startLine, role: "primary" }, ...steps.flatMap((n) => { const g = fns.find((f) => f.name === n); return g ? [{ file: g.file, line: g.startLine, role: "supporting" as const }] : []; })],
+      rationale: { invariant: r.statement, counterexample: v.sequence, minimisedCounterexample: v.minimisation?.minimised ?? null, supportedBy: { maintainingTransitions: r.maintaining, example: r.example } },
+      fidelity: { fullyModelled: true, approximationsOnPath: 0 },
+      independentOfScanners: onFn.length === 0, priorLeadsOnFunction: onFn,
+    });
+  }
+  return report;
+}
+/** the explorer exactly as it was at ae41658 (strategy "baseline"): breadth-first depth 3, one amount, depth-extension and randomised rules */
+export function exploreBaseline(sources: ReadonlyArray<{ path: string; text: string }>, contract: string, options: ExploreOptions = {}): ExploreReport {
   const depth = options.depth ?? 3; const maxSequences = options.maxSequences ?? 50_000;
   const q = options.quality === false ? null : { minSupport: 2, randomSequences: 200, randomLength: depth + 3, seed: 1, depthExtension: true, ...(options.quality ?? {}) };
   const engine = new Engine(sources, contract);
@@ -374,11 +493,9 @@ export function exploreStateInvariants(sources: ReadonlyArray<{ path: string; te
     gate: { abstentions: [], suppressed: { total: 0, byKind: {}, examples: [] }, candidatesWithOnlySuppressedCounterexamples: [], withheld: [] },
   };
   if (engine.abstained || !engine.root) return report;
-  const { fns, checks } = engine;
+  const { checks } = engine;
 
-  type Stat = { maintaining: number; approximatedSupport: number; approximatedKinds: Set<ApproximationKind>; honestViolations: number; example: StepRecord[] | null; breakers: Set<string> };
-  const stats = new Map<string, Stat>(checks.map((k) => [k.c.id, { maintaining: 0, approximatedSupport: 0, approximatedKinds: new Set(), honestViolations: 0, example: null, breakers: new Set<string>() }]));
-  type Found = { k: Check; phase: "honest" | "adversarial"; pre: Node; post: Node; m: Move };
+  const stats = new Map<string, Stat>(checks.map((k) => [k.c.id, newStat()]));
   const clean = new Map<string, Found>(); const tainted: Found[] = [];
   const abst = new Map<string, AbstentionRecord>();
   const visitor = (phase: "honest" | "adversarial", only: Set<string> | null) => (ev: TransitionEvent) => {
@@ -409,21 +526,7 @@ export function exploreStateInvariants(sources: ReadonlyArray<{ path: string; te
   report.coverage.honest = honestCol.finish();
 
   // ---- establishment and invariant quality
-  const results = new Map<string, CandidateResult>();
-  for (const k of checks) {
-    const st = stats.get(k.c.id)!;
-    const quality: QualityRecord = { support: st.maintaining, minSupport: q?.minSupport ?? 1, honestBreakers: [...st.breakers].sort(), depthExtension: "not-run", randomised: "not-run" };
-    const r: CandidateResult = { ...k.c, established: st.maintaining >= (q?.minSupport ?? 1), maintaining: st.maintaining, honestViolations: st.honestViolations, example: st.example, quality };
-    const minSupport = q?.minSupport ?? 1;
-    if (!r.established && st.maintaining + st.approximatedSupport >= minSupport) {
-      // the gate, not the protocol, removed the evidence: count it as withheld (it may hide a true bug)
-      r.dropReason = `support only through transitions that touched an approximation (${[...st.approximatedKinds].sort().join(", ")}): not trusted`;
-      report.gate.withheld.push({ candidate: k.c.id, why: "support-only-through-approximations", kinds: [...st.approximatedKinds].sort() as ApproximationKind[] });
-    } else if (!r.established) r.dropReason = st.maintaining === 0
-      ? (st.honestViolations > 0 ? "never preserved by any honest transition: not an invariant of this protocol" : "never exercised by honest sequences: vacuous")
-      : `exercised by only ${st.maintaining} fully modelled honest transition(s) moving both sides; at least ${minSupport} required`;
-    results.set(k.c.id, r);
-  }
+  const results = establish(report, checks, stats, q?.minSupport ?? null);
   if (q) {
     const live = () => [...results.values()].filter((r) => r.established);
     // (a) depth artefact: extend the honest search by one step; a NEW honest breaker means the verdict depended on the explored depth
@@ -469,45 +572,5 @@ export function exploreStateInvariants(sources: ReadonlyArray<{ path: string; te
   const adversarialCol = bfs(engine, EXPLORER_DOMAIN(true), depth, maxSequences, visitor("adversarial", established));
   report.coverage.adversarial = adversarialCol.finish();
 
-  // ---- the gate: abstentions, suppressed counterexamples, then violations from fully modelled sequences only
-  report.gate.abstentions = [...abst.values()];
-  const seenSup = new Set<string>();
-  for (const f of tainted) {
-    if (!established.has(f.k.c.id)) continue;
-    const id = `${f.k.c.id}|${f.post.seq.map((s) => `${s.actor}:${s.call}:${s.value}`).join(">")}`; if (seenSup.has(id)) continue; seenSup.add(id);
-    report.gate.suppressed.total++;
-    for (const kind of new Set(f.post.approx.map((a) => a.kind))) report.gate.suppressed.byKind[kind] = (report.gate.suppressed.byKind[kind] ?? 0) + 1;
-    if (report.gate.suppressed.examples.length < 20) report.gate.suppressed.examples.push({ candidate: f.k.c.id, phase: f.phase, breakingFunction: fnName(f.m.fn), sequence: f.post.seq, approximations: f.post.approx });
-  }
-  report.gate.candidatesWithOnlySuppressedCounterexamples = [...established].filter((id) => !clean.has(id) && tainted.some((t) => t.k.c.id === id)).sort();
-  for (const id of report.gate.candidatesWithOnlySuppressedCounterexamples) report.gate.withheld.push({ candidate: id, why: "only-suppressed-counterexamples", kinds: [...new Set(tainted.filter((t) => t.k.c.id === id).flatMap((t) => t.post.approx.map((a) => a.kind)))].sort() });
-  // honest-phase counterexamples are kept over adversarial ones for the same candidate (they were found first, and are shorter or equal)
-  for (const k of checks) {
-    const f = clean.get(k.c.id); if (!f || !established.has(k.c.id)) continue;
-    if (f.post.approx.length) continue; // unreachable by construction; kept as the gate's last line
-    const min = options.minimise === false ? null : minimiseCounterexample(engine, k.c.id, f.post.moves);
-    report.violations.push({
-      candidate: k.c.id, kind: k.c.kind, phase: f.phase, breakingFunction: fnName(f.m.fn), sequence: f.post.seq, reason: k.reason(f.pre, f.post),
-      detail: k.c.kind === "actor-value" ? `observed actor received ${fmt(f.post.w.received)} having sent ${fmt(f.post.sentByAttacker)}` : `${k.c.statement} fails after the last step`,
-      minimisation: min?.record ?? null,
-    });
-  }
-
-  // ---- hypothesis drafts, with the "independent of scanners" marker computed against the specialists' leads (Slither is not run here)
-  const prior = analyzeSources(sources).findings;
-  for (const v of report.violations) {
-    const fn = fns.find((f) => fnName(f) === v.breakingFunction)!;
-    const onFn = prior.filter((f) => f.contract === contract && f.function === v.breakingFunction).map((f) => `solidity-structural-specialists@1:${f.class}`);
-    const steps = [...new Set(v.sequence.map((s) => s.call.split("(")[0]!))].filter((n) => n !== v.breakingFunction);
-    const r = results.get(v.candidate)!;
-    report.hypotheses.push({
-      generator: PROTOTYPE_GENERATOR, capabilityFamily: "agentsmith-interpreter", family: `apex-invariant-${v.kind}`,
-      claim: `${contract}.${v.breakingFunction}: the sequence ${v.sequence.map((s) => `${s.actor}:${s.call}`).join(" -> ")} violates the inferred invariant "${r.statement}"`,
-      spans: [{ file: fn.file, line: fn.startLine, role: "primary" }, ...steps.flatMap((n) => { const g = fns.find((f) => f.name === n); return g ? [{ file: g.file, line: g.startLine, role: "supporting" as const }] : []; })],
-      rationale: { invariant: r.statement, counterexample: v.sequence, minimisedCounterexample: v.minimisation?.minimised ?? null, supportedBy: { maintainingTransitions: r.maintaining, example: r.example } },
-      fidelity: { fullyModelled: true, approximationsOnPath: 0 },
-      independentOfScanners: onFn.length === 0, priorLeadsOnFunction: onFn,
-    });
-  }
-  return report;
+  return finishReport(engine, sources, report, results, checks, clean, tainted, abst, options);
 }
