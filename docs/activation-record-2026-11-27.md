@@ -43,3 +43,24 @@ Not done (not approved): worker app, worker tokens, `WORKER_API_ENABLED` (the pr
 the USX run, removal of the unused `agentsmith_worker` user and `WORKER_DATABASE_URL` secret, merge to main.
 Rollback: API and collector to `b52ce901` (old code runs on the migrated schema: the new objects are additive); migrations via
 `db/rollbacks/0016_…` then `0015_…` only if required.
+
+## 2026-11-28: release 0d4ee1d (owner mandate "Release, APEX integration and continuous security monitoring", Part A)
+Image `registry.fly.io/agentsmith-hub@sha256:185e8251475124daf0ccd8c7fbedf5a53b6b6ebfe69e955687d1494e88cca99b` (tag `hub-0d4ee1d894c1`),
+built daemonlessly from `0d4ee1d`; migrations shipped are the same set already applied (0001–0007, 0011–0016), so **no migration was run**.
+
+Pre-release: `0d4ee1d` = tip of `origin/dev/research-readiness`; tree identical to the verified `apex-shadow` branch; changes since
+`ab5ab57`: APEX shadow stage (off by default, created only by `--apex-shadow --apex-approved-by` on the approved USX target), panel 6,
+tests, docs; no change to `db/`, `fly.hub.toml`, Dockerfile or dependencies. Typecheck 0; unit 1227 passed; integration 458 passed / 1
+skipped in both normal and restricted-role modes; hub layout check 257 checks PASS; frozen corpora identical (dev 17/0/0/14, heldout
+18/0/0/29, heldout2 31/8/6/51, heldout3 21/1/10/47, heldout4 20/1/18/40, benchmark-b 0/0/8/8); image smoke 41/41; pushed image checked
+against the tested layer.
+
+| step | result | verification |
+|---|---|---|
+| API deploy | `2870320f99dd68` on `185e8251`, healthy 1/1 | engine status build `0d4ee1d…`, schema missing [] unknown []; `/health/*`, `/hub/`, `/bounties/`, `/public/bounties.json` 200; timeline, overview, components 200 (read inside the machine, token never printed); served `view-operations.js` byte-identical to the build |
+| collector | `8747e47a1501d8` on `185e8251`; schedule `hourly`, command unchanged | `fly machine list` |
+| APEX | components: `apex` **experimental**, off by default; no APEX env on either machine | in-machine read |
+| worker listener | **off**: `WORKER_API_ENABLED` unset; port 8081 refuses connections; components: `worker_api` unavailable (routes not registered) | in-machine read |
+
+Not verifiable by the operator session: the unlocked live dashboard (no hub token held). No research run exists in production, so panel 6
+has no run to render; its "not enabled for this run" state appears only once a run exists.
